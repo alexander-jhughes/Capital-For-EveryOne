@@ -1,7 +1,7 @@
 // Output guard. Any reply that fails here is thrown away and the template sentence is used instead.
 import type { AnswerFactSet } from "./answer-facts";
 import { claimProblem, NOT_ARRIVED } from "./claims";
-import { billQuestion, spendQuestion } from "./intent";
+import { billQuestion, pauseQuestion, spendQuestion } from "./intent";
 import { amounts, dateWords, dayMonths, normaliseDates, plainAmount } from "./reply-text";
 
 export const MAX_SENTENCES = 2;
@@ -32,7 +32,7 @@ const LOWER = /\b(down|less|lower|fewer|cheaper|decreas\w*|dropped|drop|fell|fal
 /** Capitalised words that are not names. Any other capitalised word must be in the facts, so a shop can't be invented. */
 const ORDINARY_WORDS = new Set(
   `a across after an and at both but by dial each earlier for from here i i'm in it it's latest looks most no none not nothing on one over pause right since so spend
-  that that's the there these they this those today two you you're you've your yes`.split(/\s+/),
+  that that's the there these they this those today two you you're you've your yes when if once while until before as`.split(/\s+/),
 );
 
 const clean = (text: string) => text.replace(/[’‘]/g, "'");
@@ -53,6 +53,10 @@ const normaliseProperDates = (text: string) =>
   text.replace(new RegExp(`\\b(${MONTHS}|${WEEKDAYS}|may|${Object.keys(SHORT_MONTHS).join("|")}|${Object.keys(SHORT_WEEKDAYS).join("|")})\\b`, "gi"), (m) => m.toLowerCase());
 
 const capitalised = (text: string) => text.match(/\b[A-Z][A-Za-z'-]*/g) ?? [];
+
+/** "Due" anywhere except in "nothing is due" or "no payment due": what a paid-off bill must never say. */
+const saysSomethingIsDue = (reply: string) =>
+  /\bdue\b/i.test(reply.replace(/\b(?:nothing|no payment|no amount|none of it)\s+(?:is |will be |at all is )?(?:due|owed)\b|\bnot due\b|\bnothing (?:is )?due\b|\bnot all(?: of it)?(?: is)? due(?: yet)?\b|\bisn't all due(?: yet)?\b/gi, ""));
 
 const sentenceCount = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "").length;
 
@@ -80,6 +84,16 @@ function anchorProblem(reply: string, facts: AnswerFactSet, question: string): s
   if (LOWER.test(valuesText) && !HIGHER.test(valuesText) && HIGHER.test(reply)) return contradicted;
 
   switch (facts.intent) {
+    case "category_spending": {
+      if (value("no_categories")) return DENIAL.test(reply) ? null : contradicted;
+      const rows = facts.facts.filter((f) => /^category_(biggest|smallest|\d+)$/.test(f.key));
+      return rows.every((f) => has(amountIn(f.value)) && named(f.value.split(",")[0])) ? null : unsupported;
+    }
+    case "payment_history": {
+      const latest = amountIn(value("payment_1"));
+      if (!latest) return DENIAL.test(reply) || has(value("statement_remaining")) ? null : unsupported;
+      return has(latest) ? null : unsupported;
+    }
     case "subscription_list": {
       if (value("no_subscriptions")) return DENIAL.test(reply) ? null : contradicted;
       if (DENIAL.test(reply) && values("lapsed_subscription_").length === 0) return contradicted;
@@ -136,8 +150,13 @@ function anchorProblem(reply: string, facts: AnswerFactSet, question: string): s
     }
     case "days_until_due": {
       // "Not all of it is due yet" is the safeguard on the current balance, not a denial.
-      if (DENIAL.test(reply.replace(/\bnot all\b/gi, ""))) return contradicted;
+      // "Nothing is due" is only true once the statement is paid off.
+      const settled = value("statement_balance") === "£0.00" ? /\bnothing (?:is |will be )?(?:due|to pay|owed)\b/gi : /$^/;
+      if (DENIAL.test(reply.replace(/\bnot all\b/gi, "").replace(settled, ""))) return contradicted;
       const asked = billQuestion(question);
+      // With the statement paid off, "your payment is due on Friday" is misleading: nothing is due on it.
+      const paidOff = value("statement_balance") === "£0.00" && asked !== "current" && asked !== "last_payment";
+      if (paidOff && (!/£0\.00|\bnothing\b/i.test(reply) || saysSomethingIsDue(reply))) return contradicted;
       if (asked === "owed") return [value("current_balance"), value("statement_balance"), value("minimum_payment")].every(has) ? null : unsupported;
       if (asked === "pay") return has(value("statement_balance")) && has(value("minimum_payment")) ? null : unsupported;
       if (asked === "current" || asked === "balance") return has(value("current_balance")) ? null : unsupported;
@@ -150,9 +169,17 @@ function anchorProblem(reply: string, facts: AnswerFactSet, question: string): s
       return stands || has(value("statement_balance")) ? null : unsupported;
     }
     case "minimum_payment":
-      if (DENIAL.test(reply)) return contradicted;
+      if (value("minimum_payment") === "£0.00" && (!/£0\.00|\bnothing\b/i.test(reply) || saysSomethingIsDue(reply))) return contradicted;
+      if (DENIAL.test(value("minimum_payment") === "£0.00" ? reply.replace(/\bnothing (?:is |will be )?(?:due|to pay|owed)\b/gi, "") : reply)) return contradicted;
       return has(value("minimum_payment")) ? null : unsupported;
     case "spend_pause": {
+      if (pauseQuestion(question) === "explain") {
+        // It must say what really happens, and never claim power it doesn't have.
+        const overclaims = /\b(block\w*|declin\w*|freez\w*|lock\w*|everywhere|all (?:your )?purchases|real card|bank)\b/i.test(reply) && !/\b(not|doesn't|does not|isn't|is not|can't|cannot|won't|never)\b/i.test(reply);
+        if (overclaims) return contradicted;
+        if (/\b(reduc\w*|lower\w*|chang\w*|affect\w*) your balance\b/i.test(reply) && !/\b(not|doesn't|does not|never|won't)\b/i.test(reply)) return contradicted;
+        return /\b(check\w*|ask\w*|go ahead|cancel)\b/i.test(reply) ? null : unsupported;
+      }
       const status = value("spend_pause_status")?.toLowerCase();
       const said = reply.match(/\bpause (?:is )?(?:currently |now |turned |switched )*(on|off)\b/i)?.[1]?.toLowerCase();
       if (said && said !== status) return contradicted;

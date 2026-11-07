@@ -147,8 +147,15 @@ describe("reading a reply", () => {
 
 describe("routing to the right question", () => {
   it.each<[string, AnswerIntent]>([
-    ["What's my biggest category?", "spend_this_month"],
-    ["What was my biggest category last month?", "spend_last_month"],
+    ["What's my biggest category?", "category_spending"],
+    ["What was my biggest category last month?", "category_spending"],
+    ["What's my biggest spending category?", "category_spending"],
+    ["Which category did I spend the least on?", "category_spending"],
+    ["What's my grocery spend?", "category_spending"],
+    ["Did I spend more on groceries or eating out?", "category_spending"],
+    ["Did my payment go through?", "payment_history"],
+    ["Has my payment been recorded?", "payment_history"],
+    ["How much did I just pay?", "payment_history"],
     ["What was my biggest purchase in October?", "top_items"],
     ["Did I spend more than last month?", "spend_this_month"],
     ["How does this month compare to last month?", "spend_this_month"],
@@ -159,7 +166,6 @@ describe("routing to the right question", () => {
 
   it.each([
     "How much did I spend in Lidl?",
-    "What's my grocery spend?",
     "What's my food spend this month?",
     "What was my Uber spend?",
     "What was my least expensive purchase?",
