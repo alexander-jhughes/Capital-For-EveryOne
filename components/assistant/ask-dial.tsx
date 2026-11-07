@@ -41,6 +41,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const requestId = useRef(0);
+  const lastQuestion = useRef<string | undefined>(undefined);
   const recognition = useRef<Recognition | null>(null);
   const inputId = useId();
 
@@ -77,7 +78,8 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setAnswer({ status: "loading", question: q });
-      const outcome = await askDial(q, { state: liveState(transactions, settings) });
+      const outcome = await askDial(q, { state: liveState(transactions, settings), previousQuestion: lastQuestion.current });
+      lastQuestion.current = q;
       if (id !== requestId.current) return; // a newer question replaced this one
       if (outcome.kind === "answer") {
         const { answer: text, evidenceIds, source } = outcome.response;

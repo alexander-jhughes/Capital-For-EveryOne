@@ -35,7 +35,12 @@ export function parseAskResponse(body: unknown): AskResponse | null {
 
 export async function askDial(
   question: string | undefined,
-  { fetchImpl = fetch, timeoutMs = 8000, state }: { fetchImpl?: typeof fetch; timeoutMs?: number; state?: ClientStateBody } = {},
+  {
+    fetchImpl = fetch,
+    timeoutMs = 8000,
+    state,
+    previousQuestion,
+  }: { fetchImpl?: typeof fetch; timeoutMs?: number; state?: ClientStateBody; previousQuestion?: string } = {},
 ): Promise<AskOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -43,7 +48,12 @@ export async function askDial(
     const res = await fetchImpl("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...(question === undefined ? {} : { question }), ...(state ? { state } : {}) }),
+      // previousQuestion lets the backend resolve follow-ups ("and last month?"). Only the person's own last question, max 300 chars.
+      body: JSON.stringify({
+        ...(question === undefined ? {} : { question }),
+        ...(state ? { state } : {}),
+        ...(previousQuestion?.trim() ? { previousQuestion: previousQuestion.trim().slice(0, 300) } : {}),
+      }),
       signal: controller.signal,
     });
     const body: unknown = await res.json().catch(() => null);
