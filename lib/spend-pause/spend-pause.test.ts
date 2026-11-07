@@ -2,16 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { seedContext } from "../ai/facts";
 import { SEED_ACCOUNT, SEED_TRANSACTIONS } from "../data/seed";
 import { DEMO_NOW } from "../demo-clock";
-import { RESET_SPEND_PAUSE } from "../demo-config";
+import { INITIAL_SPEND_PAUSE, RESET_SPEND_PAUSE } from "../demo-config";
 import { evaluatePurchase } from "../finance";
 import type { PendingPurchase, SpendPauseSettings } from "../types";
-import { confirmationFor, matchSpendPauseRequest, proposeSpendPause, spendPauseStatus } from "./dial";
+import { activeSince, confirmationFor, matchSpendPauseRequest, proposeSpendPause, spendPauseReply, spendPauseStatus } from "./dial";
 import { explainPause } from "./explain";
 import { describeChecks, formFromSettings, hasChecks, parsePounds, settingsFromForm, validateForm, type SettingsForm } from "./settings";
 import { initialSpendPauseState, purchasesTotal, spendPauseReducer as reduce } from "./state";
-import { browserStore, readSession, readSettings, SESSION_KEY, SETTINGS_KEY, writeSession, writeSettings } from "./storage";
+import { ACTIVITY_KEY, browserStore, readActivity, readSession, readSettings, SESSION_KEY, SETTINGS_KEY, writeActivity, writeSession, writeSettings } from "./storage";
 
 const ON = RESET_SPEND_PAUSE;
+const AT = DEMO_NOW.toISOString();
+const NEVER = { activatedAt: null, deactivatedAt: null };
 const OFF: SpendPauseSettings = { ...ON, enabled: false };
 const NOTHING: SpendPauseSettings = { enabled: false, singlePurchaseThreshold: null, monthlyBudget: null, quietHours: null };
 const headphones: PendingPurchase = { id: "p1", merchant: "Northwind Audio", item: "Wireless headphones", amount: 12000, createdAt: DEMO_NOW.toISOString() };
@@ -33,20 +35,20 @@ const brokenStore = {
 
 describe("state transitions", () => {
   it("starts from the configured settings, with nothing waiting", () => {
-    expect(start()).toEqual({ settings: ON, pendingPurchase: null, pendingChecked: false, purchases: [], history: [] });
+    expect(start()).toEqual({ settings: ON, activity: NEVER, pendingPurchase: null, pendingChecked: false, purchases: [], history: [] });
   });
 
   it("turns on and off", () => {
-    const off = reduce(start(ON), { type: "update-settings", settings: OFF });
+    const off = reduce(start(ON), { type: "update-settings", settings: OFF, at: AT });
     expect(off.settings.enabled).toBe(false);
-    expect(reduce(off, { type: "update-settings", settings: ON }).settings.enabled).toBe(true);
+    expect(reduce(off, { type: "update-settings", settings: ON, at: AT }).settings.enabled).toBe(true);
   });
 
   it("repeating an activation or deactivation changes nothing", () => {
     const on = start(ON);
-    expect(reduce(on, { type: "update-settings", settings: { ...ON } })).toBe(on);
+    expect(reduce(on, { type: "update-settings", settings: { ...ON }, at: AT })).toBe(on);
     const off = start(OFF);
-    expect(reduce(off, { type: "update-settings", settings: { ...OFF } })).toBe(off);
+    expect(reduce(off, { type: "update-settings", settings: { ...OFF }, at: AT })).toBe(off);
   });
 
   it("holds one purchase at a time, so a double tap can't queue two", () => {
@@ -245,5 +247,97 @@ describe("Dial actions", () => {
     expect(confirmationFor(NOTHING, "on")).toBeNull();
     expect(confirmationFor(ON, "maybe")).toBeNull();
     expect(confirmationFor(ON, undefined)).toBeNull();
+  });
+});
+
+describe("Spend Pause activity", () => {
+  const later = "2026-11-08T11:00:00.000Z";
+
+  it("is off on first run, and only a demo reset starts it on", () => {
+    expect(INITIAL_SPEND_PAUSE.enabled).toBe(false);
+    expect(RESET_SPEND_PAUSE.enabled).toBe(true);
+    expect({ ...INITIAL_SPEND_PAUSE, enabled: true }).toEqual(RESET_SPEND_PAUSE);
+  });
+
+  it("records when it was turned on and off", () => {
+    const on = reduce(start(OFF), { type: "update-settings", settings: ON, at: AT });
+    expect(on.activity).toEqual({ activatedAt: AT, deactivatedAt: null });
+    const off = reduce(on, { type: "update-settings", settings: OFF, at: later });
+    expect(off.activity).toEqual({ activatedAt: AT, deactivatedAt: later });
+  });
+
+  it("keeps the first time when turned on twice, and changing a choice isn't a change of state", () => {
+    const on = reduce(start(OFF), { type: "update-settings", settings: ON, at: AT });
+    expect(reduce(on, { type: "update-settings", settings: { ...ON }, at: later })).toBe(on);
+    expect(reduce(on, { type: "update-settings", settings: { ...ON, monthlyBudget: 60000 }, at: later }).activity.activatedAt).toBe(AT);
+  });
+
+  it("never touches money, purchases or history", () => {
+    const before = reduce(reduce(held(), { type: "resolve-purchase", id: "p1", outcome: "go" }), { type: "hold-purchase", purchase: { ...headphones, id: "p2" }, checked: true });
+    const after = reduce(before, { type: "update-settings", settings: OFF, at: AT });
+    expect(after.purchases).toBe(before.purchases);
+    expect(after.history).toBe(before.history);
+    expect(after.pendingPurchase).toBe(before.pendingPurchase);
+    expect(purchasesTotal(after.purchases)).toBe(12000);
+  });
+
+  it("saves and restores, and ignores anything damaged", () => {
+    const store = memoryStore();
+    expect(writeActivity(store, { activatedAt: AT, deactivatedAt: null })).toBe(true);
+    expect(readActivity(store)).toEqual({ activatedAt: AT, deactivatedAt: null });
+    for (const bad of ["not json", "null", "[]", '{"activatedAt":"nope","deactivatedAt":null}', '{"activatedAt":5,"deactivatedAt":null}', "{}"]) {
+      expect(readActivity(memoryStore({ [ACTIVITY_KEY]: bad }))).toBeUndefined();
+    }
+    expect(readActivity(brokenStore)).toBeUndefined();
+    expect(reduce(start(OFF), { type: "restore", settings: ON, activity: { activatedAt: AT, deactivatedAt: null } }).activity.activatedAt).toBe(AT);
+  });
+
+  it("only says how long it has been on while it is on", () => {
+    expect(activeSince(ON, { activatedAt: AT, deactivatedAt: null })).toBe("Sunday 8 November at 10:00");
+    expect(activeSince(OFF, { activatedAt: AT, deactivatedAt: later })).toBeNull();
+    expect(activeSince(ON, NEVER)).toBeNull();
+  });
+});
+
+describe("Dial answers about Spend Pause", () => {
+  const onActivity = { activatedAt: AT, deactivatedAt: null };
+  const reply = (q: string, settings = ON, activity: { activatedAt: string | null; deactivatedAt: string | null } = onActivity) => spendPauseReply(q, settings, activity);
+
+  it("answers whether it is active, from live state", () => {
+    expect(reply("Is Spend Pause active?")?.text).toContain("Spend Pause is on");
+    expect(reply("Is Spend Pause active?")?.text).toContain("since Sunday 8 November at 10:00");
+    expect(reply("Is Spend Pause active?", OFF, NEVER)?.text).toBe("Spend Pause is off.");
+  });
+
+  it("answers when it was activated", () => {
+    expect(reply("When did I activate it?")?.text).toBe("You turned on Spend Pause on Sunday 8 November at 10:00.");
+    expect(reply("When did I activate Spend Pause?", OFF, NEVER)?.text).toBe("You haven't turned on Spend Pause yet.");
+    expect(reply("When did I activate it?", ON, NEVER)?.text).toContain("don't have a record");
+    expect(reply("When did I activate it?", OFF, { activatedAt: AT, deactivatedAt: AT })?.text).toContain("and turned it off on");
+  });
+
+  it("explains what it does and doesn't claim to block a real card", () => {
+    for (const q of ["What does Spend Pause do?", "What happens while it is active?", "What is Spend Pause?"]) {
+      const text = reply(q)?.text ?? "";
+      expect(text).toContain("simulated check");
+      expect(text).toContain("final choice");
+    }
+  });
+
+  it("says it doesn't affect the balance", () => {
+    const text = reply("Is my account balance affected by Spend Pause?")?.text ?? "";
+    expect(text).toMatch(/^No\./);
+    expect(text).toContain("balance");
+  });
+
+  it("offers a confirmation for a change and never makes it", () => {
+    expect(reply("Can I turn it off?")).toEqual({ text: "Yes, you can turn it off at any time.", action: { href: "/account/spend-pause?confirm=off", label: "Turn off Spend Pause" } });
+    expect(reply("Turn on Spend Pause", OFF, NEVER)?.action?.href).toBe("/account/spend-pause?confirm=on");
+    expect(reply("Turn on Spend Pause")?.text).toBe("Spend Pause is already on.");
+    expect(reply("Turn off Spend Pause", OFF, NEVER)?.text).toBe("Spend Pause is already off.");
+  });
+
+  it("leaves everything else to the assistant", () => {
+    for (const q of ["What did I spend this month?", "How much do I owe?", "Did I pay Tesco twice?", "What is my current balance?"]) expect(reply(q)).toBeNull();
   });
 });

@@ -12,8 +12,16 @@ export interface PauseRecord {
   checked: boolean;
 }
 
+/** When Spend Pause last changed. Kept apart from the settings so the choices and their history can't be confused. */
+export interface SpendPauseActivity {
+  /** Full ISO datetime, or null if it hasn't happened yet. */
+  activatedAt: string | null;
+  deactivatedAt: string | null;
+}
+
 export interface SpendPauseState {
   settings: SpendPauseSettings;
+  activity: SpendPauseActivity;
   /** The purchase waiting for an answer. At most one at a time. */
   pendingPurchase: PendingPurchase | null;
   /** Whether the waiting purchase needs the check, as opposed to going straight through. */
@@ -24,13 +32,14 @@ export interface SpendPauseState {
 }
 
 export type SpendPauseAction =
-  | { type: "restore"; settings?: SpendPauseSettings; session?: Pick<SpendPauseState, "pendingPurchase" | "pendingChecked" | "purchases" | "history"> }
-  | { type: "update-settings"; settings: SpendPauseSettings }
+  | { type: "restore"; settings?: SpendPauseSettings; activity?: SpendPauseActivity; session?: Pick<SpendPauseState, "pendingPurchase" | "pendingChecked" | "purchases" | "history"> }
+  | { type: "update-settings"; settings: SpendPauseSettings; at: string }
   | { type: "hold-purchase"; purchase: PendingPurchase; checked: boolean }
   | { type: "resolve-purchase"; id: string; outcome: PauseOutcome };
 
 export const initialSpendPauseState = (settings: SpendPauseSettings): SpendPauseState => ({
   settings,
+  activity: { activatedAt: null, deactivatedAt: null },
   pendingPurchase: null,
   pendingChecked: false,
   purchases: [],
@@ -52,9 +61,13 @@ const toTransaction = (purchase: PendingPurchase): Transaction => ({
 export function spendPauseReducer(state: SpendPauseState, action: SpendPauseAction): SpendPauseState {
   switch (action.type) {
     case "restore":
-      return { ...state, ...action.session, settings: action.settings ?? state.settings };
-    case "update-settings":
-      return same(state.settings, action.settings) ? state : { ...state, settings: action.settings };
+      return { ...state, ...action.session, settings: action.settings ?? state.settings, activity: action.activity ?? state.activity };
+    case "update-settings": {
+      if (same(state.settings, action.settings)) return state;
+      const turned = action.settings.enabled !== state.settings.enabled;
+      const stamp = action.settings.enabled ? { activatedAt: action.at } : { deactivatedAt: action.at };
+      return { ...state, settings: action.settings, activity: turned ? { ...state.activity, ...stamp } : state.activity };
+    }
     case "hold-purchase":
       return state.pendingPurchase ? state : { ...state, pendingPurchase: action.purchase, pendingChecked: action.checked };
     case "resolve-purchase": {

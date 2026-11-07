@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { useAnnounce } from "@/components/live-region";
 import { Button } from "@/components/ui/button";
 import { formatPence } from "@/lib/format";
-import { confirmationFor } from "@/lib/spend-pause/dial";
+import { usePreferences } from "@/lib/preferences/provider";
+import { activeSince, confirmationFor } from "@/lib/spend-pause/dial";
 import { describeChecks, hasChecks } from "@/lib/spend-pause/settings";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
@@ -23,12 +24,15 @@ function Limits() {
       <li>It asks you before a purchase in the demo shop, and you always make the final choice.</li>
       <li>It isn&apos;t connected to a real card, so it can&apos;t stop purchases anywhere else.</li>
       <li>It can&apos;t undo or change anything you&apos;ve already bought.</li>
+      <li>It doesn&apos;t change your balance, statement, minimum payment or due date, and you can still pay your bill.</li>
     </ul>
   );
 }
 
 export function SpendPauseScreen({ requested }: { requested?: string }) {
-  const { settings, ready, settingsSaved, updateSettings, pauseHistory, pendingPurchase } = useAccount();
+  const { settings, spendPauseActivity, ready, settingsSaved, updateSettings, pauseHistory, pendingPurchase } = useAccount();
+  const { prefs } = usePreferences();
+  const since = activeSince(settings, spendPauseActivity);
   const { mode } = useMode();
   const announce = useAnnounce();
   const [asking, setAsking] = useState<"on" | "off" | null>(null);
@@ -53,6 +57,8 @@ export function SpendPauseScreen({ requested }: { requested?: string }) {
   };
 
   const applyChange = () => {
+    // With no question open, there is nothing to apply.
+    if (!asking) return;
     const previous = settings;
     const enabled = asking === "on";
     updateSettings({ ...settings, enabled });
@@ -122,6 +128,15 @@ export function SpendPauseScreen({ requested }: { requested?: string }) {
             <StatusIcon aria-hidden className="size-[1.2em] shrink-0" />
             {settings.enabled ? "Spend Pause is on" : "Spend Pause is off"}
           </h2>
+          {since ? <p className="text-sm text-muted-foreground">On since {since}</p> : null}
+          {prefs.explanations === "stepByStep" ? (
+            <ol className="list-decimal pl-5 text-base">
+              <li>Choose what Dial should check.</li>
+              <li>Turn on Spend Pause and confirm.</li>
+              <li>When a demo shop purchase matches, Dial asks you first.</li>
+              <li>You choose to go ahead or cancel it.</li>
+            </ol>
+          ) : null}
           {settings.enabled ? (
             <>
               <p className="text-base">Dial checks with you first for:</p>

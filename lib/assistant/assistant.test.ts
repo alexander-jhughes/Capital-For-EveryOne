@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { seedContext } from "../ai/facts";
+import { RESET_SPEND_PAUSE } from "../demo-config";
 import {
   askDial,
   evidenceHref,
@@ -9,6 +10,7 @@ import {
   parseAskResponse,
   SUGGESTED_QUESTIONS,
 } from "./client";
+import { toClientState } from "./client-state";
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage } from "./speech";
 
 const reply = (status: number, body: unknown) =>
@@ -120,5 +122,30 @@ describe("voice feature detection", () => {
   it("explains recognition errors in plain English", () => {
     expect(voiceErrorMessage("not-allowed")).toMatch(/type your question/);
     expect(voiceErrorMessage("aborted")).toBe("");
+  });
+});
+
+describe("live state for the backend", () => {
+  const settings = RESET_SPEND_PAUSE;
+  const activity = { activatedAt: "2026-11-08T10:00:00.000Z", deactivatedAt: null };
+  const purchase = { id: "demo-1", date: "2026-11-08", merchant: "Northwind Audio", amount: 12000, category: "Shopping", status: "pending" } as const;
+
+  it("sends what happened, never a balance", () => {
+    const state = toClientState({ settings, activity, purchases: [purchase], payments: [{ id: "pay-1", date: "2026-11-08", amount: 48620 }] });
+    expect(state).toEqual({
+      spendPause: settings,
+      spendPauseActivity: activity,
+      purchases: [{ id: "demo-1", date: "2026-11-08", merchant: "Northwind Audio", amount: 12000 }],
+      payments: [{ id: "pay-1", date: "2026-11-08", amount: 48620 }],
+    });
+    expect(JSON.stringify(state)).not.toMatch(/[bB]alance/);
+  });
+
+  it("sends the state with the question", async () => {
+    const state = toClientState({ settings, activity, purchases: [] });
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ answer: "Yes.", evidenceIds: [], source: "template" })));
+    await askDial("How much do I owe?", { fetchImpl: fetchImpl as unknown as typeof fetch, state });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ question: "How much do I owe?", state });
   });
 });

@@ -44,7 +44,13 @@ for (let attempt = 0; ; attempt += 1) {
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 const problems = [];
 
-async function open({ mode = "complex", viewport = PHONE, reducedMotion, init } = {}) {
+const startOn = () => {
+  if (!localStorage.getItem("cfe-spend-pause-settings")) {
+    localStorage.setItem("cfe-spend-pause-settings", JSON.stringify({ enabled: true, singlePurchaseThreshold: 10000, monthlyBudget: 50000, quietHours: null }));
+  }
+};
+
+async function open({ mode = "complex", viewport = PHONE, reducedMotion, init = startOn } = {}) {
   const context = await browser.newContext({ viewport, reducedMotion });
   await context.addCookies([{ name: "cfe-mode", value: mode, domain: "localhost", path: "/" }]);
   if (init) await context.addInitScript(init);
@@ -67,6 +73,8 @@ const shot = async (page, name) => {
 };
 async function axe(page, label) {
   await page.waitForTimeout(500); // colours are only final once the page transition ends
+  // Scroll to the end, as a person would: nothing is left behind the fixed tab bar.
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.addScriptTag({ content: axeSource });
   const found = await page.evaluate(async () => {
     const result = await window.axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] });
@@ -93,7 +101,7 @@ try {
     let page = await open({ mode });
     await page.goto(PAUSE);
     await ready(page);
-    check("starts on, from the demo settings", await page.getByRole("heading", { name: "Spend Pause is on" }).isVisible());
+    check("shows the saved on state", await page.getByRole("heading", { name: "Spend Pause is on" }).isVisible());
     check("says what it checks", await page.getByText("Any purchase over £100.00").isVisible());
     await shot(page, `${mode}-on`);
     await axe(page, `${mode} status`);
@@ -357,8 +365,8 @@ try {
   await page.goto(PAUSE);
   await ready(page);
   check("works with storage blocked", true);
-  await toggle(page, "Turn off Spend Pause");
-  await page.getByRole("button", { name: "Yes, turn it off" }).click();
+  await toggle(page, "Turn on Spend Pause");
+  await page.getByRole("button", { name: "Yes, turn it on" }).click();
   await page.getByText("We can't save your choices on this device").waitFor();
   check("says the choice won't be saved", true);
   await page.context().close();
@@ -366,7 +374,7 @@ try {
   page = await open({ mode: "complex", init: () => localStorage.setItem("cfe-spend-pause-settings", "{oops") });
   await page.goto(PAUSE);
   await ready(page);
-  check("damaged storage falls back to the defaults", await page.getByRole("heading", { name: "Spend Pause is on" }).isVisible());
+  check("damaged storage falls back to off", await page.getByRole("heading", { name: "Spend Pause is off" }).isVisible());
   await page.context().close();
 
   console.log("\nLayouts");
@@ -408,11 +416,92 @@ try {
     check(`${path} still works`, (await page.locator("main").innerText()).includes(text));
   }
   await page.goto(`${BASE}/account`);
-  await page.getByRole("link", { name: "Pause" }).click();
+  await page.getByRole("link", { name: "Pause", exact: true }).click();
   await page.waitForURL("**/spend-pause");
   await ready(page);
-  check("the Pause tab opens it, and marks the current page", (await page.getByRole("link", { name: "Pause" }).getAttribute("aria-current")) === "page");
+  check("the Pause tab opens it, and marks the current page", (await page.getByRole("link", { name: "Pause", exact: true }).getAttribute("aria-current")) === "page");
   await page.context().close();
+
+  console.log("\nActive state across the app");
+  {
+    const figures = (page) => page.evaluate(() => document.querySelector("main")?.innerText ?? "");
+    const page = await open({ mode: "simple", init: () => {} });
+    await page.goto(PAUSE);
+    await ready(page);
+    check("first run: off until the person turns it on", await page.getByRole("heading", { name: "Spend Pause is off" }).isVisible());
+    await page.goto(`${BASE}/account`);
+    await page.getByRole("link", { name: /Spend Pause is off/ }).waitFor();
+    check("Simple Home says it is off", true);
+
+    await complexHome(page);
+    const before = await figures(page);
+    const balance = before.match(/£1,069\.89/)?.[0];
+    await page.goto(PAUSE);
+    await ready(page);
+    await toggle(page, "Turn on Spend Pause");
+    // The second tap lands after React has re-rendered, while the dialog is still closing.
+    await page.getByRole("button", { name: "Yes, turn it on" }).evaluate(async (button) => {
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      button.click();
+    });
+    await page.getByRole("heading", { name: /Spend Pause is (on|off)/ }).waitFor();
+    await page.waitForTimeout(400);
+    check("a double tap on Yes, turn it on leaves it on", await page.getByRole("heading", { name: "Spend Pause is on" }).isVisible());
+    check("the confirmation matches the state", await page.getByText("Spend Pause is on.", { exact: true }).first().isVisible());
+    check("shows when it was turned on", await page.getByText("On since Sunday 8 November at 10:00").isVisible());
+
+    await page.reload();
+    await ready(page);
+    check("still on, and still dated, after a refresh", await page.getByText("On since Sunday 8 November at 10:00").isVisible());
+
+    await page.goto(`${BASE}/account/spending`);
+    await complexHome(page);
+    const pauseLink = page.getByRole("link", { name: /Spend Pause is on/ });
+    await pauseLink.waitFor();
+    check("Detailed Home shows the status and detail", (await pauseLink.innerText()).includes("Since Sunday 8 November at 10:00"));
+    check("turning it on leaves the balance alone", balance === "£1,069.89" && (await figures(page)).includes("£1,069.89"));
+    check("turning it on leaves every Home figure alone", (await figures(page)).replace(/Spend Pause[^\n]*\n?(Since[^\n]*\n?)?/g, "") === before.replace(/Spend Pause[^\n]*\n?(Since[^\n]*\n?)?/g, ""));
+
+    await setMode(page, "simple");
+    await page.goto(`${BASE}/account`);
+    await page.getByRole("link", { name: /Spend Pause is on/ }).waitFor();
+    check("Simple Home matches Detailed", (await page.getByRole("link", { name: /Spend Pause is on/ }).innerText()).includes("£100.00"));
+
+    const ask = async (q) => {
+      await page.getByRole("button", { name: /Dial/ }).first().click();
+      await page.getByRole("dialog").getByRole("textbox").fill(q);
+      await page.getByRole("dialog").getByRole("textbox").press("Enter");
+      await page.waitForTimeout(150);
+      const text = await page.getByRole("dialog").innerText();
+      await page.keyboard.press("Escape");
+      return text;
+    };
+    await page.goto(`${BASE}/account`);
+    await page.route("**/api/ask", (route) => route.fulfill({ status: 503, body: "{}" }));
+    check("Dial knows it is on, with no backend", (await ask("Is Spend Pause active?")).includes("since Sunday 8 November at 10:00"));
+    check("Dial knows what it does", (await ask("What does Spend Pause do?")).includes("simulated check"));
+    check("Dial says the balance isn't affected", /doesn.t change your balance/.test(await ask("Is my account balance affected by Spend Pause?")));
+
+    await page.goto(PAUSE);
+    await ready(page);
+    await toggle(page, "Turn off Spend Pause");
+    await page.getByRole("button", { name: "Yes, turn it off" }).click();
+    await page.getByRole("heading", { name: "Spend Pause is off" }).waitFor();
+    check("the on-since line goes when it is off", (await page.getByText(/On since/).count()) === 0);
+    await page.goto(`${BASE}/account`);
+    await page.getByRole("link", { name: /Spend Pause is off/ }).waitFor();
+    check("Home goes back to off", true);
+    await page.context().close();
+  }
+  {
+    const page = await open({ mode: "complex", init: () => document.cookie = 'cfe-prefs={"explanations":"stepByStep"}; path=/' });
+    await page.goto(PAUSE);
+    await page.reload();
+    await ready(page);
+    check("step-by-step explanations are respected", (await page.locator("main ol li").count()) === 4);
+    await page.context().close();
+  }
 
   const real = problems.filter((p) => !p.includes("404"));
   check("no console or page errors anywhere", real.length === 0, [...new Set(real)].slice(0, 4).join(" | "));
