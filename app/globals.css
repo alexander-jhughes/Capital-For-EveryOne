@@ -119,6 +119,22 @@
   }
 }
 
+/* Side gutter that also clears notches in landscape. */
+@utility gutter {
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+}
+
+/* Wordmark needle follows the Dial: left for Simple, right for Complex. */
+.dial-needle {
+  transform-origin: 12px 12px;
+  transform: rotate(45deg);
+  transition: transform 300ms ease;
+}
+:root[data-mode="simple"] .dial-needle {
+  transform: rotate(-45deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

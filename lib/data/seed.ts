@@ -81,7 +81,7 @@ const STATEMENT_BALANCE = 48620;
 
 export const SEED_ACCOUNT: Account = {
   holderName: "Sam Taylor",
-  cardLast4: "4821",
+  cardLast4: "4417",
   creditLimit: 150000,
   statementBalance: STATEMENT_BALANCE,
   // Derived so the current balance always matches the transactions after the statement.

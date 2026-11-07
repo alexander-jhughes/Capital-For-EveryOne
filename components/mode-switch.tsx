@@ -9,20 +9,17 @@ const OPTIONS: { value: Mode; label: string }[] = [
   { value: "complex", label: "Complex" },
 ];
 
-/** The Dial. Native radios: arrow keys work, and screen readers hear "Dial, Simple, selected". */
+/** The Dial switch. Native radios: arrow keys work, and screen readers hear "View, Simple, selected". */
 export function ModeSwitch() {
   const { mode, setMode } = useMode();
   return (
-    <fieldset className="flex items-center gap-2">
-      <legend className="sr-only">Dial: how your account looks</legend>
-      <span aria-hidden className="font-bold">
-        Dial
-      </span>
+    <fieldset>
+      <legend className="sr-only">View</legend>
       <div className="flex gap-1 rounded-lg border-2 border-input bg-card p-1">
         {OPTIONS.map((o) => (
           <label
             key={o.value}
-            className="inline-flex min-h-(--target-min) cursor-pointer items-center justify-center gap-1.5 rounded-md px-4 font-bold has-[:checked]:bg-primary has-[:checked]:text-primary-foreground has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring"
+            className="inline-flex min-h-(--target-min) cursor-pointer items-center justify-center gap-1 rounded-md px-3 text-sm font-bold has-[:checked]:bg-primary has-[:checked]:text-primary-foreground has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring"
           >
             <input
               type="radio"

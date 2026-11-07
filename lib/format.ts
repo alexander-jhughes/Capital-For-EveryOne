@@ -17,3 +17,7 @@ export const formatShortDate = (d: ISODate) =>
 
 /** Whole days from a to b. */
 export const daysBetween = (a: ISODate, b: ISODate) => Math.round((day(b).getTime() - day(a).getTime()) / 86_400_000);
+
+/** "Friday 13 November" (Simple mode: no abbreviations) */
+export const formatLongDate = (d: ISODate) =>
+  new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(day(d));
