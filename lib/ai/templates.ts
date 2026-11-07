@@ -61,6 +61,12 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
       }
       break;
     }
+    case "subscription_list": {
+      if (value("no_subscriptions")) return "I can't see any subscriptions in your transactions.";
+      return `You are paying for these subscriptions: ${list(values("subscription_"))}.`;
+    }
+    case "transaction_lookup":
+      return value("no_transaction") ? "I can't find a transaction with that reference." : `That transaction is ${value("transaction")}.`;
     case "merchant_refunds": {
       if (value("no_refunds")) return `I can't see any refund${set.merchant ? ` from ${set.merchant}` : ""} in your transactions.`;
       const describe = (prefix: string) =>

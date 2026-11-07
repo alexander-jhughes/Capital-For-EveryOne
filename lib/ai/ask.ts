@@ -4,9 +4,12 @@ import { cachedAnswer } from "./cache";
 import { answerFacts, type AnswerFactSet } from "./answer-facts";
 import { seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
-import { billQuestion, matchIntent, merchantSubject, namedMerchants, UNSUPPORTED, type AnswerIntent } from "./intent";
+import { selectExperience, type OrchestratedResponse } from "./experience";
+import { billQuestion, merchantSubject, namedMerchants } from "./intent";
+import { interpretQuestion, periodLabelFor } from "./interpreter";
 import { describeError, type AskModel } from "./model";
 import { templateAnswer } from "./templates";
+import { validateResponse } from "./validator";
 
 export const MAX_QUESTION_LENGTH = 300;
 const MAX_BODY_LENGTH = 4096;
@@ -45,8 +48,11 @@ function fromCache(question: string, facts: AnswerFactSet): AskResponse | null {
   return { answer: cached.answer, evidenceIds: facts.evidenceIds, source: "cache" };
 }
 
-/** Answers one question. Never throws for a model problem; the worst case is a template sentence. */
-export async function answerQuestion(question: string | undefined, options: AskOptions): Promise<AskResponse> {
+/**
+ * Answers one question through the three agents: interpret it, choose its template, then validate the result.
+ * Never throws for a model problem; the worst case is a safe sentence.
+ */
+export async function answerQuestion(question: string | undefined, options: AskOptions): Promise<OrchestratedResponse> {
   const { model, ctx = seedContext(), timeoutMs = TIMEOUT_MS } = options;
   const asked = question ?? DEFAULT_QUESTION;
   const deadline = Date.now() + timeoutMs;
@@ -56,50 +62,57 @@ export async function answerQuestion(question: string | undefined, options: AskO
     merchants: [...new Set(ctx.txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))],
     categories: [...new Set(ctx.txns.map((t) => t.category))],
   };
-  const match = matchIntent(asked, names);
-  if (match === UNSUPPORTED) return unanswered();
 
-  let intent: AnswerIntent | null = match;
-  if (!intent && model) {
-    try {
-      intent = await model.classify(asked, remaining());
-    } catch (error) {
-      log("classify failed", error);
-    }
-  }
-  if (!intent) return unanswered();
+  const reading = await interpretQuestion(asked, names, model, timeoutMs, (error) => log("classify failed", error));
+  if (reading.kind === "clarify") return { answer: reading.message, evidenceIds: [], source: "template", experience: selectExperience("general", "low") };
+  if (reading.kind === "unsupported") return { ...unanswered(), experience: selectExperience("general", reading.confidence) };
 
-  const facts = answerFacts(intent, ctx, asked, merchantSubject(asked, names.merchants));
+  const { intent, factIntent, confidence } = reading;
+  const facts = answerFacts(factIntent, ctx, asked, merchantSubject(asked, names.merchants));
+  const experience = selectExperience(intent, confidence, periodLabelFor(factIntent, asked, ctx));
+
+  /** Agent 3 sees everything here, so no path to the user skips it. */
+  const finish = (response: AskResponse): OrchestratedResponse => {
+    const verdict = validateResponse(response.answer, response.evidenceIds, facts, ctx, asked);
+    if (verdict.ok) return { ...response, experience };
+    console.warn(`[ask] response rejected: ${verdict.reason}`);
+    return { ...unanswered(), experience: selectExperience("general", "low") };
+  };
+
   // "Was Lidl charged twice?" must not be answered with the Tesco finding.
   const named = namedMerchants(asked, names.merchants);
   const factsText = facts.facts.map((f) => f.value).join(" ");
-  const aboutOneShop = intent === "merchant_transactions" || intent === "merchant_refunds";
-  if (!aboutOneShop && named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) return unanswered();
+  const aboutOneShop = factIntent === "merchant_transactions" || factIntent === "merchant_refunds";
+  if (!aboutOneShop && factIntent !== "transaction_lookup" && named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) {
+    return { ...unanswered(), experience: selectExperience("general", "high") };
+  }
 
   // Demo questions skip the model on purpose, so the live demo says the same thing every time.
   const cached = fromCache(asked, facts);
-  if (cached) return cached;
+  if (cached) return finish(cached);
   // "How much do I owe?" is the easiest answer to get dangerously wrong, so its wording is never left to the model.
-  const owed = intent === "days_until_due" && billQuestion(asked) === "owed";
-  if (owed || !model || remaining() < MIN_CALL_MS) return fromTemplate(facts, asked);
+  // A reference lookup is one exact record, so there's nothing for a model to add.
+  const owed = factIntent === "days_until_due" && billQuestion(asked) === "owed";
+  const fixedWording = owed || factIntent === "transaction_lookup";
+  if (fixedWording || !model || remaining() < MIN_CALL_MS) return finish(fromTemplate(facts, asked));
 
   let reply: string | null;
   try {
     reply = await model.phrase(asked, facts, remaining());
   } catch (error) {
     log("phrasing failed", error);
-    return fromTemplate(facts, asked);
+    return finish(fromTemplate(facts, asked));
   }
 
-  if (reply === null) return fromTemplate(facts, asked);
-  const verdict = checkAnswer(reply, facts, asked);
+  if (reply === null) return finish(fromTemplate(facts, asked));
+  // A reply that says the facts don't cover it has no evidence to show, and no specialist screen to open.
+  if (isCantTell(reply)) return { answer: CANT_TELL, evidenceIds: [], source: "model", experience: selectExperience("general", confidence) };
+  const verdict = validateResponse(reply, facts.evidenceIds, facts, ctx, asked);
   if (!verdict.ok) {
     console.warn(`[ask] reply rejected: ${verdict.reason}`);
-    return fromTemplate(facts, asked);
+    return finish(fromTemplate(facts, asked));
   }
-  // A reply that says the facts don't cover it has no evidence to show.
-  if (isCantTell(reply)) return { answer: CANT_TELL, evidenceIds: [], source: "model" };
-  return { answer: reply.trim(), evidenceIds: facts.evidenceIds, source: "model" };
+  return finish({ answer: reply.trim(), evidenceIds: facts.evidenceIds, source: "model" });
 }
 
 type ParsedQuestion = { question: string | undefined } | { error: string };

@@ -6,7 +6,7 @@ const simplify = (text: string) => text.toLowerCase().replace(/[’']/g, "");
 /** The facts can't answer this. It gets "I can't tell" directly and never reaches the model. */
 export const UNSUPPORTED = "unsupported";
 /** Stage 2's intents plus two about one shop. Kept here so the shared Intent type doesn't change. */
-export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds";
+export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds" | "subscription_list" | "transaction_lookup";
 export type IntentMatch = AnswerIntent | typeof UNSUPPORTED | null;
 export type MerchantPeriod = "all" | "this_month" | "last_month";
 
@@ -76,6 +76,15 @@ export function merchantSubject(question: string, merchants: string[]): string |
   return shops.length === 1 ? shops[0] : undefined;
 }
 
+/** Every known shop a question names, leaving out other businesses that share a name. */
+export const namedShops = (question: string, merchants: string[]) => shopsIn(simplify(question), merchants);
+
+/** A transaction reference in a question, such as "t051". */
+export const transactionRef = (question: string) => question.match(/\bt\d{3}\b/i)?.[0].toLowerCase();
+
+const SUBSCRIPTION_CHANGE = /\b(go up|gone up|went up|increas\w*|price|prices|rise|rises|more expensive|cost|costs)\b/;
+const SUBSCRIPTION_LIST = /\bsubscriptions?\b.*\b(paying|pay for|have|got)\b|\b(paying|have|got|list|show)\b.*\bsubscriptions?\b|^(?:what are )?my subscriptions\b/;
+
 /** Which month a shop question means. Other periods never reach this: matchIntent sends them to UNSUPPORTED. */
 export function merchantPeriod(question: string): MerchantPeriod {
   const q = simplify(question);
@@ -101,6 +110,8 @@ export function namedMerchants(question: string, merchants: string[]): string[] 
 export function matchIntent(question: string, names: KnownNames = { merchants: [], categories: [] }): IntentMatch {
   const q = simplify(question);
   if (OUT_OF_SCOPE.test(q)) return UNSUPPORTED;
+  if (transactionRef(question)) return "transaction_lookup";
+  if (SUBSCRIPTION_LIST.test(q) && !SUBSCRIPTION_CHANGE.test(q)) return "subscription_list";
 
   const shops = shopsIn(q, names.merchants);
   const anotherBusiness = names.merchants.some((name) => nameRegExp(name, OTHER_BUSINESS).test(q));

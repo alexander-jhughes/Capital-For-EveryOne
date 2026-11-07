@@ -3,8 +3,8 @@
 import { formatLongDate, formatPence } from "../format";
 import type { Fact, FactSet, Intent } from "../types";
 import { buildFacts, type FactContext } from "./facts";
-import { merchantPeriod, type AnswerIntent } from "./intent";
-import { merchantFacts, refundFacts } from "./merchant-facts";
+import { merchantPeriod, transactionRef, type AnswerIntent } from "./intent";
+import { merchantFacts, refundFacts, subscriptionFacts, transactionFacts } from "./merchant-facts";
 
 /** A FactSet that can also be about one shop. Same shape as Stage 2's, so everything downstream reads it the same way. */
 export type AnswerFactSet = Omit<FactSet, "intent"> & { intent: AnswerIntent; merchant?: string };
@@ -26,6 +26,8 @@ function withEvidence(base: Pick<AnswerFactSet, "intent" | "asOf" | "merchant">,
 
 /** The facts for one question, with evidence limited to what supports the answer and both balances available. */
 export function answerFacts(intent: AnswerIntent, ctx: FactContext, question = "", merchant?: string): AnswerFactSet {
+  if (intent === "subscription_list") return withEvidence({ intent, asOf: ctx.today }, subscriptionFacts(ctx), ctx);
+  if (intent === "transaction_lookup") return withEvidence({ intent, asOf: ctx.today }, transactionFacts(ctx, transactionRef(question)), ctx);
   if (intent === "merchant_refunds") return withEvidence({ intent, asOf: ctx.today, merchant }, refundFacts(ctx, merchant), ctx);
   if (intent === "merchant_transactions") {
     return withEvidence({ intent, asOf: ctx.today, merchant }, merchantFacts(ctx, merchant ?? "", merchantPeriod(question)), ctx);
