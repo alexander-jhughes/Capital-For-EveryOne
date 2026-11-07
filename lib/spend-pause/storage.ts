@@ -14,12 +14,15 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isPence = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
 const isTime = (v: unknown) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 
+/** A limit the form could have saved: above £0, up to £100,000. Anything else would also make the backend refuse the state. */
+const isLimit = (v: unknown) => v === null || (isPence(v) && v > 0 && v <= 10_000_000);
+
 function isSettings(v: unknown): v is SpendPauseSettings {
   if (!isRecord(v) || typeof v.enabled !== "boolean") return false;
   const quiet = v.quietHours;
   return (
-    (v.singlePurchaseThreshold === null || isPence(v.singlePurchaseThreshold)) &&
-    (v.monthlyBudget === null || isPence(v.monthlyBudget)) &&
+    isLimit(v.singlePurchaseThreshold) &&
+    isLimit(v.monthlyBudget) &&
     (quiet === null || (isRecord(quiet) && isTime(quiet.start) && isTime(quiet.end)))
   );
 }

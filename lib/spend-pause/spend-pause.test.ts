@@ -341,3 +341,23 @@ describe("Dial answers about Spend Pause", () => {
     for (const q of ["What did I spend this month?", "How much do I owe?", "Did I pay Tesco twice?", "What is my current balance?"]) expect(reply(q)).toBeNull();
   });
 });
+
+describe("saved settings the backend would refuse", () => {
+  it("ignores a limit of £0, a fraction of a penny or over £100,000", () => {
+    for (const bad of [0, 10.5, 10_000_001]) {
+      expect(readSettings(memoryStore({ [SETTINGS_KEY]: JSON.stringify({ ...ON, singlePurchaseThreshold: bad }) }))).toBeUndefined();
+      expect(readSettings(memoryStore({ [SETTINGS_KEY]: JSON.stringify({ ...ON, monthlyBudget: bad }) }))).toBeUndefined();
+    }
+  });
+
+  it("keeps null for no limit, and the largest limit the form allows", () => {
+    const fine = { ...ON, singlePurchaseThreshold: null, monthlyBudget: 10_000_000 };
+    expect(readSettings(memoryStore({ [SETTINGS_KEY]: JSON.stringify(fine) }))).toEqual(fine);
+  });
+
+  it("keeps purchases oldest first, so both sides agree which is latest", () => {
+    const buy = (state: ReturnType<typeof start>, id: string) =>
+      reduce(reduce(state, { type: "hold-purchase", purchase: { ...headphones, id }, checked: true }), { type: "resolve-purchase", id, outcome: "go" });
+    expect(buy(buy(start(), "demo-1"), "demo-2").purchases.map((t) => t.id)).toEqual(["demo-1", "demo-2"]);
+  });
+});
