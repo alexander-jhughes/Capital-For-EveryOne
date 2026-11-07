@@ -28,7 +28,6 @@ Everything lives in `useAccount()` in `lib/state/account-context.tsx`, following
 | `pauseHistory` | Finished purchases this session. Not in the contract: added for "Your recent choices" |
 | `ready`, `settingsSaved` | Not in the contract: added for the loading and can't-save states |
 | `spendPauseActivity` | When it was last turned on and off. Kept apart from `SpendPauseSettings`, which is frozen |
-| `dialState` | Events since the seed, for `POST /api/ask`. See "Live state for Dial" |
 
 State rules are pure and tested in `lib/spend-pause/state.ts`. Seed data is never edited. `lib/state/derive-account.ts` works out the one account from the seed, approved purchases and payments (see `docs/PAY.md`), because the check states the balance after the purchase and has to be true.
 
@@ -60,7 +59,7 @@ For "Can I turn it off?", say yes, and offer the proposal. For "Help me avoid un
 
 ### Live state for Dial
 
-`useAccount().dialState` is sent with every other question to `POST /api/ask`, as `state`. It follows the `ClientState` proposal in `docs/AI-UI-CONTRACT.md`: events only, and the server works out every balance. `spendPauseActivity` is an extra field the backend ignores until it reads it. A backend without live state ignores `state`, and Dial answers from the seed until it's merged.
+Every other question goes to `POST /api/ask` with `liveState(transactions, settings)` from `lib/assistant/live-state.ts`, following `ClientState` in `docs/AI-UI-CONTRACT.md`: events only, and the server works out every balance. Approved purchases and payments are both in `transactions`, so nothing extra is needed. When it was turned on isn't sent; Dial answers that locally. `lib/state/backend-parity.test.ts` checks that the backend's figures match the screens'.
 
 ## Tests
 

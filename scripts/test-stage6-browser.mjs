@@ -305,7 +305,7 @@ try {
     check("each payment is id, date and amount only", sent.state.payments.every((p) => Object.keys(p).sort().join() === "amount,date,id" && /^[a-z0-9-]{1,40}$/i.test(p.id)));
     check("the purchase is sent", sent.state.purchases.length === 1 && sent.state.purchases[0].merchant === "Northwind Audio" && sent.state.purchases[0].amount === 12000);
     check("Spend Pause is sent as on", sent.state.spendPause.enabled === true);
-    check("activation time is sent", sent.state.spendPauseActivity.activatedAt === "2026-11-08T10:00:00.000Z");
+    check("only the contract's fields are sent", Object.keys(sent.state).sort().join() === "payments,purchases,spendPause");
     check("no balance is ever sent", !/[bB]alance|minimumPayment/.test(JSON.stringify(sent.state)));
     check("it fits the 16 KB limit", JSON.stringify(sent).length < 16384);
     await openPay(page);

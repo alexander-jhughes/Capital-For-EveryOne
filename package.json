@@ -11,11 +11,13 @@
     "test": "vitest run",
     "test:stage6": "npm exec --yes --package=playwright-core@1 --package=axe-core@4 -- node scripts/test-stage6-browser.mjs",
     "test:pay": "npm exec --yes --package=playwright-core@1 --package=axe-core@4 -- node scripts/test-pay-browser.mjs",
+    "test:ask": "node --no-warnings scripts/test-ask.ts",
+    "test:http": "node --no-warnings scripts/test-ask-http.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.6.0",
     "@base-ui/react": "^1.9.0",
+    "@google/genai": "3.0.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "lucide-react": "^1.70.0",

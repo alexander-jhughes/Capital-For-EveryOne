@@ -2,8 +2,8 @@
 // and falls back to the deterministic facts layer when the backend can't answer. Never writes answers itself.
 import { buildFacts, type FactContext } from "../ai/facts";
 import type { AskResponse, Intent } from "../types";
-import type { ClientState } from "./client-state";
 import { parseExperience, type Experience } from "./experience";
+import type { ClientStateBody } from "./live-state";
 
 /** The demo questions from docs/BRIEF.md. The intent is only used for the offline fallback. */
 export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
@@ -35,7 +35,7 @@ export function parseAskResponse(body: unknown): AskResponse | null {
 
 export async function askDial(
   question: string | undefined,
-  { fetchImpl = fetch, timeoutMs = 8000, state }: { fetchImpl?: typeof fetch; timeoutMs?: number; state?: ClientState } = {},
+  { fetchImpl = fetch, timeoutMs = 8000, state }: { fetchImpl?: typeof fetch; timeoutMs?: number; state?: ClientStateBody } = {},
 ): Promise<AskOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

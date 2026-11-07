@@ -8,7 +8,6 @@ import { recordPayment, type PaymentResult } from "@/lib/payments/rules";
 import { paymentStore, readPayments, writePayments } from "@/lib/payments/storage";
 import { initialSpendPauseState, spendPauseReducer, type PauseOutcome, type PauseRecord, type SpendPauseActivity } from "@/lib/spend-pause/state";
 import { browserStore, readActivity, readSession, readSettings, writeActivity, writeSession, writeSettings } from "@/lib/spend-pause/storage";
-import { toClientState, type ClientState } from "@/lib/assistant/client-state";
 import { accountWithPurchases, deriveAccount } from "@/lib/state/derive-account";
 import type { Account, PauseDecision, Payment, PendingPurchase, Pence, SpendPauseSettings, Transaction } from "@/lib/types";
 
@@ -18,8 +17,6 @@ interface AccountState {
   settings: SpendPauseSettings;
   /** When Spend Pause was last turned on and off. */
   spendPauseActivity: SpendPauseActivity;
-  /** What has happened since the seed, for Dial's backend. See docs/SPEND-PAUSE.md. */
-  dialState: ClientState;
   /** False until saved state has been read. Show a loading state rather than seed figures or defaults. */
   ready: boolean;
   /** Payments made this session, oldest first. */
@@ -113,15 +110,12 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     [account, transactions, pause.settings, pause.pendingPurchase],
   );
 
-  const dialState = useMemo(() => toClientState({ settings: pause.settings, activity: pause.activity, purchases: pause.purchases, payments }), [pause.settings, pause.activity, pause.purchases, payments]);
-
   const value = useMemo(
     () => ({
       account,
       transactions,
       settings: pause.settings,
       spendPauseActivity: pause.activity,
-      dialState,
       ready,
       payments,
       paymentsSaved,
@@ -134,7 +128,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       pendingPurchase: pause.pendingPurchase,
       pauseHistory: pause.history,
     }),
-    [account, transactions, pause.settings, pause.activity, dialState, pause.pendingPurchase, pause.history, ready, payments, paymentsSaved, makePayment, undoPayment, settingsSaved, updateSettings, addPendingPurchase, resolvePurchase],
+    [account, transactions, pause.settings, pause.activity, pause.pendingPurchase, pause.history, ready, payments, paymentsSaved, makePayment, undoPayment, settingsSaved, updateSettings, addPendingPurchase, resolvePurchase],
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
