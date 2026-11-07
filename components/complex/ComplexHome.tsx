@@ -103,7 +103,9 @@ function CreditUsage({ account }: { account: Account }) {
 
   return (
     <div>
-      <p className={`${textSmall} mb-1 tabular-nums`}>{summary}</p>
+      <p className={`${textSmall} pb-[calc(var(--density,12px)*0.33)] tabular-nums`}>
+        {summary}
+      </p>
       <div
         role="meter"
         aria-label="Credit used"

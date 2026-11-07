@@ -27,6 +27,7 @@ import {
 import { formatFullDate, formatPence, formatShortDate } from "./format"
 import {
   gap,
+  gapTight,
   padding,
   rounded,
   targetHeight,
@@ -221,7 +222,7 @@ export function TransactionTable({
   return (
     <div className={`flex flex-col ${gap}`}>
       <div className={`grid sm:grid-cols-[1fr_auto] ${gap}`}>
-        <div className="flex flex-col gap-1">
+        <div className={`flex flex-col ${gapTight}`}>
           <label htmlFor={searchId} className={`${textSmall} font-medium`}>
             Search transactions
           </label>
@@ -241,7 +242,7 @@ export function TransactionTable({
           value={category}
           onValueChange={(value) => setCategory(value ?? ALL_CATEGORIES)}
         >
-          <div className="flex flex-col gap-1">
+          <div className={`flex flex-col ${gapTight}`}>
             <SelectPrimitive.Label className={`${textSmall} font-medium`}>
               Category
             </SelectPrimitive.Label>
@@ -297,7 +298,7 @@ export function TransactionTable({
           aria-label="Transactions table, scrolls sideways on small screens"
           tabIndex={0}
           data-scroll-region
-          className={`scroll-pl-[calc(var(--text-base,16px)*12)] overflow-x-auto ${rounded} border border-border [&>[data-slot=table-container]]:overflow-visible ${focusRing}`}
+          className={`scroll-pl-[calc(var(--text-base,16px)*8)] overflow-x-auto ${rounded} border border-border [&>[data-slot=table-container]]:overflow-visible ${focusRing}`}
         >
           <Table className={textSmall}>
             <TableCaption className="sr-only">
@@ -370,7 +371,14 @@ function SortableHead({
       <button
         type="button"
         onClick={() => onSort(column)}
-        className={`inline-flex w-full items-center gap-1 ${targetHeight} ${cellSpacing} ${textSmall} font-medium ${alignEnd ? "justify-end" : ""} ${focusRingInset}`}
+        // Keeps a tabbed-to column in view, clear of the sticky first column.
+        onFocus={(event) =>
+          event.currentTarget.scrollIntoView({
+            block: "nearest",
+            inline: "nearest",
+          })
+        }
+        className={`inline-flex w-full items-center ${gapTight} ${targetHeight} ${cellSpacing} ${textSmall} font-medium ${alignEnd ? "justify-end" : ""} ${focusRingInset}`}
       >
         {COLUMN_LABELS[column]}
         <Icon
@@ -402,11 +410,11 @@ function TransactionRow({
     >
       <th
         scope="row"
-        className={`z-10 min-w-[calc(var(--text-base,16px)*6)] max-w-[calc(var(--text-base,16px)*12)] whitespace-normal text-left font-medium ${cellSpacing} ${stickyColumn} ${rowBackground} ${highlighted ? "border-l-4 border-l-amber-700" : ""}`}
+        className={`z-10 min-w-[calc(var(--text-base,16px)*6)] max-w-[calc(var(--text-base,16px)*12)] whitespace-normal text-left font-medium ${cellSpacing} ${stickyColumn} ${rowBackground} ${highlighted ? "border-l-[calc(var(--density,12px)*0.33)] border-l-amber-700" : ""}`}
       >
         <span className="block">{merchant}</span>
         {pending || highlighted ? (
-          <span className="mt-0.5 flex flex-wrap gap-1">
+          <span className={`flex flex-wrap pt-[calc(var(--density,12px)*0.17)] ${gapTight}`}>
             {pending ? <RowBadge>Pending</RowBadge> : null}
             {highlighted ? <RowBadge strong>Highlighted</RowBadge> : null}
           </span>
