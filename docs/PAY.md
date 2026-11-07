@@ -52,6 +52,10 @@ Added to `useAccount()` in `lib/state/account-context.tsx`, following `docs/INTE
 
 **Storage:** `sessionStorage` under `cfe-payments-session`, so a refresh keeps payments and a new session starts from the seed. Everything read is checked. If any part is wrong, all of it is ignored, so a balance is never half restored. Stage 8's reset needs to clear it.
 
+## For Dial
+
+`lib/payments/dial.ts` answers "How much did I just pay?", "Has my payment been recorded?" and "Did my spending increase after that payment?" from live state, in the Ask sheet and Voice Mode, before `POST /api/ask` is called. Everything else goes to the backend, which needs PR #8 and the `ClientState` contract to see payments (see `docs/SPEND-PAUSE.md` on the Stage 6B branch).
+
 ## Tests
 
 ```bash
