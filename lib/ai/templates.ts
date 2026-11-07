@@ -75,7 +75,7 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
     }
     case "merchant_refunds": {
       if (value("no_refunds")) return `I can't see any refund${set.merchant ? ` from ${set.merchant}` : ""} in your transactions.`;
-      const describe = (prefix: string) =>
+      const describe = (prefix: string, status = "") =>
         list(
           set.facts
             .filter((f) => f.key.startsWith(prefix))
@@ -85,11 +85,12 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
               const reversed = purchase ? ` for your purchase on ${purchase}` : "";
               return { text: `${amount} ${shop} refund${reversed}`, date };
             })
-            .map(({ text, date }) => (prefix === "refund_completed_" ? `${text} arrived on ${date}` : text)),
+            .map(({ text, date }) => `Your ${text}${prefix === "refund_completed_" ? ` arrived on ${date}` : status}`),
         );
-      const waiting = describe("refund_pending_");
+      const waiting = describe("refund_pending_", " is pending");
       const arrived = describe("refund_completed_");
-      return [waiting && `Your ${waiting} is pending, so it has not arrived yet.`, arrived && `Your ${arrived}.`].filter(Boolean).join(" ");
+      const several = set.facts.filter((f) => f.key.startsWith("refund_pending_")).length > 1;
+      return [waiting && `${waiting}, so ${several ? "they have" : "it has"} not arrived yet.`, arrived && `${arrived}.`].filter(Boolean).join(" ");
     }
     case "merchant_transactions": {
       const period = /(?:this|last) month/.exec(set.facts[0].label)?.[0];

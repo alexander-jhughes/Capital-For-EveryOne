@@ -190,7 +190,7 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
       const shop = noteShop(set.merchant);
       add(money("merchant_total"), {
         must: /\b(total\w*|spent|spend|altogether|in all|net|comes? to|paid|at)\b/i,
-        mustNot: /\b(latest|last|most recent|each|single)\b/i,
+        mustNot: /\b(latest|last (?:one|purchase|transaction|refund)|most recent|each|single)\b/i,
         merchant: shop,
       });
       for (const f of withPrefix("transaction_")) {
