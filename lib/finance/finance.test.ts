@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SEED_ACCOUNT as acct, SEED_TRANSACTIONS as txns } from "../data/seed";
 import { DEMO_NOW, DEMO_TODAY } from "../demo-clock";
 import { RESET_SPEND_PAUSE } from "../demo-config";
-import { formatDate, formatPence } from "../format";
+import { formatDate, formatLongDate, formatPence } from "../format";
 import type { PendingPurchase, SpendPauseSettings } from "../types";
 import {
   availableCredit,
@@ -26,6 +26,8 @@ describe("seed + clock", () => {
     expect(acct.statementBalance).toBeGreaterThanOrEqual(40000);
     expect(acct.statementBalance).toBeLessThanOrEqual(60000);
     expect(formatDate(acct.paymentDueDate)).toBe("Friday 13 Nov");
+    expect(formatLongDate(acct.paymentDueDate)).toBe("Friday 13 November");
+    expect(acct.cardLast4).toBe("4417");
     expect(availableCredit(acct)).toBeGreaterThan(12000);
   });
   it("formats GBP", () => expect(formatPence(48620)).toBe("£486.20"));
