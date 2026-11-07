@@ -178,3 +178,33 @@ export function evaluatePurchase(
     budgetRemainingAfter,
   };
 }
+
+export interface TransactionFlags {
+  pending: boolean;
+  /** Money back from a shop (negative, not a card payment). */
+  refund: boolean;
+  /** A card payment you made. */
+  payment: boolean;
+  /** Same shop and amount as another charge within 3 days. Both charges are flagged. */
+  possibleDuplicate: boolean;
+  /** Change from the previous charge, set on the charge where a subscription price changed. */
+  priceChange: Pence | null;
+}
+
+/** One place that decides how every transaction is flagged in lists and tables. */
+export function flagTransactions(txns: Transaction[]): Map<string, TransactionFlags> {
+  const dupIds = new Set(findPossibleDuplicates(txns).flatMap((d) => [d.first.id, d.second.id]));
+  const priceChanges = new Map(findPriceChanges(txns).map((c) => [c.after.id, c.change]));
+  return new Map(
+    txns.map((t) => [
+      t.id,
+      {
+        pending: t.status === "pending",
+        refund: t.amount < 0 && t.category !== "Payments",
+        payment: t.category === "Payments",
+        possibleDuplicate: dupIds.has(t.id),
+        priceChange: priceChanges.get(t.id) ?? null,
+      },
+    ]),
+  );
+}
