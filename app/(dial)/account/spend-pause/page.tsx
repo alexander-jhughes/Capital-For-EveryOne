@@ -1,6 +1,8 @@
-// Placeholder until Stage 6.
+import { SpendPauseScreen } from "@/components/spend-pause/spend-pause-screen";
+
 export const metadata = { title: "Spend Pause" };
 
-export default function Page() {
-  return <h1 className="text-xl font-bold">Spend Pause</h1>;
+export default async function Page({ searchParams }: { searchParams: Promise<{ confirm?: string }> }) {
+  const { confirm } = await searchParams;
+  return <SpendPauseScreen requested={confirm} />;
 }
