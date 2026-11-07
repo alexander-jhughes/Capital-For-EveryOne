@@ -7,6 +7,7 @@ import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { paymentReply } from "@/lib/payments/dial";
+import { spendPauseReply, type SpendPauseReply } from "@/lib/spend-pause/dial";
 import { liveState } from "@/lib/assistant/live-state";
 import { usePersonalisation } from "@/lib/personalisation/provider";
 import { useAccount } from "@/lib/state/account-context";
@@ -20,7 +21,7 @@ import { EvidenceList } from "./evidence-list";
 type Answer =
   | { status: "idle" }
   | { status: "loading"; question: string }
-  | { status: "answered"; question: string; text: string; evidenceIds: string[]; source: AskResponse["source"]; template: ExperienceTemplate }
+  | { status: "answered"; question: string; text: string; evidenceIds: string[]; source: AskResponse["source"]; template: ExperienceTemplate; action?: SpendPauseReply["action"] }
   | { status: "offline"; question: string; facts: Fact[]; evidenceIds: string[] }
   | { status: "invalid"; question: string; message: string }
   | { status: "unavailable"; question: string };
@@ -33,7 +34,7 @@ const secondary = `${button} hairline bg-card`;
 
 /** Ask Dial: one bottom sheet for the whole app. `openAsk(question)` opens it and asks straight away. */
 export function AskDialProvider({ children }: { children: React.ReactNode }) {
-  const { account, transactions, settings, payments } = useAccount();
+  const { account, transactions, settings, payments, spendPauseActivity } = useAccount();
   // Only used to count "opened Voice Mode" for optional display suggestions. No personalisation data goes to /api/ask.
   const { noteVoiceOpened } = usePersonalisation();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -68,10 +69,11 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
       }
       stopSpeaking();
       const id = ++requestId.current;
-      // Payment questions are answered here from live state, so they work with or without the backend.
-      const local = paymentReply(q, { account, transactions, payments });
+      // Spend Pause and payment questions are answered here from live state, so they work with or without the backend.
+      const paid = paymentReply(q, { account, transactions, payments });
+      const local = spendPauseReply(q, settings, spendPauseActivity) ?? (paid ? { text: paid, action: undefined } : null);
       if (local) {
-        setAnswer({ status: "answered", question: q, text: local, evidenceIds: [], source: "template", template: "general" });
+        setAnswer({ status: "answered", question: q, text: local.text, evidenceIds: [], source: "template", template: "general", action: local.action });
         return;
       }
       setAnswer({ status: "loading", question: q });
@@ -91,7 +93,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [account, transactions, settings, payments, stopSpeaking],
+    [account, transactions, settings, payments, spendPauseActivity, stopSpeaking],
   );
 
   const openAsk = useCallback(
@@ -211,6 +213,11 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
               </div>
             )}
             {answer.status === "answered" && <p className="text-lg font-bold">{answer.text}</p>}
+            {answer.status === "answered" && answer.action && (
+              <Link href={answer.action.href} onClick={close} className="inline-flex min-h-(--target-min) items-center self-start font-bold text-primary underline underline-offset-4">
+                {answer.action.label}
+              </Link>
+            )}
             {answer.status === "answered" && <ExperienceCard template={answer.template} evidenceIds={answer.evidenceIds} onNavigate={close} />}
             {answer.status === "offline" && (
               <div className="flex flex-col gap-1">
