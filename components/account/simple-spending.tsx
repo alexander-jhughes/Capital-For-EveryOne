@@ -1,6 +1,5 @@
 "use client";
 
-import { Copy } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { askDial, evidenceHref, knownEvidence, offlineFacts } from "@/lib/assistant/client";
@@ -15,15 +14,13 @@ const SUMMARY_QUESTION = "What did I spend this month?";
 
 function TxCard({ t, flags, highlighted = false }: { t: Transaction; flags: TransactionFlags; highlighted?: boolean }) {
   return (
-    <li
-      className={`flex items-start justify-between gap-(--space) rounded-lg border-2 p-(--space) ${highlighted ? "border-warning bg-warning-surface" : "border-border bg-card"}`}
-    >
-      <span>
+    <li className={`flex items-start justify-between gap-3 rounded-xl p-(--space) ${highlighted ? "bg-accent" : "elevated bg-card"}`}>
+      <span className="min-w-0 flex-1">
         <span className="block font-bold">{t.merchant}</span>
         <span className="text-sm text-muted-foreground">{formatLongDate(t.date)}</span>
         <FlagBadges flags={flags} highlighted={highlighted} />
       </span>
-      <span className="font-bold tabular-nums">{t.amount < 0 ? `+${formatPence(-t.amount)}` : formatPence(t.amount)}</span>
+      <span className="shrink-0 font-bold">{t.amount < 0 ? `+${formatPence(-t.amount)}` : formatPence(t.amount)}</span>
     </li>
   );
 }
@@ -57,7 +54,7 @@ export function SimpleSpending({ highlightIds }: { highlightIds: string[] }) {
 
   return (
     <div className="flex flex-col gap-(--space)">
-      <h1 className="text-xl font-bold">Your spending</h1>
+      <h1 className="text-xl font-bold tracking-tight">Your spending</h1>
 
       {highlighted.length > 0 && (
         <section aria-labelledby="from-question-h" className="flex flex-col gap-2">
@@ -69,13 +66,13 @@ export function SimpleSpending({ highlightIds }: { highlightIds: string[] }) {
               <TxCard key={t.id} t={t} flags={flags.get(t.id)!} highlighted />
             ))}
           </ul>
-          <Link href="/account/spending" className="inline-flex min-h-(--target-min) items-center self-start font-bold underline underline-offset-4">
-            Clear these
+          <Link href="/account/spending" className="inline-flex min-h-(--target-min) items-center self-start font-bold text-primary underline underline-offset-4">
+            Stop showing these
           </Link>
         </section>
       )}
 
-      <div aria-busy={summary === null} className="rounded-lg border-2 border-border bg-card p-(--space)">
+      <div aria-busy={summary === null} className="elevated rounded-xl bg-card p-(--space)">
         <h2 className="text-sm font-bold text-muted-foreground">This month so far</h2>
         {summary === null ? (
           <p>
@@ -83,30 +80,30 @@ export function SimpleSpending({ highlightIds }: { highlightIds: string[] }) {
             <span aria-hidden className="mt-2 block h-4 w-3/4 animate-pulse rounded bg-muted" />
           </p>
         ) : "text" in summary ? (
-          <p className="text-lg font-bold">{summary.text}</p>
+          <p className="text-xl font-bold leading-snug tracking-tight">{summary.text}</p>
         ) : (
-          <p className="text-lg font-bold">{summary.offline}</p>
+          <p className="text-xl font-bold leading-snug tracking-tight">{summary.offline}</p>
         )}
       </div>
 
-      {duplicates.map((d) => (
+      {highlighted.length === 0 && duplicates.map((d) => (
         <section
           key={d.first.id}
-          aria-label="Something to check"
-          className="flex flex-col gap-1 rounded-lg border-2 border-warning bg-warning-surface p-(--space) text-warning"
+          aria-label="Worth checking"
+          className="elevated flex flex-col gap-2 rounded-xl bg-card p-(--space)"
         >
-          <h2 className="flex items-center gap-2 font-bold">
-            <Copy aria-hidden className="size-[1em]" />
-            Something to check
+          <h2 className="flex items-center gap-2 font-bold text-attention">
+            <span aria-hidden className="size-2.5 rounded-full bg-signal" />
+            Worth checking
           </h2>
           <p>
             {d.first.merchant} charged {formatPence(d.first.amount)} on {formatShortDate(d.first.date)} and again on {formatShortDate(d.second.date)}.
           </p>
           <Link
             href={evidenceHref([d.first.id, d.second.id])}
-            className="inline-flex min-h-(--target-min) items-center self-start font-bold underline underline-offset-4"
+            className="inline-flex min-h-(--target-min) items-center self-start rounded-full bg-accent px-5 font-bold text-accent-foreground"
           >
-            Show these charges
+            See the 2 charges
           </Link>
         </section>
       ))}

@@ -1,27 +1,35 @@
+import { AppNav } from "@/components/app-nav";
 import { AskDialProvider } from "@/components/assistant/ask-dial";
-import { BottomDock } from "@/components/bottom-dock";
 import { ModeSwitch } from "@/components/mode-switch";
 import { Wordmark } from "@/components/wordmark";
 
-/** The Dial app shell: header, page, Ask Dial bar and bottom tabs. A centred phone-width column on desktop. */
+/** App shell. Phone: header, page, bottom tabs. Desktop (1024px+): side rail, wide page. One component tree for both. */
 export default function DialLayout({ children }: { children: React.ReactNode }) {
   return (
     <AskDialProvider>
-      <div className="mx-auto flex min-h-dvh max-w-[30rem] flex-col bg-background sm:border-x-2">
+      <div className="flex min-h-dvh flex-col lg:flex-row">
         <a
           href="#main"
           className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground"
         >
           Skip to main content
         </a>
-        <header className="gutter flex flex-wrap items-center justify-between gap-2 border-b-2 bg-card pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-          <Wordmark />
-          <ModeSwitch />
-        </header>
-        <main id="main" tabIndex={-1} className="gutter flex-1 py-(--space) focus:outline-none">
-          {children}
-        </main>
-        <BottomDock />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="gutter page-width flex flex-wrap items-center justify-between gap-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-10 lg:pt-6">
+            <span className="lg:hidden">
+              <Wordmark stacked />
+            </span>
+            <p className="hidden text-sm text-muted-foreground lg:block">Credit card ending 4417</p>
+            <ModeSwitch />
+          </header>
+          <main id="main" tabIndex={-1} className="gutter page-width flex-1 pb-8 pt-(--space) focus:outline-none lg:px-10">
+            {children}
+            <p className="mt-10 text-sm text-muted-foreground lg:hidden">
+              Capital for Everyone is an independent hackathon concept, not an official Capital One product.
+            </p>
+          </main>
+        </div>
+        <AppNav />
       </div>
     </AskDialProvider>
   );

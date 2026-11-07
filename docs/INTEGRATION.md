@@ -9,6 +9,7 @@ Owner of this file: frontend lead (Zain). Update it when a stage changes state. 
 | 3 AI backend (`POST /api/ask`) | Alexander | In review | `feat/stage-3-ai-backend`, PR #4 | 2 |
 | 4 Complex mode | Zain | Merged | PR #3 | 2 |
 | 5 Simple mode + Ask Dial | Zain | In review | `feat/stage-5-simple-mode` | 2, 4; uses 3 when merged |
+| Redesign: Capital for Everyone identity, preferences, Dial Voice Mode | Zain | In review | `feat/redesign-voice-adaptive` (stacked on Stage 5) | 5 |
 | 6A Pay | Pay developer | Not started on GitHub | - | 1, account-state contract below |
 | 6B Spend Pause + shop + pause flow | Spend Pause developer | Not started on GitHub | - | 1, 2, account-state contract below |
 | 7 Onboarding + PWA | Unassigned | Not started | - | 5 |
@@ -64,3 +65,22 @@ pendingPurchase: PendingPurchase | null                       // 6B, drives the 
 
 - **Facts evidence for "What did I spend this month?" includes October rows** (the "same days last month" comparison fact contributes its own IDs; 30 IDs in total). The UI shows the first three and a "Show all" link, so nothing breaks, but the full list mixes months. Fix belongs in `lib/ai/facts.ts`; agree with Alexander first because his tests may assert evidence counts.
 - Stage 3 route answers from seed data only, so answers won't reflect Stage 6 payments or settings until the route accepts client state (needs a contract change; agree with Alexander).
+
+## Redesign architecture (feat/redesign-voice-adaptive)
+
+Three independent layers, all on `<html>` and all read by the same component tree:
+
+1. **View** (`data-mode`, cookie `cfe-mode`): Simple / Detailed. Unchanged internally (`simple` / `complex`); people see "Simple / Detailed".
+2. **Accessibility preferences** (`data-text`, `data-contrast`, `data-spacing`, `data-motion`, `data-theme`, `data-targets`): `lib/preferences/schema.ts` (allowlisted schema, pure reducer, tests). Saved in cookie `cfe-prefs` and applied by the server, so a saved look never flashes; changes kept only for this visit live in `sessionStorage`.
+3. **Personal layout** (`Preferences.layout`): which Home widgets show, which are pinned first, which is highlighted, and a calmer three-section mode. Same schema; applies to both views.
+
+`PreferencesProvider` (`lib/preferences/provider.tsx`) is the single source of truth: preview -> accept/reject -> undo -> save -> reset.
+
+**Dial Voice Mode** (`components/voice/voice-mode.tsx`): speech (Web Speech API, en-GB, only after a tap) -> `lib/voice/interpret.ts` (deterministic, local, 70+ phrasing tests) -> one of: allowlisted interface actions (previewed, then confirmed), a view switch (offered), navigation, a control command, or a money question passed unchanged to `POST /api/ask` (Stage 3 contract, facts fallback when unavailable). No AI decides interface changes; nothing in this path can touch payments or account data.
+
+### Decisions that affect other workstreams
+
+- **Pay (6A) and Spend Pause (6B):** build with the new tokens in `app/globals.css` (`bg-primary`, `bg-card`, `elevated`, `hairline`, `text-muted-foreground`, `bg-attention-surface`, `--target-min`, `--space`) and the shared `Money` and `FlagBadges` components. Never set font sizes in px; use `text-sm/base/lg/xl` so text-size preferences work. The token sheet is on the concept board.
+- **Alexander (Stage 3):** no contract change. Voice Mode sends money questions to `/api/ask` exactly as the Ask sheet does; interface commands never reach the backend.
+- **Navigation:** the bottom dock and Ask bar are replaced by one `AppNav` (phone tab bar with a raised Dial button, desktop side rail). Ask Dial opens from the Dial button; Voice Mode from "Talk to Dial".
+- **New route:** `/account/settings` (Display and voice).

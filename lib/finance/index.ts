@@ -208,3 +208,15 @@ export function flagTransactions(txns: Transaction[]): Map<string, TransactionFl
     ]),
   );
 }
+
+/** Net spending per calendar day, inclusive, with the transactions behind each day. Days with nothing are 0. */
+export function dailySpend(txns: Transaction[], from: ISODate, to: ISODate) {
+  const days: { date: ISODate; total: Pence; ids: string[] }[] = [];
+  const start = new Date(`${from}T12:00:00Z`);
+  for (let i = 0; i <= daysBetween(from, to); i++) {
+    const date = new Date(start.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+    const s = spendingSummary(txns, date, date);
+    days.push({ date, total: s.total, ids: s.ids });
+  }
+  return days;
+}

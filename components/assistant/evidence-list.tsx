@@ -28,14 +28,14 @@ export function EvidenceList({ ids, onNavigate }: { ids: string[]; onNavigate?: 
               <Link
                 href={evidenceHref([id])}
                 onClick={onNavigate}
-                className="flex min-h-(--target-min) items-start justify-between gap-(--space) rounded-lg border-2 border-border bg-background px-3 py-2 hover:border-input"
+                className="flex min-h-(--target-min) items-start justify-between gap-3 rounded-xl bg-background px-3 py-2 hover:bg-accent"
               >
-                <span>
+                <span className="min-w-0 flex-1">
                   <span className="block font-bold">{t.merchant}</span>
                   <span className="text-sm text-muted-foreground">{formatShortDate(t.date)}</span>
                   <FlagBadges flags={flags.get(id)!} />
                 </span>
-                <span className="font-bold tabular-nums">{t.amount < 0 ? `+${formatPence(-t.amount)}` : formatPence(t.amount)}</span>
+                <span className="shrink-0 font-bold">{t.amount < 0 ? `+${formatPence(-t.amount)}` : formatPence(t.amount)}</span>
               </Link>
             </li>
           );
@@ -44,7 +44,7 @@ export function EvidenceList({ ids, onNavigate }: { ids: string[]; onNavigate?: 
       <Link
         href={evidenceHref(evidence)}
         onClick={onNavigate}
-        className="inline-flex min-h-(--target-min) items-center self-start font-bold underline underline-offset-4"
+        className="inline-flex min-h-(--target-min) items-center self-start rounded-full bg-accent px-5 font-bold text-accent-foreground"
       >
         {evidence.length === 1 ? "Show it in Spending" : evidence.length <= SHOWN ? "Show these in Spending" : `Show all ${evidence.length} in Spending`}
       </Link>
