@@ -283,16 +283,29 @@ describe("API protection", () => {
     const phrase = vi.fn(async () => "Tesco charged you £38.62 twice.");
     const create = () => ({ classify: async () => null, phrase });
     const ask = () => handleAsk(new Request("http://test/api/ask", { method: "POST", body: JSON.stringify({ question: "Was I charged twice?" }), headers: { "x-forwarded-for": "9.9.9.9" } }), create);
-    for (let i = 0; i < 20; i += 1) expect((await (await ask()).json()).source).toBe("model");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (let i = 0; i < 60; i += 1) expect((await (await ask()).json()).source).toBe("model");
     const blocked = await ask();
     expect(blocked.status).toBe(200);
     expect(await blocked.json()).toMatchObject({ source: "template", evidenceIds: ["t051", "t052"] });
-    expect(phrase).toHaveBeenCalledTimes(20);
+    expect(phrase).toHaveBeenCalledTimes(60);
+    expect(warn.mock.calls.flat().join(" ")).toContain("Gemini call limit reached");
+    vi.restoreAllMocks();
+  });
+
+  it("the limit can be set for long test runs", () => {
+    resetRateLimit();
+    vi.stubEnv("ASK_MODEL_CALLS_PER_MINUTE", "2");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect([allowModelCall("c", 1), allowModelCall("c", 2), allowModelCall("c", 3)]).toEqual([true, true, false]);
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("the window moves on, and visitors are separate", () => {
     resetRateLimit();
-    for (let i = 0; i < 20; i += 1) allowModelCall("a", 1000);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (let i = 0; i < 60; i += 1) allowModelCall("a", 1000);
     expect(allowModelCall("a", 1001)).toBe(false);
     expect(allowModelCall("b", 1001)).toBe(true);
     expect(allowModelCall("a", 62_000)).toBe(true);
