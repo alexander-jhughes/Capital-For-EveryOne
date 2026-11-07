@@ -6,6 +6,7 @@ import { seedContext } from "./facts";
 import { CANT_TELL, checkAnswer } from "./guard";
 import { matchIntent, namedMerchants, UNSUPPORTED, type AnswerIntent } from "./intent";
 import { allowModelCall, resetRateLimit } from "./rate-limit";
+import { templateAnswer } from "./templates";
 
 const ctx = seedContext();
 const NAMES = {
@@ -209,6 +210,21 @@ describe("the right answers", () => {
   it("compares the months", async () => {
     const result = await answerQuestion("Did I spend more than last month?", { model: null });
     expect(result.answer).toBe("You have spent £402.35 so far this month, £256.72 more than the same days last month, when you spent £145.63.");
+  });
+
+  it("every shop template survives the validator, in every period", async () => {
+    for (const question of ["How much did I spend at Amazon last month?", "How much did I spend at Amazon this month?", "How much did I spend at Amazon?", "Show me my Tesco transactions from last month."]) {
+      const set = answerFacts("merchant_transactions", ctx, question, question.includes("Tesco") ? "Tesco" : "Amazon");
+      expect(checkAnswer((await answerQuestion(question, { model: null })).answer, set, question)).toEqual({ ok: true });
+    }
+  });
+
+  it("two pending refunds each say they're pending", () => {
+    const ctx2 = { ...ctx, txns: [...ctx.txns, { id: "x2", date: "2026-11-07", merchant: "Amazon", amount: -4599, category: "Shopping" as const, status: "pending" as const }] };
+    const set = answerFacts("merchant_refunds", ctx2, "", "Amazon");
+    const answer = templateAnswer(set);
+    expect(answer.match(/is pending/g)).toHaveLength(2);
+    expect(checkAnswer(answer, set)).toEqual({ ok: true });
   });
 
   it("gives the last payment", async () => {
