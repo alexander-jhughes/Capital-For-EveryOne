@@ -1,6 +1,8 @@
-// Placeholder until Stage 4/5.
+import { ComplexHome } from "@/components/account/complex-home";
+
 export const metadata = { title: "Home" };
 
-export default function Page() {
-  return <h1 className="text-xl font-bold">Home</h1>;
+// Stage 5 adds the Simple home here; until then both modes show this screen at their own sizes.
+export default function HomePage() {
+  return <ComplexHome />;
 }
