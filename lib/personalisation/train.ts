@@ -81,8 +81,8 @@ export function modelVersionFor(cfg: TrainConfig) {
   return `rf-1.0.0+synthetic.g${SYNTHETIC_GENERATOR_VERSION}.s${cfg.data.seed}`;
 }
 
-export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG): { model: ModelArtifact; report: TrainingReport } {
-  const people = generateSynthetic(cfg.data);
+/** `people` defaults to generator A from `cfg.data`; the evaluation passes generator B to get a reference model (never shipped). */
+export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG, people: SyntheticPerson[] = generateSynthetic(cfg.data)): { model: ModelArtifact; report: TrainingReport } {
   const data = buildDataset(people);
   const split = splitIndices(people.length, cfg.data.seed);
   const targets = {} as Record<TargetId, TargetModel>;
