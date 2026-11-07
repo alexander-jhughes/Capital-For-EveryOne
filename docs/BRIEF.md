@@ -9,6 +9,8 @@ We are building **Dial**, a hackathon prototype for Capital One's WHACK challeng
 - Phase 1 (foundation) and Stage 1b (v2 alignment: Dial shell, cookie-only mode, Base UI) are merged into `main` (PR #1).
 - Stage 2 (seed additions, `findPriceChanges` / `monthOverMonth` / `daysUntilDue` / `budgetStatus`, `lib/ai/facts.ts`, contract types) is merged into `main` (PR #2).
 - Stage 4 (Complex Home and Spending, `flagTransactions`, account context, `?highlight=` evidence hook) is merged into `main` (PR #3). It reuses Alexander's TransactionTable and four Base UI components from `origin/complex-mode`, adapted to `lib/`; that branch itself is untouched.
+- Redesign (Capital for Everyone identity, accessibility preferences, personal layout, Dial Voice Mode) is on `feat/redesign-voice-adaptive`, in review. See `docs/INTEGRATION.md`.
+- Stage 5 (Simple Home and Spending, Ask Dial sheet with voice and read-aloud, evidence links) is on `feat/stage-5-simple-mode`, in review. Integration status and contracts for every stage: `docs/INTEGRATION.md`.
 - Stage 5 hand-off: the assistant links to `/account/spending?highlight=<AskResponse.evidenceIds joined by commas>` to highlight evidence rows in Complex mode.
 - Next: Stage 3 (Alexander) builds on `buildFacts(intent, ctx)` from `lib/ai/facts.ts` and the `Intent`, `Fact`, `FactSet`, `EvidenceRow` and `AskResponse` types in `lib/types.ts`. `AskResponse.evidenceIds` must be copied from `FactSet.evidenceIds`.
 
