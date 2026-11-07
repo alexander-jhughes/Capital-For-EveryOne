@@ -27,6 +27,11 @@ const NUMBER_WORDS =
   /\b(three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|quarter)\b/i;
 const RELATIVE_DATES = /\b(tomorrow|yesterday|tonight|next week|last week|next month|this week|weekend|fortnight)\b/i;
 
+const DENIAL =
+  /\b(no|not|never|none|nothing|without|didn't|doesn't|don't|wasn't|weren't|isn't|aren't|haven't|hasn't|can't|cannot|couldn't|unable)\b/i;
+const HIGHER = /\b(up|more|higher|increas\w*|rose|risen|extra)\b/i;
+const LOWER = /\b(down|less|lower|fewer|cheaper|decreas\w*|dropped|drop|fell|fallen)\b/i;
+
 /** Capitalised words that are not names. Any other capitalised word must be in the facts, so a shop can't be invented. */
 const ORDINARY_WORDS = new Set(
   `a an and at both but by dial each for from i i'm in it it's looks no none not nothing on one over pause right since so spend
@@ -67,7 +72,92 @@ const capitalised = (text: string) => text.match(/\b[A-Z][A-Za-z'-]*/g) ?? [];
 
 const sentenceCount = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "").length;
 
-export const isCantTell = (text: string) => clean(text).toLowerCase().includes("can't tell that from your transactions");
+/** Only the bare sentence counts, so "Yes, but I can't tell that..." can't slip past the grounding check. */
+export const isCantTell = (text: string) => /^i can't tell that from your transactions\.?$/i.test(clean(text).trim());
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** True when the amount is pinned to the wrong month, as in "You spent £402.35 last month". */
+function inWrongPeriod(reply: string, amount: string, period: string): boolean {
+  const figure = escapeRegExp(amount);
+  return new RegExp(`${figure}(?:\\s+\\w+){0,2}\\s+(?:in\\s+)?(?:${period})|(?:${period})[^.]{0,30}${figure}`, "i").test(reply);
+}
+
+/**
+ * Passing the amount and date checks only proves a reply invented nothing, and a reply with no figures passes those
+ * by default. This proves it actually states the answer: it has to carry the fact that settles the question, and
+ * must not deny or reverse it.
+ */
+function groundingProblem(reply: string, facts: FactSet): string | null {
+  const value = (key: string) => facts.facts.find((f) => f.key === key)?.value;
+  const values = (prefix: string) => facts.facts.filter((f) => f.key.startsWith(prefix)).map((f) => f.value);
+  const stated = amounts(reply);
+  const has = (amount: string | undefined) => amount !== undefined && stated.includes(amount.replace(/,/g, ""));
+  const named = (name: string) => reply.toLowerCase().includes(name.toLowerCase());
+  const replyDates = normaliseDates(reply);
+  const contradicted = "contradicts facts";
+  const unsupported = "no supporting fact";
+
+  const valuesText = facts.facts.map((f) => f.value).join(" ");
+  if (HIGHER.test(valuesText) && !LOWER.test(valuesText) && LOWER.test(reply)) return contradicted;
+  if (LOWER.test(valuesText) && !HIGHER.test(valuesText) && HIGHER.test(reply)) return contradicted;
+
+  switch (facts.intent) {
+    case "duplicates": {
+      if (value("no_duplicates")) return DENIAL.test(reply) ? null : contradicted;
+      if (DENIAL.test(reply)) return contradicted;
+      const found = values("duplicate_").map((v) => v.match(/^(.+?), (£[\d,.]+), on /));
+      return found.some((m) => m && named(m[1]) && has(m[2])) ? null : unsupported;
+    }
+    case "price_changes": {
+      if (value("no_price_changes")) return DENIAL.test(reply) ? null : contradicted;
+      if (DENIAL.test(reply)) return contradicted;
+      const found = values("price_change_").flatMap((v) => v.match(/^(.+?) went (?:up|down) from (£[\d,.]+) to (£[\d,.]+)/) ?? []);
+      for (let i = 0; i < found.length; i += 4) {
+        const [, merchant, before, after] = found.slice(i, i + 4);
+        if (!named(merchant) || !has(after)) continue;
+        const swapped = has(before) && stated.indexOf(before.replace(/,/g, "")) > stated.indexOf(after.replace(/,/g, ""));
+        return swapped ? contradicted : null;
+      }
+      return unsupported;
+    }
+    case "spend_this_month": {
+      if (DENIAL.test(reply)) return contradicted;
+      const total = value("month_to_date_total");
+      if (!has(total)) return unsupported;
+      return total && inWrongPeriod(reply, total, "last month|october") ? contradicted : null;
+    }
+    case "spend_last_month": {
+      if (DENIAL.test(reply)) return contradicted;
+      const total = value("last_month_total");
+      if (!has(total)) return unsupported;
+      return total && inWrongPeriod(reply, total, "this month|november") ? contradicted : null;
+    }
+    case "top_items": {
+      if (DENIAL.test(reply)) return contradicted;
+      const biggest = value("top_item_1")?.match(/£[\d,.]+?(?=,)/)?.[0];
+      return has(biggest) ? null : unsupported;
+    }
+    case "days_until_due": {
+      if (DENIAL.test(reply)) return contradicted;
+      const due = value("due_date")?.toLowerCase() ?? "";
+      const left = value("days_until_due")?.toLowerCase().replace("overdue by ", "") ?? "";
+      const dueDay = due.replace(/^\w+ /, "");
+      const stands = [due.split(" ")[0], dueDay, left].some((text) => text !== "" && replyDates.includes(text));
+      return stands || has(value("statement_balance")) ? null : unsupported;
+    }
+    case "minimum_payment":
+      if (DENIAL.test(reply)) return contradicted;
+      return has(value("minimum_payment")) ? null : unsupported;
+    case "spend_pause": {
+      const status = value("spend_pause_status")?.toLowerCase();
+      const said = reply.match(/\bpause (?:is )?(?:currently |now |turned |switched )*(on|off)\b/i)?.[1]?.toLowerCase();
+      if (said && said !== status) return contradicted;
+      if (DENIAL.test(reply)) return contradicted;
+      return said || stated.some((a) => amounts(valuesText).includes(a)) ? null : unsupported;
+    }
+  }
+}
 
 /** Checks one reply against one fact set. Every amount and date must appear in the facts, exactly. */
 export function checkAnswer(answer: string, facts: FactSet): GuardResult {
@@ -103,5 +193,7 @@ export function checkAnswer(answer: string, facts: FactSet): GuardResult {
   const isName = (word: string) => !known.has(word.toLowerCase()) && !ORDINARY_WORDS.has(word.toLowerCase());
   if (capitalised(normaliseProperDates(reply)).some(isName)) return fail("name not in facts");
 
-  return pass;
+  if (isCantTell(reply)) return pass;
+  const problem = groundingProblem(reply, facts);
+  return problem ? fail(problem) : pass;
 }

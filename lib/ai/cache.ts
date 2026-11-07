@@ -1,4 +1,4 @@
-// Hard-coded answers for the demo questions, used on an error, a timeout or a missing key.
+// Fixed answers for the core demo questions, used ahead of the model so the live demo can't vary.
 // Only the wording is stored. Evidence always comes from the facts, and ask.ts re-checks each answer against them.
 import type { Intent } from "../types";
 
