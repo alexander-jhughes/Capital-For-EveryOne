@@ -6,7 +6,7 @@ import { DEMO_ANSWERS } from "./cache";
 import { buildFacts as stage2Facts, INTENTS, seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer } from "./guard";
 import { matchIntent, UNSUPPORTED } from "./intent";
-import { createModel, type AskModel } from "./model";
+import { createModel, describeError, type AskModel } from "./model";
 import { templateAnswer } from "./templates";
 
 const buildFacts = (intent: Intent, ctx: FactContext = seedContext()) => answerFacts(intent, ctx);
@@ -100,6 +100,8 @@ describe("checkAnswer", () => {
     ["Tesco charged you £38 twice.", "amount not in facts"],
     ["Tesco charged you 39 pounds twice.", "number not in facts"],
     ["Tesco charged you thirty eight pounds twice.", "amount not in facts"],
+    ["Tesco charged you $38.62 twice.", "amount not in facts"],
+    ["Tesco charged you £38.62 on 5 November, and $38.62 on 6 November.", "amount not in facts"],
     ["That is 12% of your spending.", "number not in facts"],
     ["Tesco charged you on 7 November.", "number not in facts"],
     ["Tesco charged you in December.", "date not in facts"],
@@ -394,9 +396,9 @@ describe("the API key", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("no key means no model", () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("GEMINI_API_KEY", "");
     expect(createModel()).toBeNull();
-    vi.stubEnv("ANTHROPIC_API_KEY", "   ");
+    vi.stubEnv("GEMINI_API_KEY", "   ");
     expect(createModel()).toBeNull();
   });
 
@@ -410,54 +412,84 @@ describe("the API key", () => {
   });
 });
 
-describe("the model request", () => {
+describe("the Gemini request", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
-  const replyWith = (content: unknown[], stopReason: string) => {
-    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () =>
-      Response.json({ id: "m", type: "message", role: "assistant", model: "m", content, stop_reason: stopReason, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }),
-    );
+  const replyWith = (text: string | undefined, finishReason = "STOP", status = 200) => {
+    const body = status === 200 ? { candidates: [{ finishReason, content: { role: "model", parts: text === undefined ? [] : [{ text }] } }] } : { error: { code: status, message: "failed", status: "FAILED" } };
+    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => Response.json(body, { status }));
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
-    vi.stubEnv("ANTHROPIC_MODEL", "");
+    vi.stubEnv("GEMINI_API_KEY", "test-key");
+    vi.stubEnv("GEMINI_MODEL", "");
     return fetchMock;
   };
-  const sentBody = (fetchMock: ReturnType<typeof replyWith>) => JSON.parse(String(fetchMock.mock.calls[0][1].body));
-  const thinking = { type: "thinking", thinking: "", signature: "s" };
+  const answer = (text: string) => JSON.stringify({ answer: text });
+  const phrase = () => createModel()!.phrase("hello", duplicates, 4000);
+  const classify = () => createModel()!.classify("hello", 4000);
 
-  it("leaves thinking on at low effort, with room for it in max_tokens", async () => {
-    const fetchMock = replyWith([{ type: "text", text: "duplicates" }], "end_turn");
-    await createModel()!.classify("hello", 4000);
-    const body = sentBody(fetchMock);
-    expect(body.model).toBe("claude-haiku-5-5");
-    expect(body.output_config).toEqual({ effort: "low" });
-    expect(body.thinking).toBeUndefined();
-    expect(body.max_tokens).toBeGreaterThanOrEqual(1024);
+  it("sends only the facts and question, asks for structured output, and makes one attempt", async () => {
+    const fetchMock = replyWith(answer(GOOD_REPLY));
+    expect(await phrase()).toBe(GOOD_REPLY);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(init.body));
+    expect(url).toContain("gemini-3.5-flash-lite:generateContent");
+    expect(body.generationConfig.responseMimeType).toBe("application/json");
+    const sent = JSON.stringify(body.contents);
+    expect(sent).toContain("£38.62");
+    expect(sent).not.toContain("t051");
+    expect(sent).not.toContain("£899");
   });
 
-  it("reads the text after a leading thinking block", async () => {
-    replyWith([thinking, { type: "text", text: "duplicates" }], "end_turn");
-    expect(await createModel()!.classify("hello", 4000)).toBe("duplicates");
+  it("uses GEMINI_MODEL when set", async () => {
+    const fetchMock = replyWith(answer(GOOD_REPLY));
+    vi.stubEnv("GEMINI_MODEL", "gemini-test");
+    await phrase();
+    expect(fetchMock.mock.calls[0][0]).toContain("gemini-test:generateContent");
   });
 
-  it("treats a reply that ran out of tokens while thinking as no answer", async () => {
-    replyWith([thinking], "max_tokens");
-    expect(await createModel()!.classify("hello", 4000)).toBeNull();
-    expect(await createModel()!.phrase("hello", duplicates, 4000)).toBeNull();
+  it("reads the classification from the structured reply", async () => {
+    replyWith(JSON.stringify({ category: "duplicates" }));
+    expect(await classify()).toBe("duplicates");
   });
 
-  it("treats an empty reply as no answer", async () => {
-    replyWith([], "end_turn");
-    expect(await createModel()!.phrase("hello", duplicates, 4000)).toBe("");
-    expect(checkAnswer("", duplicates).ok).toBe(false);
+  it.each(["something_else", "none"])("treats the category %s as no intent", async (category) => {
+    replyWith(JSON.stringify({ category }));
+    expect(await classify()).toBeNull();
   });
 
-  it("ignores a label outside the fixed list", async () => {
-    replyWith([{ type: "text", text: "something_else" }], "end_turn");
-    expect(await createModel()!.classify("hello", 4000)).toBeNull();
+  it.each<[string, string | undefined, string]>([
+    ["cut off", answer(GOOD_REPLY), "MAX_TOKENS"],
+    ["blocked for safety", answer(GOOD_REPLY), "SAFETY"],
+    ["not JSON", "this is not json", "STOP"],
+    ["truncated JSON", '{"answer": "Tesco', "STOP"],
+    ["the wrong shape", JSON.stringify({ reply: GOOD_REPLY }), "STOP"],
+    ["a non-string answer", JSON.stringify({ answer: 38.62 }), "STOP"],
+    ["JSON null", "null", "STOP"],
+    ["empty", undefined, "STOP"],
+  ])("a reply that is %s counts as no answer", async (_, text, finishReason) => {
+    replyWith(text, finishReason);
+    expect(await phrase()).toBeNull();
+  });
+
+  it.each([[400], [403], [429], [500], [503]])("HTTP %i raises an error safe to log", async (status) => {
+    replyWith(undefined, "STOP", status);
+    await expect(phrase()).rejects.toSatisfy((error: unknown) => describeError(error) === `API status ${status}`);
+  });
+
+  it("a timeout raises an error safe to log", () => {
+    expect(describeError(new DOMException("aborted", "TimeoutError"))).toBe("timeout");
+    expect(describeError(new DOMException("aborted", "AbortError"))).toBe("timeout");
+  });
+
+  it("evidence the model volunteers is ignored", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    replyWith(JSON.stringify({ answer: GOOD_REPLY, evidenceIds: ["t999"] }));
+    const result = await answerQuestion(CHARGED, { model: createModel() });
+    expect(result).toEqual({ answer: GOOD_REPLY, evidenceIds: ["t051", "t052"], source: "model" });
   });
 });
 

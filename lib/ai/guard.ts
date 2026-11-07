@@ -23,7 +23,7 @@ const SHORT_WEEKDAYS: Record<string, string> = {
 
 const ADVICE =
   /\b(should|shouldn't|ought|recommend\w*|suggest\w*|advis\w*|advice|consider\w*|you (could|might|may) want|try to|make sure|i'd|i would|better to|best to|need to|have to|must|invest\w*|consolidat\w*|pay off|paying off|contact|dispute|save money|cut back|cut down|reduce|worth)\b/i;
-const OTHER_MONEY = /%|\b(pounds?|quid|pence|p|gbp|percent|per cent|euros?|dollars?)\b/i;
+const OTHER_MONEY = /[%$€¥]|\b(pounds?|quid|pence|p|gbp|percent|per cent|euros?|dollars?)\b/i;
 const NUMBER_WORDS =
   /\b(three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|half|quarter)\b/i;
 const RELATIVE_DATES = /\b(tomorrow|yesterday|tonight|next week|last week|next month|this week|weekend|fortnight)\b/i;
