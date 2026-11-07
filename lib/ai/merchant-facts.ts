@@ -67,3 +67,20 @@ export function merchantFacts(ctx: FactContext, merchant: string, period: Mercha
     ),
   ];
 }
+
+/** What's being paid for regularly: the latest charge at each subscription, newest first. */
+export function subscriptionFacts(ctx: FactContext): Fact[] {
+  const charges = ctx.txns.filter((t) => t.category === "Subscriptions" && t.amount > 0).sort(newestFirst);
+  const latest = [...new Map(charges.reverse().map((t) => [t.merchant, t])).values()].sort(newestFirst);
+  if (latest.length === 0) return [fact("no_subscriptions", "Subscriptions", "None found")];
+  return latest.map((t, i) => fact(`subscription_${i + 1}`, "Subscription", `${t.merchant}, ${formatPence(t.amount)}, last charged on ${formatLongDate(t.date)}`, [t.id]));
+}
+
+/** One transaction by its reference, with its true status. */
+export function transactionFacts(ctx: FactContext, id: string | undefined): Fact[] {
+  const t = ctx.txns.find((row) => row.id === id);
+  if (!t) return [fact("no_transaction", "Transaction", "None found")];
+  const flags = flagTransactions(ctx.txns).get(t.id);
+  const kind = flags?.payment ? "payment" : flags?.refund ? "refund" : "purchase";
+  return [fact("transaction", "Transaction", `${formatPence(Math.abs(t.amount))} at ${t.merchant} on ${formatLongDate(t.date)} (${flags?.pending ? "pending" : "completed"} ${kind})`, [t.id])];
+}

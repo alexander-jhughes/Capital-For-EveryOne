@@ -159,6 +159,19 @@ function groundingProblem(reply: string, facts: AnswerFactSet, question: string)
   if (mixesBalances(reply, value) || saysCurrentBalanceIsDue(reply, value("current_balance"))) return contradicted;
 
   switch (facts.intent) {
+    case "subscription_list": {
+      if (value("no_subscriptions")) return DENIAL.test(reply) ? null : contradicted;
+      if (DENIAL.test(reply)) return contradicted;
+      const items = values("subscription_").map((v) => v.match(/^(.+?), (£[\d,.]*\d), /));
+      return items.every((m) => m && named(m[1]) && has(m[2])) ? null : unsupported;
+    }
+    case "transaction_lookup": {
+      if (value("no_transaction")) return DENIAL.test(reply) ? null : contradicted;
+      const row = value("transaction")?.match(/^(£[\d,.]*\d) at (.+?) on /);
+      if (!row || !has(row[1]) || !named(row[2])) return unsupported;
+      const pending = value("transaction")?.includes("(pending");
+      return pending ? (NOT_ARRIVED.test(reply) ? null : contradicted) : /\bpending\b/i.test(reply) ? contradicted : null;
+    }
     case "merchant_refunds":
       if (value("no_refunds")) return DENIAL.test(reply) ? null : contradicted;
       return refundProblem(reply, facts);
@@ -241,6 +254,7 @@ export function checkAnswer(answer: string, facts: AnswerFactSet, question = "")
   const reply = clean(answer).trim();
   if (reply === "") return fail("empty");
   if (/[\r\n]/.test(reply)) return fail("more than one line");
+  if (/[<>{}`]|\]\(|\bhttps?:|\bjavascript:/i.test(reply)) return fail("markup or code");
   if (sentenceCount(reply) > MAX_SENTENCES) return fail("too many sentences");
   if (ADVICE.test(reply)) return fail("advice wording");
 
