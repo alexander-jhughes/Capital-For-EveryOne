@@ -1,0 +1,143 @@
+// Trains the personalisation model on SYNTHETIC data and writes:
+//   lib/personalisation/model.json          the trained random forest (committed, loaded by the app)
+//   docs/ml-personalisation/EVALUATION.md   metrics, baselines, overfitting check and example predictions
+//
+// Usage (Node 22.15+ or 24, no extra packages):
+//   node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/personalisation/train.ts
+// Add --check to train and compare with the committed model without writing anything (exit 1 if different).
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { EXAMPLES } from "../../lib/personalisation/examples";
+import { recommendPreferences } from "../../lib/personalisation/infer";
+import type { BinaryMetrics } from "../../lib/personalisation/metrics";
+import { TARGET_IDS } from "../../lib/personalisation/targets";
+import { DEFAULT_CONFIG, trainModel, type TrainingReport } from "../../lib/personalisation/train";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const modelPath = join(root, "lib", "personalisation", "model.json");
+const reportPath = join(root, "docs", "ml-personalisation", "EVALUATION.md");
+
+const started = performance.now();
+const { model, report } = trainModel(DEFAULT_CONFIG);
+const seconds = ((performance.now() - started) / 1000).toFixed(1);
+const json = JSON.stringify(model);
+
+if (process.argv.includes("--check")) {
+  let committed = "";
+  try {
+    committed = readFileSync(modelPath, "utf8").trim();
+  } catch {}
+  const same = committed === json;
+  console.log(same ? "model.json matches a fresh training run." : "model.json differs from a fresh training run.");
+  process.exit(same ? 0 : 1);
+}
+
+const f = (v: number | null | undefined, digits = 3) => (v === null || v === undefined ? "n/a" : v.toFixed(digits));
+const pct = (v: number | null | undefined) => (v === null || v === undefined ? "n/a" : `${(v * 100).toFixed(1)}%`);
+const row = (cells: (string | number)[]) => `| ${cells.join(" | ")} |`;
+
+function metricsTable(r: TrainingReport) {
+  const lines = [
+    row(["Target", "Eligible test people", "Base rate", "AUC: majority", "AUC: stump", "AUC: single tree", "AUC: **forest**", "Brier: majority", "Brier: **forest**"]),
+    row(Array(9).fill("---")),
+  ];
+  for (const id of TARGET_IDS) {
+    const t = r.targets[id];
+    lines.push(
+      row([
+        `\`${id}\``,
+        t.eligible.test,
+        pct(t.baseRate),
+        f(t.test.majority.auc ?? 0.5),
+        f(t.test.stump.auc),
+        f(t.test.singleTree.auc),
+        `**${f(t.test.forest.auc)}**`,
+        f(t.test.majority.brier),
+        `**${f(t.test.forest.brier)}**`,
+      ]),
+    );
+  }
+  return lines.join("\n");
+}
+
+function thresholdTable(r: TrainingReport) {
+  const lines = [row(["Target", "Threshold (from validation)", "Offered to (test)", "Kept by (test)", "Precision", "Recall", "F1", "Accuracy"]), row(Array(8).fill("---"))];
+  for (const id of TARGET_IDS) {
+    const t = r.targets[id];
+    const m: BinaryMetrics = t.test.forest;
+    lines.push(
+      t.threshold === null
+        ? row([`\`${id}\``, "none: never offered", "0", "n/a", "n/a", "n/a", "n/a", "n/a"])
+        : row([`\`${id}\``, f(t.threshold, 2), `${t.recommendations!.offered} (${pct(t.recommendations!.coverage)})`, pct(t.recommendations!.keepRate), f(m.precision), f(m.recall), f(m.f1), f(m.accuracy)]),
+    );
+  }
+  return lines.join("\n");
+}
+
+function overfitTable(r: TrainingReport) {
+  const lines = [row(["Target", "Single tree: train AUC", "test AUC", "gap", "Forest: train AUC", "test AUC", "gap"]), row(Array(7).fill("---"))];
+  for (const id of TARGET_IDS) {
+    const t = r.targets[id];
+    lines.push(
+      row([`\`${id}\``, f(t.train.singleTree.auc), f(t.test.singleTree.auc), f(t.overfitGap.singleTree), f(t.train.forest.auc), f(t.test.forest.auc), f(t.overfitGap.forest)]),
+    );
+  }
+  return lines.join("\n");
+}
+
+function examples() {
+  return EXAMPLES.map((e) => {
+    const res = recommendPreferences(e.input, e.state, model);
+    const body = [`**Status:** \`${res.status}\`${res.recommendedLayout ? `, layout \`${res.recommendedLayout}\`` : ""}`];
+    if (res.offer) body.push(`**Dial asks:** "${res.offer}"`);
+    for (const p of res.preferences) body.push(`- \`${p.target}\` at ${f(p.confidence, 2)}: ${p.reasons.join("; ")}`);
+    const notable = res.withheld.filter((w) => !["already_on", "not_reliable"].includes(w.reason));
+    if (notable.length) body.push(`Withheld: ${notable.map((w) => `\`${w.target}\` (${w.reason})`).join(", ")}`);
+    return `### ${e.name}\n\n\`\`\`json\n${JSON.stringify({ input: e.input, state: { consent: e.state.consent, signals: e.state.signals } })}\n\`\`\`\n\n${body.join("\n\n")}`;
+  }).join("\n\n");
+}
+
+const md = `# Personalisation model: evaluation report
+
+> **Generated by \`scripts/personalisation/train.ts\`. Do not edit by hand.**
+> **All data here is SYNTHETIC.** These numbers show the pipeline learns the patterns the generator put in. They do not show that the model predicts real people's preferences.
+
+- Model: \`${report.modelVersion}\` (random forest, ${DEFAULT_CONFIG.forest.trees} trees per target, max depth ${DEFAULT_CONFIG.forest.maxDepth}, min leaf ${DEFAULT_CONFIG.forest.minLeaf}, ${DEFAULT_CONFIG.forest.featuresPerSplit} of ${report.features} features tried per split)
+- Synthetic people: ${report.people.train} train, ${report.people.validation} validation, ${report.people.test} test (seed ${DEFAULT_CONFIG.data.seed}, label noise ${pct(DEFAULT_CONFIG.data.labelNoise)})
+- Model size: ${report.nodes} tree nodes, ${(json.length / 1024).toFixed(0)} KB of JSON. Training took ${seconds}s.
+- Each target is trained and tested only on people who have that setting **off** (you can only be offered what you don't have).
+
+## 1. Ranking quality against baselines (test set)
+
+AUC: 0.5 is guessing, 1.0 is perfect. Brier: mean squared error of the probability, lower is better.
+Majority = always predict the training base rate. Stump = a one-split decision tree. Single tree = one CART decision tree (max depth 8, min leaf 5, all features).
+
+${metricsTable(report)}
+
+## 2. What actually gets offered (test set)
+
+A target's threshold is the lowest of 0.60, 0.65 … 0.95 at which at least ${pct(DEFAULT_CONFIG.minKeepRate)} of validation people offered it would keep it (minimum ${DEFAULT_CONFIG.minOffered} offers). If no threshold qualifies, that setting is **never** suggested.
+
+${thresholdTable(report)}
+
+## 3. Overfitting check
+
+Train AUC minus test AUC. A large positive gap means memorising the training people.
+
+${overfitTable(report)}
+
+## 4. Example predictions (from \`lib/personalisation/examples.ts\`)
+
+${examples()}
+`;
+
+writeFileSync(modelPath, json + "\n");
+mkdirSync(dirname(reportPath), { recursive: true });
+writeFileSync(reportPath, md);
+console.log(`Trained ${report.modelVersion} in ${seconds}s: ${report.nodes} nodes, ${(json.length / 1024).toFixed(0)} KB.`);
+for (const id of TARGET_IDS) {
+  const t = report.targets[id];
+  console.log(`  ${id.padEnd(18)} test AUC ${f(t.test.forest.auc)} (stump ${f(t.test.stump.auc)})  threshold ${t.threshold ?? "none"}  keep ${pct(t.recommendations?.keepRate)}`);
+}
+console.log(`Wrote ${modelPath}\nWrote ${reportPath}`);
