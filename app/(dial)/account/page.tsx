@@ -1,9 +1,7 @@
-import { ComplexHome } from "@/components/account/complex-home";
-import { SimpleHome } from "@/components/account/simple-home";
-import { ModeView } from "@/components/mode-view";
+import { HomeScreen } from "@/components/home/home-screen";
 
 export const metadata = { title: "Home" };
 
 export default function HomePage() {
-  return <ModeView simple={<SimpleHome />} complex={<ComplexHome />} />;
+  return <HomeScreen />;
 }

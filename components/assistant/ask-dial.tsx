@@ -1,12 +1,15 @@
 "use client";
 
 import { Mic, Square, Volume2, X } from "lucide-react";
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@/lib/assistant/client";
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
+import { VoiceMode } from "../voice/voice-mode";
+import { DialMark } from "../wordmark";
 import { EvidenceList } from "./evidence-list";
 
 type Answer =
@@ -17,12 +20,11 @@ type Answer =
   | { status: "invalid"; question: string; message: string }
   | { status: "unavailable"; question: string };
 
-const AskContext = createContext<{ openAsk: (question?: string) => void }>({ openAsk: () => {} });
+const AskContext = createContext<{ openAsk: (question?: string) => void; openVoice: () => void }>({ openAsk: () => {}, openVoice: () => {} });
 export const useAskDial = () => useContext(AskContext);
 
-const button =
-  "inline-flex min-h-(--target-min) items-center justify-center gap-2 rounded-lg border-2 px-4 font-bold disabled:opacity-60";
-const secondary = `${button} border-input bg-background`;
+const button = "inline-flex min-h-(--target-min) items-center justify-center gap-2 rounded-full px-[1.1em] font-bold disabled:opacity-60";
+const secondary = `${button} hairline bg-card`;
 
 /** Ask Dial: one bottom sheet for the whole app. `openAsk(question)` opens it and asks straight away. */
 export function AskDialProvider({ children }: { children: React.ReactNode }) {
@@ -35,6 +37,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
   const inputId = useId();
 
   const [answer, setAnswer] = useState<Answer>({ status: "idle" });
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [input, setInput] = useState("");
   const [voice, setVoice] = useState<{ Rec: ReturnType<typeof getRecognition>; speak: boolean }>({ Rec: null, speak: false });
   const [listening, setListening] = useState(false);
@@ -141,9 +144,15 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
   const spoken =
     answer.status === "answered" ? answer.text : answer.status === "offline" ? answer.facts.map((f) => `${f.label}: ${f.value}.`).join(" ") : "";
 
+  const openVoice = () => {
+    dialogRef.current?.close();
+    setVoiceOpen(true);
+  };
+
   return (
-    <AskContext.Provider value={{ openAsk }}>
+    <AskContext.Provider value={{ openAsk, openVoice }}>
       {children}
+      <VoiceMode open={voiceOpen} onClose={() => setVoiceOpen(false)} />
       <dialog
         ref={dialogRef}
         aria-labelledby={`${inputId}-title`}
@@ -153,14 +162,26 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
       >
         <div className="flex max-h-[85dvh] flex-col gap-(--space) overflow-y-auto p-(--space) pb-[max(var(--space),env(safe-area-inset-bottom))]">
           <div className="flex items-center justify-between gap-(--space)">
-            <h2 id={`${inputId}-title`} ref={titleRef} tabIndex={-1} className="text-lg font-bold">
-              Ask Dial
+            <h2 id={`${inputId}-title`} ref={titleRef} tabIndex={-1} className="flex items-center gap-2 text-xl font-bold">
+              <DialMark className="size-[1.2em]" />
+              Dial
             </h2>
             <button type="button" onClick={close} className={secondary}>
               <X aria-hidden className="size-[1em]" />
               Close
             </button>
           </div>
+          <button type="button" onClick={openVoice} className="elevated flex min-h-(--target-min) items-center justify-center gap-3 rounded-xl bg-primary px-5 text-lg font-bold text-primary-foreground">
+            <Mic aria-hidden className="size-[1.2em]" />
+            Talk to Dial
+          </button>
+          <p className="-mt-1 text-sm text-muted-foreground">
+            Ask about your money, or ask Dial to change how the app looks. Or change it yourself in{" "}
+            <Link href="/account/settings" onClick={close} className="font-bold text-primary underline underline-offset-4">
+              Display and voice
+            </Link>
+            .
+          </p>
 
           <div aria-live="polite" aria-busy={answer.status === "loading"} className="flex flex-col gap-(--space)">
             {answer.status !== "idle" && answer.question && (
@@ -217,7 +238,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => void ask(question)}
-                    className="min-h-(--target-min) w-full rounded-lg border-2 border-input bg-background px-4 py-2 text-left font-bold hover:bg-muted"
+                    className="min-h-(--target-min) w-full rounded-xl hairline bg-background px-4 py-2 text-left font-bold hover:bg-accent"
                   >
                     {question}
                   </button>
@@ -243,7 +264,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
                 onChange={(e) => setInput(e.target.value)}
                 maxLength={300}
                 autoComplete="off"
-                className="min-h-(--target-min) min-w-0 flex-1 basis-48 rounded-lg border-2 border-input bg-background px-3"
+                className="min-h-(--target-min) min-w-0 flex-1 basis-48 rounded-xl hairline bg-background px-3"
               />
               {voice.Rec && (
                 <button
