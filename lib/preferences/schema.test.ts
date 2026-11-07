@@ -92,3 +92,18 @@ describe("clearEmphasis", () => {
     expect(p.layout).toMatchObject({ emphasis: null, pinned: ["bill"] });
   });
 });
+
+describe("assistant preferences (explanations, voice first, onboarding)", () => {
+  it("default off, allowlisted, and round-trip through the cookie", () => {
+    expect(DEFAULT_PREFS).toMatchObject({ explanations: "standard", voiceFirst: false, onboarding: "unset" });
+    const p = sanitize({ explanations: "stepByStep", voiceFirst: true, onboarding: "done" });
+    expect(p).toMatchObject({ explanations: "stepByStep", voiceFirst: true, onboarding: "done" });
+    expect(decodePrefs(encodePrefs(p))).toEqual(p);
+    expect(sanitize({ explanations: "essay", voiceFirst: "yes", onboarding: "forced" })).toMatchObject({ explanations: "standard", voiceFirst: false, onboarding: "unset" });
+  });
+  it("actions apply and describe", () => {
+    const p = applyActions(DEFAULT_PREFS, [{ type: "explanations", value: "stepByStep" }, { type: "voiceFirst", value: true }]);
+    expect(p).toMatchObject({ explanations: "stepByStep", voiceFirst: true });
+    expect(describeActions([{ type: "voiceFirst", value: true }])).toBe("make talking to Dial the first option");
+  });
+});

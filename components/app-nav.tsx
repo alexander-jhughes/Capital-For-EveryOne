@@ -3,6 +3,7 @@
 import { ChartColumn, CreditCard, House, PauseCircle, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { usePreferences } from "@/lib/preferences/provider";
 import { useAskDial } from "./assistant/ask-dial";
 import { DialMark, Wordmark } from "./wordmark";
 
@@ -23,7 +24,8 @@ const tab =
  */
 export function AppNav() {
   const path = usePathname();
-  const { openAsk } = useAskDial();
+  const { openAsk, openVoice } = useAskDial();
+  const { prefs } = usePreferences();
   if (!path.startsWith("/account")) return null;
 
   const link = ({ href, label, long, Icon }: (typeof LINKS)[number] & { long?: string }) => (
@@ -51,7 +53,8 @@ export function AppNav() {
         <li className="lg:order-last lg:mt-5">
           <button
             type="button"
-            onClick={() => openAsk()}
+            onClick={() => (prefs.voiceFirst ? openVoice() : openAsk())}
+            aria-label={prefs.voiceFirst ? "Talk to Dial" : undefined}
             aria-haspopup="dialog"
             className="flex min-h-(--target-min) w-full flex-col items-center justify-end gap-1 text-sm font-bold lg:flex-row lg:justify-center lg:gap-2 lg:rounded-xl lg:bg-primary lg:text-base lg:text-primary-foreground"
           >

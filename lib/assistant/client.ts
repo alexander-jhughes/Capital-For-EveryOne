@@ -2,6 +2,8 @@
 // and falls back to the deterministic facts layer when the backend can't answer. Never writes answers itself.
 import { buildFacts, type FactContext } from "../ai/facts";
 import type { AskResponse, Intent } from "../types";
+import { parseExperience, type Experience } from "./experience";
+import type { ClientStateBody } from "./live-state";
 
 /** The demo questions from docs/BRIEF.md. The intent is only used for the offline fallback. */
 export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
@@ -13,7 +15,7 @@ export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
 
 export type AskOutcome =
   /** The backend answered. */
-  | { kind: "answer"; response: AskResponse }
+  | { kind: "answer"; response: AskResponse; experience: Experience }
   /** The backend rejected the question (HTTP 400); `message` is its friendly text. */
   | { kind: "invalid"; message: string }
   /** No usable answer: network error, timeout, HTTP 5xx/404, or a malformed body. */
@@ -33,7 +35,7 @@ export function parseAskResponse(body: unknown): AskResponse | null {
 
 export async function askDial(
   question: string | undefined,
-  { fetchImpl = fetch, timeoutMs = 8000 }: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  { fetchImpl = fetch, timeoutMs = 8000, state }: { fetchImpl?: typeof fetch; timeoutMs?: number; state?: ClientStateBody } = {},
 ): Promise<AskOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -41,7 +43,7 @@ export async function askDial(
     const res = await fetchImpl("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(question === undefined ? {} : { question }),
+      body: JSON.stringify({ ...(question === undefined ? {} : { question }), ...(state ? { state } : {}) }),
       signal: controller.signal,
     });
     const body: unknown = await res.json().catch(() => null);
@@ -51,7 +53,9 @@ export async function askDial(
     }
     if (!res.ok) return { kind: "unavailable" };
     const response = parseAskResponse(body);
-    return response ? { kind: "answer", response } : { kind: "unavailable" };
+    // `experience` is optional and validated separately: a bad one never costs the answer itself.
+    const experience = parseExperience((body as { experience?: unknown } | null)?.experience);
+    return response ? { kind: "answer", response, experience } : { kind: "unavailable" };
   } catch {
     return { kind: "unavailable" };
   } finally {

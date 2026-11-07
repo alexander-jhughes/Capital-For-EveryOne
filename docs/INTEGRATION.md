@@ -84,3 +84,29 @@ Three independent layers, all on `<html>` and all read by the same component tre
 - **Alexander (Stage 3):** no contract change. Voice Mode sends money questions to `/api/ask` exactly as the Ask sheet does; interface commands never reach the backend.
 - **Navigation:** the bottom dock and Ask bar are replaced by one `AppNav` (phone tab bar with a raised Dial button, desktop side rail). Ask Dial opens from the Dial button; Voice Mode from "Talk to Dial".
 - **New route:** `/account/settings` (Display and voice).
+
+## `experience` field on `POST /api/ask` (frontend side, `feat/hackathon-adaptive-ui`)
+
+The frontend now reads an **optional** `experience` field next to `answer`, `evidenceIds` and `source`. Nothing in `app/api`, `lib/ai` or `lib/types` was changed; the parser lives in `lib/assistant/experience.ts`.
+
+```json
+{ "answer": "...", "evidenceIds": ["t051", "t052"], "source": "model",
+  "experience": { "template": "transaction", "intent": "transaction_investigation" } }
+```
+
+| template | intent | card shows (all figures from `lib/finance`, never from the model) |
+|---|---|---|
+| `statement` | `statement_balance` | current and statement balance, minimum, due date, evidence transactions |
+| `spending` | `spending_insights` | month-to-date total, comparison with same days last month, categories, top shops |
+| `subscriptions` | `subscription_query` | each subscription, current price, previous price and change |
+| `transaction` | `transaction_investigation` | the `evidenceIds` transactions: shop, amount, date, status, refund, possible duplicate |
+| `payment` | `payment_planning` | due date, statement balance, minimum, other-amount range, minimum-only payoff estimate |
+| `general` | `general` | no card (plain Dial answer) |
+
+Rules the frontend applies:
+- `template` must be one of the six strings exactly; otherwise the answer is shown as `general`. A bad `experience` never hides the answer.
+- `intent` is optional; unknown values are ignored (the template still applies).
+- Extra fields are ignored. Nothing in `experience` is executed or used to change app state.
+- The `transaction` card needs `evidenceIds`; with none (or only unknown ids) it shows a "Dial didn't point to a specific transaction" state.
+
+Backend asks: please send exactly these strings; send `evidenceIds` for `transaction` answers; leave `experience` out rather than guessing.

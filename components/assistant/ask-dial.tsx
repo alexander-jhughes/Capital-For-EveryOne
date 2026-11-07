@@ -6,16 +6,19 @@ import { createContext, useCallback, useContext, useEffect, useId, useRef, useSt
 import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@/lib/assistant/client";
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
+import { liveState } from "@/lib/assistant/live-state";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
 import { VoiceMode } from "../voice/voice-mode";
 import { DialMark } from "../wordmark";
+import type { ExperienceTemplate } from "@/lib/assistant/experience";
+import { ExperienceCard } from "../experience/templates";
 import { EvidenceList } from "./evidence-list";
 
 type Answer =
   | { status: "idle" }
   | { status: "loading"; question: string }
-  | { status: "answered"; question: string; text: string; evidenceIds: string[]; source: AskResponse["source"] }
+  | { status: "answered"; question: string; text: string; evidenceIds: string[]; source: AskResponse["source"]; template: ExperienceTemplate }
   | { status: "offline"; question: string; facts: Fact[]; evidenceIds: string[] }
   | { status: "invalid"; question: string; message: string }
   | { status: "unavailable"; question: string };
@@ -62,11 +65,11 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
       stopSpeaking();
       const id = ++requestId.current;
       setAnswer({ status: "loading", question: q });
-      const outcome = await askDial(q);
+      const outcome = await askDial(q, { state: liveState(transactions, settings) });
       if (id !== requestId.current) return; // a newer question replaced this one
       if (outcome.kind === "answer") {
         const { answer: text, evidenceIds, source } = outcome.response;
-        setAnswer({ status: "answered", question: q, text, evidenceIds, source });
+        setAnswer({ status: "answered", question: q, text, evidenceIds, source, template: outcome.experience.template });
       } else if (outcome.kind === "invalid") {
         setAnswer({ status: "invalid", question: q, message: outcome.message });
       } else {
@@ -161,7 +164,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         onClick={(e) => e.target === dialogRef.current && close()}
       >
         <div className="flex max-h-[85dvh] flex-col gap-(--space) overflow-y-auto p-(--space) pb-[max(var(--space),env(safe-area-inset-bottom))]">
-          <div className="flex items-center justify-between gap-(--space)">
+          <div className="flex flex-wrap items-center justify-between gap-(--space)">
             <h2 id={`${inputId}-title`} ref={titleRef} tabIndex={-1} className="flex items-center gap-2 text-xl font-bold">
               <DialMark className="size-[1.2em]" />
               Dial
@@ -197,6 +200,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
               </div>
             )}
             {answer.status === "answered" && <p className="text-lg font-bold">{answer.text}</p>}
+            {answer.status === "answered" && <ExperienceCard template={answer.template} evidenceIds={answer.evidenceIds} onNavigate={close} />}
             {answer.status === "offline" && (
               <div className="flex flex-col gap-1">
                 <p className="text-sm">Dial&apos;s assistant isn&apos;t available right now. This is what your account shows:</p>
@@ -222,7 +226,8 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
                 {speaking ? "Stop reading" : "Read aloud"}
               </button>
             )}
-            {(answer.status === "answered" || answer.status === "offline") && <EvidenceList ids={answer.evidenceIds} onNavigate={close} />}
+            {/* A financial card already shows its evidence and next step; the plain list is for general answers. */}
+            {((answer.status === "answered" && answer.template === "general") || answer.status === "offline") && <EvidenceList ids={answer.evidenceIds} onNavigate={close} />}
             {answer.status === "answered" && process.env.NODE_ENV === "development" && (
               <p className="self-start rounded border border-input px-2 text-sm">dev: source {answer.source}</p>
             )}
