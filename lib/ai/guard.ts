@@ -1,5 +1,6 @@
 // Output guard. Any reply that fails here is thrown away and the template sentence is used instead.
 import type { FactSet } from "../types";
+import { billQuestion } from "./intent";
 
 export const MAX_SENTENCES = 2;
 export const CANT_TELL = "I can't tell that from your transactions.";
@@ -72,6 +73,28 @@ const capitalised = (text: string) => text.match(/\b[A-Z][A-Za-z'-]*/g) ?? [];
 
 const sentenceCount = (text: string) => text.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "").length;
 
+const AMOUNT = "£\\d[\\d,]*(?:\\.\\d+)?";
+const BILL_TERMS = "current balance|statement balance|bill|minimum payment|minimum|owe|owing";
+
+/** Which fact each way of naming a bill amount refers to. */
+function factForTerm(term: string): string {
+  const t = term.toLowerCase();
+  if (t.startsWith("minimum")) return "minimum_payment";
+  return t === "bill" || t === "statement balance" ? "statement_balance" : "current_balance";
+}
+
+/** True when a reply puts one balance's name on another's amount, as in "Your current balance is £486.20". */
+function mixesBalances(reply: string, value: (key: string) => string | undefined): boolean {
+  const named = [
+    ...[...reply.matchAll(new RegExp(`\\b(${BILL_TERMS})\\b[^£.!?]{0,30}(${AMOUNT})`, "gi"))].map((m) => [m[1], m[2]]),
+    ...[...reply.matchAll(new RegExp(`(${AMOUNT})\\s+(?:is\\s+|as\\s+)?(?:your\\s+|the\\s+)?(${BILL_TERMS})\\b`, "gi"))].map((m) => [m[2], m[1]]),
+  ];
+  return named.some(([term, amount]) => {
+    const expected = value(factForTerm(term));
+    return expected !== undefined && expected.replace(/,/g, "") !== amount.replace(/[.,]$/, "").replace(/,/g, "");
+  });
+}
+
 /** Only the bare sentence counts, so "Yes, but I can't tell that..." can't slip past the grounding check. */
 export const isCantTell = (text: string) => /^i can't tell that from your transactions\.?$/i.test(clean(text).trim());
 
@@ -88,7 +111,7 @@ function inWrongPeriod(reply: string, amount: string, period: string): boolean {
  * by default. This proves it actually states the answer: it has to carry the fact that settles the question, and
  * must not deny or reverse it.
  */
-function groundingProblem(reply: string, facts: FactSet): string | null {
+function groundingProblem(reply: string, facts: FactSet, question: string): string | null {
   const value = (key: string) => facts.facts.find((f) => f.key === key)?.value;
   const values = (prefix: string) => facts.facts.filter((f) => f.key.startsWith(prefix)).map((f) => f.value);
   const stated = amounts(reply);
@@ -101,6 +124,8 @@ function groundingProblem(reply: string, facts: FactSet): string | null {
   const valuesText = facts.facts.map((f) => f.value).join(" ");
   if (HIGHER.test(valuesText) && !LOWER.test(valuesText) && LOWER.test(reply)) return contradicted;
   if (LOWER.test(valuesText) && !HIGHER.test(valuesText) && HIGHER.test(reply)) return contradicted;
+
+  if (mixesBalances(reply, value)) return contradicted;
 
   switch (facts.intent) {
     case "duplicates": {
@@ -140,6 +165,9 @@ function groundingProblem(reply: string, facts: FactSet): string | null {
     }
     case "days_until_due": {
       if (DENIAL.test(reply)) return contradicted;
+      const asked = billQuestion(question);
+      if (asked === "current" || asked === "owed" || asked === "balance") return has(value("current_balance")) ? null : unsupported;
+      if (asked === "statement") return has(value("statement_balance")) ? null : unsupported;
       const due = value("due_date")?.toLowerCase() ?? "";
       const left = value("days_until_due")?.toLowerCase().replace("overdue by ", "") ?? "";
       const dueDay = due.replace(/^\w+ /, "");
@@ -160,7 +188,7 @@ function groundingProblem(reply: string, facts: FactSet): string | null {
 }
 
 /** Checks one reply against one fact set. Every amount and date must appear in the facts, exactly. */
-export function checkAnswer(answer: string, facts: FactSet): GuardResult {
+export function checkAnswer(answer: string, facts: FactSet, question = ""): GuardResult {
   const reply = clean(answer).trim();
   if (reply === "") return fail("empty");
   if (/[\r\n]/.test(reply)) return fail("more than one line");
@@ -194,6 +222,6 @@ export function checkAnswer(answer: string, facts: FactSet): GuardResult {
   if (capitalised(normaliseProperDates(reply)).some(isName)) return fail("name not in facts");
 
   if (isCantTell(reply)) return pass;
-  const problem = groundingProblem(reply, facts);
+  const problem = groundingProblem(reply, facts, question);
   return problem ? fail(problem) : pass;
 }

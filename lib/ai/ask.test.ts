@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactSet, Intent } from "../types";
 import { answerQuestion, handleAsk, MAX_QUESTION_LENGTH } from "./ask";
+import { answerFacts } from "./answer-facts";
 import { DEMO_ANSWERS } from "./cache";
-import { buildFacts, INTENTS, seedContext } from "./facts";
+import { buildFacts as stage2Facts, INTENTS, seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer } from "./guard";
 import { matchIntent, UNSUPPORTED } from "./intent";
 import { createModel, type AskModel } from "./model";
 import { templateAnswer } from "./templates";
+
+const buildFacts = (intent: Intent, ctx: FactContext = seedContext()) => answerFacts(intent, ctx);
 
 const TESCO = "Did I pay Tesco twice this month?";
 /** Not one of the fixed demo questions, so it reaches the model. */
@@ -64,7 +67,6 @@ describe("matchIntent", () => {
     "How much did I spend in the last 7 days?",
     "How much have I spent in the past week?",
     "What did I spend since Monday?",
-    "What's my current balance?",
     "What's my available balance?",
     "Is my bill paid?",
     "Have I paid my bill?",
@@ -167,7 +169,7 @@ describe("checkAnswer: a reply must state the answer, not just avoid inventing o
     ["top_items", "Trainline was your biggest purchase, at £64.30."],
     ["days_until_due", "Your bill is due on Friday."],
     ["days_until_due", "Your bill is due in 5 days."],
-    ["days_until_due", "You owe £486.20."],
+    ["days_until_due", "Your bill is £486.20."],
     ["minimum_payment", "Your minimum payment is £25.00."],
     ["spend_pause", "Spend Pause is on."],
     ["spend_pause", "You have £97.65 left in your budget."],
@@ -251,18 +253,19 @@ describe("answerQuestion", () => {
     }
   });
 
-  it.each(["How much do I owe?", "When do I need to pay?"])("answers %s from the bill facts", async (question) => {
+  it.each<[string, string]>([
+    ["How much do I need to pay?", "Your statement balance is £486.20, due on Friday 13 November. The minimum payment is £25.00."],
+    ["How much is my bill?", "Your statement balance is £486.20, due on Friday 13 November. The minimum payment is £25.00."],
+    ["What's my statement balance?", "Your statement balance is £486.20, due on Friday 13 November. The minimum payment is £25.00."],
+    ["What's my current balance?", "Your current balance is £1,069.89."],
+    ["How much do I owe?", "You owe £1,069.89 in total. Your statement balance of £486.20 is due on Friday 13 November."],
+    ["How much do I owe you?", "You owe £1,069.89 in total. Your statement balance of £486.20 is due on Friday 13 November."],
+    ["What's my balance?", "Your current balance is £1,069.89. Your statement balance is £486.20, due on Friday 13 November."],
+    ["When do I need to pay?", "Your bill of £486.20 is due on Friday 13 November. That is in 5 days."],
+  ])("%s", async (question, answer) => {
     const result = await answerQuestion(question, { model: null });
-    expect(result.source).toBe("template");
-    expect(result.answer).toBe("Your bill of £486.20 is due on Friday 13 November. That is in 5 days.");
-  });
-
-  it("says which balance it means, because the current balance is not in the facts", async () => {
-    const ctx = seedContext();
-    expect(ctx.account.currentBalance).not.toBe(ctx.account.statementBalance);
-    const result = await answerQuestion("What's my balance?", { model: null });
-    expect(result.answer).toBe("Your statement balance is £486.20, due on Friday 13 November.");
-    expect(checkAnswer(result.answer, bill)).toEqual({ ok: true });
+    expect(result).toEqual({ answer, evidenceIds: [], source: "template" });
+    expect(checkAnswer(answer, bill, question)).toEqual({ ok: true });
   });
 
   it.each(["Have I been charged twice by Lidl?", "Was I charged twice at Lidl?", "Did Spotify go up?"])("does not answer %s with a finding about another shop", async (question) => {
@@ -446,12 +449,119 @@ describe("the model request", () => {
     expect(await createModel()!.phrase("hello", duplicates, 4000)).toBeNull();
   });
 
+  it("treats an empty reply as no answer", async () => {
+    replyWith([], "end_turn");
+    expect(await createModel()!.phrase("hello", duplicates, 4000)).toBe("");
+    expect(checkAnswer("", duplicates).ok).toBe(false);
+  });
+
   it("ignores a label outside the fixed list", async () => {
     replyWith([{ type: "text", text: "something_else" }], "end_turn");
     expect(await createModel()!.classify("hello", 4000)).toBeNull();
   });
 });
 
-describe("Stage 2 evidence (owned by the facts layer)", () => {
-  it.todo("spend_this_month evidence should not include October transactions: needs a facts.ts change, agreed with its owner");
+describe("the two balances", () => {
+  it.each<[string, string, string]>([
+    ["Your current balance is £486.20.", "What's my current balance?", "contradicts facts"],
+    ["£486.20 is your current balance.", "What's my balance?", "contradicts facts"],
+    ["Your statement balance is £1,069.89.", "How much do I need to pay?", "contradicts facts"],
+    ["Your bill is £1,069.89.", "When is it due?", "contradicts facts"],
+    ["You owe £486.20.", "How much do I owe?", "contradicts facts"],
+    ["Your minimum payment is £486.20.", "When is it due?", "contradicts facts"],
+    ["Your bill is due on Friday 13 November.", "What's my current balance?", "no supporting fact"],
+    ["It is due in 5 days.", "How much do I owe?", "no supporting fact"],
+    ["It is due in 5 days.", "How much do I need to pay?", "no supporting fact"],
+  ])("rejects %j for %j", (reply, question, reason) => {
+    expect(checkAnswer(reply, bill, question)).toEqual({ ok: false, reason });
+  });
+
+  it.each<[string, string]>([
+    ["Your current balance is £1,069.89.", "What's my current balance?"],
+    ["You owe £1,069.89, and your bill of £486.20 is due on Friday 13 November.", "How much do I owe?"],
+    ["Your statement balance is £486.20.", "How much do I need to pay?"],
+    ["£1,069.89 is your current balance.", "What's my balance?"],
+  ])("accepts %j for %j", (reply, question) => expect(checkAnswer(reply, bill, question)).toEqual({ ok: true }));
+
+  it("a model reply naming the wrong balance is replaced", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const model = fakeModel({ phrase: async () => "Your current balance is £486.20." });
+    const result = await answerQuestion("What's my current balance?", { model });
+    expect(result).toEqual({ answer: "Your current balance is £1,069.89.", evidenceIds: [], source: "template" });
+  });
+});
+
+describe("evidence always matches the facts behind the answer", () => {
+  const ctx = seedContext();
+  const byId = new Map(ctx.txns.map((t) => [t.id, t]));
+  const months = (ids: string[]) => [...new Set(ids.map((id) => byId.get(id)!.date.slice(0, 7)))];
+
+  it("November spending shows only November transactions, and October's figure stays available", () => {
+    const set = answerFacts("spend_this_month", ctx);
+    expect(months(stage2Facts("spend_this_month", ctx).evidenceIds)).toContain("2026-10");
+    expect(months(set.evidenceIds)).toEqual(["2026-11"]);
+    expect(set.evidenceIds.length).toBe(20);
+    expect(set.facts.find((f) => f.key === "same_days_last_month_total")?.value).toBe("£145.63");
+    expect(set.evidence.map((row) => row.id)).toEqual(set.evidenceIds);
+  });
+
+  it("October spending shows only October transactions", () => {
+    expect(months(answerFacts("spend_last_month", ctx).evidenceIds)).toEqual(["2026-10"]);
+  });
+
+  it.each(INTENTS)("%s: the response carries exactly the evidence of its facts", async (intent) => {
+    const set = answerFacts(intent, ctx);
+    expect(set.evidenceIds).toEqual([...new Set(set.facts.flatMap((f) => f.evidenceIds))]);
+    expect(set.evidence.map((row) => row.id)).toEqual(set.evidenceIds);
+    for (const id of set.evidenceIds) expect(byId.has(id)).toBe(true);
+  });
+
+  it.each<[string, Intent, string]>([
+    ["What did I spend this month?", "spend_this_month", "£402.35"],
+    ["What did I spend last month?", "spend_last_month", "£853.27"],
+    ["What were my biggest purchases?", "top_items", "£64.30"],
+    ["Was I charged twice?", "duplicates", "£38.62"],
+    ["Has any subscription gone up?", "price_changes", "£12.99"],
+    ["When is my bill due?", "days_until_due", "Friday 13 November"],
+    ["What is my minimum payment?", "minimum_payment", "£25.00"],
+    ["Is Spend Pause on?", "spend_pause", "£100.00"],
+  ])("%s answers the %s intent with no key", async (question, intent, expected) => {
+    const result = await answerQuestion(question, { model: null });
+    expect(result.answer).toContain(expected);
+    expect(result.evidenceIds).toEqual(answerFacts(intent, ctx).evidenceIds);
+  });
+});
+
+describe("natural variations of the demo questions", () => {
+  it.each<[Intent, string[]]>([
+    ["duplicates", ["Did I pay Tesco twice?", "Did Tesco charge me twice?", "Have I paid Tesco twice?", "Was I double charged?", "Did I get charged double?", "Any duplicate payments?", "Is there a duplicate charge?", "did i pay tesco twice this month"]],
+    ["spend_this_month", ["How much have I spent this month?", "What's my spending this month?", "How much did I spend in November?", "What have I spent so far?", "How much have I spent so far?"]],
+    ["price_changes", ["Have any of my subscriptions gone up?", "Did any subscription increase?", "Has anything gone up in price?", "Are my subscriptions more expensive?", "Has Netflix got more expensive?", "Any price rises?", "Any price increases?"]],
+    ["days_until_due", ["When's my bill due?", "When do I have to pay by?", "When is my payment due?", "What's my due date?", "How long until my bill is due?", "When's the deadline?", "When is my next bill?"]],
+  ])("%s", (intent, questions) => {
+    for (const question of questions) expect([question, matchIntent(question, NAMES)]).toEqual([question, intent]);
+  });
+
+  it("the exact demo wording survives case, punctuation and spacing", async () => {
+    for (const question of ["did i pay tesco twice this month", "  DID I PAY TESCO TWICE THIS MONTH??  "]) {
+      expect((await answerQuestion(question, { model: fakeModel() })).source).toBe("cache");
+    }
+  });
+});
+
+describe("a merchant question can't return another figure", () => {
+  it.each([
+    "How much did I spend at Tesco this month?",
+    "How much have I spent at Amazon?",
+    "How much was Trainline?",
+    "What did I pay Netflix last month?",
+    "Tesco spending",
+    "Total at Tesco in October?",
+    "How much do I owe Amazon?",
+  ])("%s", async (question) => {
+    const model = fakeModel({ classify: vi.fn(async (): Promise<Intent | null> => "spend_this_month") });
+    expect(await answerQuestion(question, { model })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+    expect(model.classify).not.toHaveBeenCalled();
+    expect(model.phrase).not.toHaveBeenCalled();
+  });
 });
