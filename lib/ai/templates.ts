@@ -1,7 +1,7 @@
 // Template sentences. Each one is built only from a FactSet, so it is correct by construction and needs no model.
 import type { AnswerFactSet } from "./answer-facts";
 import { CANT_TELL } from "./guard";
-import { billQuestion } from "./intent";
+import { billQuestion, spendQuestion } from "./intent";
 
 const list = (values: string[]) => values.join("; ");
 
@@ -16,6 +16,14 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
   switch (set.intent) {
     case "spend_this_month": {
       const top = value("month_top_category");
+      const kind = spendQuestion(question);
+      if (kind === "category" && top) return `Your biggest category this month is ${top}.`;
+      if (kind === "compare") {
+        const change = value("change_vs_same_days_last_month");
+        const previous = value("same_days_last_month_total");
+        const spent = `You have spent ${value("month_to_date_total")} so far this month`;
+        return change === "The same" ? `${spent}, the same as the same days last month.` : `${spent}, ${change} than the same days last month, when you spent ${previous}.`;
+      }
       const total = `You have spent ${value("month_to_date_total")} so far this month.`;
       return top ? `${total} Your biggest category is ${top}.` : total;
     }
@@ -23,12 +31,14 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
       const total = set.facts.find((f) => f.key === "last_month_total");
       const top = value("last_month_top_category");
       if (!total) return CANT_TELL;
+      if (spendQuestion(question) === "category" && top) return `Your biggest category last month was ${top}.`;
       const sentence = `You spent ${total.value} in ${total.label.replace("Spent in ", "")}.`;
       return top ? `${sentence} Your biggest category was ${top}.` : sentence;
     }
     case "top_items": {
       const items = values("top_item_");
-      return items.length > 0 ? `Your biggest purchases this month were: ${list(items)}.` : CANT_TELL;
+      const when = set.facts[0]?.label.includes("last month") ? "last month" : "this month";
+      return items.length > 0 ? `Your biggest purchases ${when} were: ${list(items)}.` : CANT_TELL;
     }
     case "duplicates": {
       if (value("no_duplicates")) return "I can't see any possible duplicate charges.";
@@ -54,6 +64,8 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
           return `Your current balance is ${current}. Your statement balance is ${statement}, due on ${due}.`;
         case "pay":
           return `Your full statement balance, the amount on your latest bill, is ${statement}. The minimum payment is ${minimum}, and both are due by ${due}.`;
+        case "last_payment":
+          return `Your last payment was ${value("last_payment")?.replace(", on", " on")}.`;
         case "bill":
           return `Your bill, the statement balance, is ${statement}, due on ${due}.`;
         case "due":

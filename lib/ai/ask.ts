@@ -8,11 +8,12 @@ import { selectExperience, type OrchestratedResponse } from "./experience";
 import { billQuestion, merchantSubject, namedMerchants } from "./intent";
 import { interpretQuestion, periodLabelFor } from "./interpreter";
 import { describeError, type AskModel } from "./model";
+import { allowModelCall, clientKey } from "./rate-limit";
 import { templateAnswer } from "./templates";
 import { validateResponse } from "./validator";
 
 export const MAX_QUESTION_LENGTH = 300;
-const MAX_BODY_LENGTH = 4096;
+const MAX_BODY_BYTES = 4096;
 const TIMEOUT_MS = 4000;
 /** Below this a model call can't finish, so go straight to the fallback. */
 const MIN_CALL_MS = 250;
@@ -115,11 +116,30 @@ export async function answerQuestion(question: string | undefined, options: AskO
   return finish({ answer: reply.trim(), evidenceIds: facts.evidenceIds, source: "model" });
 }
 
+/** The body as text, or null if it's too big. Stops reading at the limit, whatever the headers claim. */
+async function readBody(request: Request): Promise<string | null> {
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return null;
+  if (!request.body) return "";
+  const decoder = new TextDecoder();
+  const reader = request.body.getReader();
+  let size = 0;
+  let text = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    size += value.byteLength;
+    if (size > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 type ParsedQuestion = { question: string | undefined } | { error: string };
 
 /** A missing question means the default summary. An empty one is a mistake to tell the person about. */
 function parseQuestion(body: string): ParsedQuestion {
-  if (body.length > MAX_BODY_LENGTH) return { error: MESSAGES.tooLong };
   if (body.trim() === "") return { question: undefined };
 
   let parsed: unknown;
@@ -144,9 +164,13 @@ function parseQuestion(body: string): ParsedQuestion {
 export async function handleAsk(request: Request, createModel: () => AskModel | null): Promise<Response> {
   const headers = { "Cache-Control": "no-store" };
   try {
-    const parsed = parseQuestion(await request.text());
+    const body = await readBody(request);
+    if (body === null) return Response.json({ error: MESSAGES.tooLong }, { status: 400, headers });
+    const parsed = parseQuestion(body);
     if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400, headers });
-    const answer = await answerQuestion(parsed.question, { model: createModel() });
+    // Over the limit still gets an answer. It just doesn't spend a Gemini call.
+    const model = allowModelCall(clientKey(request)) ? createModel() : null;
+    const answer = await answerQuestion(parsed.question, { model });
     return Response.json(answer, { headers });
   } catch (error) {
     log("request failed", error);
