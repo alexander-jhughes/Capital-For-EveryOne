@@ -3,15 +3,14 @@
 import { monthOverMonth } from "../finance";
 import type { Confidence, AskIntent } from "./experience";
 import type { FactContext } from "./facts";
-import { billQuestion, matchIntent, merchantPeriod, merchantSubject, namedShops, transactionRef, UNSUPPORTED, type AnswerIntent } from "./intent";
+import { billQuestion, cannotAnswer, matchIntent, merchantPeriod, merchantSubject, namedShops, transactionRefs, UNSUPPORTED, type AnswerIntent, type KnownNames, type MerchantPeriod } from "./intent";
 import type { AskModel } from "./model";
 
+/** What a question is about. These decide which facts are fetched and the period shown. */
 export interface Entities {
   merchant?: string;
-  /** Exactly as asked, such as "£38.62". Only ever used to read the question, never as a fact. */
-  amount?: string;
-  dateRange?: string;
   transactionRef?: string;
+  period: MerchantPeriod;
 }
 
 export type Interpretation =
@@ -63,28 +62,26 @@ export function askIntentFor(intent: AnswerIntent, question: string): AskIntent 
 }
 
 /** The month an answer covers, from the finance layer's own date ranges. */
-export function periodLabelFor(intent: AnswerIntent, question: string, ctx: FactContext): string | undefined {
+export function periodLabelFor(intent: AnswerIntent, period: MerchantPeriod, ctx: FactContext): string | undefined {
   const { thisMonth, lastMonth } = monthOverMonth(ctx.txns, ctx.today);
   const month = (from: string) => new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${from}T12:00:00Z`));
-  if (intent === "spend_this_month" || intent === "top_items") return month(thisMonth.from);
+  if (intent === "spend_this_month") return month(thisMonth.from);
   if (intent === "spend_last_month") return month(lastMonth.from);
-  if (intent !== "merchant_transactions") return undefined;
-  const period = merchantPeriod(question);
+  if (intent === "top_items") return month(period === "last_month" ? lastMonth.from : thisMonth.from);
+  if (intent !== "merchant_transactions" && intent !== "duplicates") return undefined;
   return period === "this_month" ? month(thisMonth.from) : period === "last_month" ? month(lastMonth.from) : undefined;
 }
 
 function extractEntities(question: string, merchants: string[]): Entities {
   const merchant = merchantSubject(question, merchants);
-  const amount = question.match(/£\s?\d[\d,]*(?:\.\d{1,2})?/)?.[0];
-  const dateRange = question.match(/\b(?:this month|last month|last week|this week|yesterday|today|january|february|march|april|june|july|august|september|october|november|december)\b/i)?.[0];
-  const reference = transactionRef(question);
-  return { ...(merchant ? { merchant } : {}), ...(amount ? { amount } : {}), ...(dateRange ? { dateRange: dateRange.toLowerCase() } : {}), ...(reference ? { transactionRef: reference } : {}) };
+  const [transactionRef] = transactionRefs(question);
+  return { ...(merchant ? { merchant } : {}), ...(transactionRef ? { transactionRef } : {}), period: merchantPeriod(question) };
 }
 
 /** One question to one interpretation. At most one model call, and only when the rules can't tell. */
 export async function interpretQuestion(
   question: string,
-  names: { merchants: string[]; categories: string[] },
+  names: KnownNames,
   model: AskModel | null,
   timeoutMs: number,
   onError: (error: unknown) => void,
@@ -94,8 +91,12 @@ export async function interpretQuestion(
 
   const match = matchIntent(question, names);
   const shops = namedShops(question, names.merchants);
-  const compares = match !== "duplicates" && match !== "price_changes";
-  if (shops.length > 1 && compares) return { kind: "clarify", message: clarifyShops(shops), entities };
+  const answerableAcrossShops = match === "duplicates" || match === "price_changes" || match === "subscription_list" || match === "transaction_lookup";
+  if (shops.length > 1 && !answerableAcrossShops) {
+    // "Tesco or Argos?" could mean either, so ask. "Compare Tesco and Argos" can't be answered either way.
+    if (cannotAnswer(question)) return { kind: "unsupported", entities, confidence: "high" };
+    return { kind: "clarify", message: clarifyShops(shops), entities };
+  }
 
   if (match === UNSUPPORTED) return { kind: "unsupported", entities, confidence: "high" };
   if (match) return { kind: "answer", intent: askIntentFor(match, question), factIntent: match, entities, confidence: "high" };

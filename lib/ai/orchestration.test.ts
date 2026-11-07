@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Intent } from "../types";
+import type { Intent, Transaction } from "../types";
 import { answerFacts } from "./answer-facts";
 import { answerQuestion, handleAsk } from "./ask";
 import { ASK_INTENTS, parseExperience, selectExperience, TEMPLATE_FOR_INTENT, TEMPLATES } from "./experience";
@@ -14,6 +14,7 @@ const ctx = seedContext();
 const names = {
   merchants: [...new Set(ctx.txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))],
   categories: [...new Set(ctx.txns.map((t) => t.category))],
+  ids: ctx.txns.map((t) => t.id),
 };
 const byId = new Map(ctx.txns.map((t) => [t.id, t]));
 const REFUND_IDS = ["t062", "t061", "t036", "t028"];
@@ -79,8 +80,8 @@ describe("Agent 1: interpreter", () => {
   const interpret = (question: string, model: AskModel | null = null) => interpretQuestion(question, names, model, 1000, () => {});
 
   it("extracts what it can from a question", async () => {
-    expect((await interpret("Was the £38.62 at Tesco last month charged twice?")).entities).toEqual({ merchant: "Tesco", amount: "£38.62", dateRange: "last month" });
-    expect((await interpret("What is t051?")).entities).toEqual({ transactionRef: "t051" });
+    expect((await interpret("Was the £38.62 at Tesco last month charged twice?")).entities).toEqual({ merchant: "Tesco", period: "last_month" });
+    expect((await interpret("What is t051?")).entities).toEqual({ transactionRef: "t051", period: "all" });
   });
 
   it("only names a shop that's really in the data", async () => {
@@ -256,8 +257,8 @@ describe("Agent 3: finance validator", () => {
   });
 
   it("keeps the current and statement balances apart", () => {
-    expect(validateResponse("Your current balance is £486.20.", [], bill, ctx, "What's my current balance?")).toEqual({ ok: false, reason: "contradicts facts" });
-    expect(validateResponse("Your statement balance is £1,069.89.", [], bill, ctx, "How much is my bill?")).toEqual({ ok: false, reason: "contradicts facts" });
+    expect(validateResponse("Your current balance is £486.20.", [], bill, ctx, "What's my current balance?")).toEqual({ ok: false, reason: "no supporting fact" });
+    expect(validateResponse("Your statement balance is £1,069.89.", [], bill, ctx, "How much is my bill?")).toEqual({ ok: false, reason: "no supporting fact" });
     expect(validateResponse("Your current balance is £1,069.89.", [], bill, ctx, "What's my current balance?")).toEqual({ ok: true });
   });
 
@@ -303,6 +304,7 @@ describe("new facts", () => {
     const set = answerFacts("subscription_list", ctx);
     expect(checkAnswer("You pay Netflix £12.99 and Spotify £11.99.", set)).toEqual({ ok: true });
     expect(checkAnswer("You pay Netflix £12.99.", set)).toEqual({ ok: false, reason: "no supporting fact" });
+    expect(checkAnswer("You pay Netflix £11.99 and Spotify £12.99.", set)).toEqual({ ok: false, reason: "contradicts facts" });
   });
 
   it("finds a transaction by reference, with its true status", async () => {
@@ -321,7 +323,7 @@ describe("new facts", () => {
   });
 
   it("never invents a transaction for an unknown reference", async () => {
-    expect(await answerQuestion("What is t999?", { model: null })).toMatchObject({ answer: "I can't find a transaction with that reference.", evidenceIds: [] });
+    expect(await answerQuestion("Show me transaction t999", { model: null })).toMatchObject({ answer: "I can't find a transaction with that reference.", evidenceIds: [], experience: { template: "general" } });
   });
 
   it("can't call a pending transaction completed", () => {
@@ -354,5 +356,105 @@ describe("the API contract", () => {
 
   it("a cached demo answer has one too", async () => {
     expect(await answerQuestion("Did I pay Tesco twice this month?", { model: null })).toMatchObject({ source: "cache", experience: { template: "transaction", confidence: "high" } });
+  });
+});
+
+describe("the regressions from review", () => {
+  const withTxns = (txns: Transaction[]): FactContext => ({ ...ctx, txns });
+  const noNovember = ctx.txns.filter((t) => !t.date.startsWith("2026-11"));
+  const row = (id: string, date: string, merchant: string, amount: number, category: Transaction["category"] = "Shopping"): Transaction => ({ id, date, merchant, amount, category, status: "posted" });
+
+  it("an empty month is £0.00, not I can't tell", async () => {
+    const result = await answerQuestion("What did I spend this month?", { model: null, ctx: withTxns(noNovember) });
+    expect(result).toMatchObject({ answer: "You have spent £0.00 so far this month.", evidenceIds: [], experience: { template: "spending" } });
+    const earlier = await answerQuestion("What did I spend last month?", { model: null, ctx: withTxns(ctx.txns.filter((t) => !t.date.startsWith("2026-10"))) });
+    expect(earlier.answer).toContain("£0.00");
+  });
+
+  it.each(["When is my bill due?", "When is my next payment due?", "How much is my bill?", "How much do I need to pay?", "How much do I owe?"])("%s works when both balances are equal", async (question) => {
+    const same = { ...ctx, account: { ...ctx.account, currentBalance: ctx.account.statementBalance } };
+    const result = await answerQuestion(question, { model: null, ctx: same });
+    expect(result.answer).toContain("£486.20");
+    expect(result.answer).not.toBe(CANT_TELL);
+  });
+
+  it("purchases of £1,000 or more work", async () => {
+    const big = withTxns([...ctx.txns, row("x1", "2026-11-07", "Currys", 124900)]);
+    const top = await answerQuestion("What were my biggest purchases?", { model: null, ctx: big });
+    expect(top.answer).toContain("Currys, £1,249.00");
+    expect(top.evidenceIds).toContain("x1");
+    expect((await answerQuestion("How much did I spend at Currys?", { model: null, ctx: big })).answer).toContain("£1,249.00");
+  });
+
+  it("a negative shop total works", async () => {
+    const refunded = withTxns([...ctx.txns, row("x2", "2026-10-20", "Argos", 3000), row("x3", "2026-11-07", "Argos", -3000)]);
+    const result = await answerQuestion("How much did I spend at Argos this month?", { model: null, ctx: refunded });
+    expect(result.answer).toContain("-£30.00");
+    expect(result.evidenceIds).toEqual(["x3"]);
+  });
+
+  const lapsed = withTxns(ctx.txns.filter((t) => !(t.merchant === "Spotify" && t.date.startsWith("2026-11"))).map((t) => (t.merchant === "Spotify" ? { ...t, date: "2026-09-01" } : t)));
+
+  it("a subscription with no recent charge isn't an ongoing payment", async () => {
+    const result = await answerQuestion("What subscriptions am I paying for?", { model: null, ctx: lapsed });
+    expect(result.answer).toContain("You are paying for these subscriptions: Netflix");
+    expect(result.answer).toContain("These have stopped being charged: Spotify");
+    expect(result.answer.split("These have stopped")[0]).not.toContain("Spotify");
+  });
+
+  it("a reply calling it ongoing is rejected, and one that says it stopped passes", () => {
+    const set = answerFacts("subscription_list", lapsed);
+    expect(checkAnswer("You are paying for Netflix at £12.99 and Spotify at £11.99.", set).ok).toBe(false);
+    expect(checkAnswer("You pay Netflix £12.99, and Spotify at £11.99 has had no charge since Tuesday 1 September.", set)).toEqual({ ok: true });
+  });
+
+  it.each(["What subscriptions have I cancelled?", "What subscriptions did I have in January?", "How much have I spent on subscriptions since August?", "Compare Tesco and Argos", "Is Tesco cheaper than Argos?", "Should I shop at Tesco or Argos?", "Can I afford Tesco and Argos?", "How much did I spend at Tesco and Argos last year?", "Compare t051 and t052"])(
+    "%s gets the safe fallback",
+    async (question) => {
+      expect(await answerQuestion(question, { model: null })).toMatchObject({ answer: CANT_TELL, evidenceIds: [], experience: { template: "general" } });
+    },
+  );
+
+  it("subscription questions that aren't lists stay what they are", () => {
+    expect(matchIntent("Have I paid for any subscription twice?", names)).toBe("duplicates");
+    expect(matchIntent("Have any subscriptions changed?", names)).toBe("price_changes");
+    expect(matchIntent("Have my subscriptions got cheaper?", names)).toBe("price_changes");
+    expect(matchIntent("What subscriptions do I have?", names)).toBe("subscription_list");
+  });
+
+  it("two shops are fine when the facts can answer", async () => {
+    expect((await answerQuestion("Do I have Netflix and Spotify subscriptions?", { model: null })).experience?.template).toBe("subscriptions");
+  });
+
+  it("a template's I can't tell opens no specialist screen", async () => {
+    const result = await answerQuestion("What were my biggest purchases?", { model: null, ctx: withTxns(noNovember) });
+    expect(result).toMatchObject({ answer: CANT_TELL, experience: { template: "general" } });
+    expect(result.experience?.periodLabel).toBeUndefined();
+  });
+
+  it("finding nothing opens no transaction screen", async () => {
+    expect(await answerQuestion("Did I get my Tesco refund?", { model: null })).toMatchObject({ evidenceIds: [], experience: { template: "general" } });
+  });
+
+  it("T100 isn't a transaction reference", async () => {
+    expect(matchIntent("Did I buy a T100 at Argos?", names)).toBe("merchant_transactions");
+    expect((await answerQuestion("Did I buy a T100 at Argos?", { model: null })).evidenceIds).toEqual(["t060"]);
+    expect(matchIntent("What is a T100?", names)).toBeNull();
+  });
+
+  it("a real reference still works, in any case", () => {
+    expect(matchIntent("What is T051?", names)).toBe("transaction_lookup");
+    expect(matchIntent("Show me reference t999", names)).toBe("transaction_lookup");
+  });
+
+  it("a reference at the wrong shop is the fallback, not that record", async () => {
+    expect(await answerQuestion("Was t051 at Lidl?", { model: null })).toMatchObject({ answer: CANT_TELL, evidenceIds: [] });
+    expect((await answerQuestion("Was t051 at Tesco?", { model: null })).evidenceIds).toEqual(["t051"]);
+  });
+
+  it("entities decide the facts", async () => {
+    const reading = await interpretQuestion("What was my biggest purchase in October?", names, null, 1000, () => {});
+    expect(reading.entities.period).toBe("last_month");
+    expect((await answerQuestion("What was my biggest purchase in October?", { model: null })).experience?.periodLabel).toBe("October 2026");
   });
 });

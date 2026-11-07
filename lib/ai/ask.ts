@@ -5,7 +5,7 @@ import { answerFacts, type AnswerFactSet } from "./answer-facts";
 import { seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
 import { selectExperience, type OrchestratedResponse } from "./experience";
-import { billQuestion, merchantSubject, namedMerchants } from "./intent";
+import { billQuestion, namedMerchants } from "./intent";
 import { interpretQuestion, periodLabelFor } from "./interpreter";
 import { describeError, type AskModel } from "./model";
 import { allowModelCall, clientKey } from "./rate-limit";
@@ -62,20 +62,24 @@ export async function answerQuestion(question: string | undefined, options: AskO
   const names = {
     merchants: [...new Set(ctx.txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))],
     categories: [...new Set(ctx.txns.map((t) => t.category))],
+    ids: ctx.txns.map((t) => t.id),
   };
 
   const reading = await interpretQuestion(asked, names, model, timeoutMs, (error) => log("classify failed", error));
   if (reading.kind === "clarify") return { answer: reading.message, evidenceIds: [], source: "template", experience: selectExperience("general", "low") };
   if (reading.kind === "unsupported") return { ...unanswered(), experience: selectExperience("general", reading.confidence) };
 
-  const { intent, factIntent, confidence } = reading;
-  const facts = answerFacts(factIntent, ctx, asked, merchantSubject(asked, names.merchants));
-  const experience = selectExperience(intent, confidence, periodLabelFor(factIntent, asked, ctx));
+  const { intent, factIntent, confidence, entities } = reading;
+  const facts = answerFacts(factIntent, ctx, asked, entities.merchant, entities.transactionRef);
+  // A transaction screen with nothing to show would only say it has nothing to show.
+  const hollow = intent === "transaction_investigation" && facts.evidenceIds.length === 0;
+  const experience = hollow ? selectExperience("general", confidence) : selectExperience(intent, confidence, periodLabelFor(factIntent, entities.period, ctx));
 
   /** Agent 3 sees everything here, so no path to the user skips it. */
   const finish = (response: AskResponse): OrchestratedResponse => {
     const verdict = validateResponse(response.answer, response.evidenceIds, facts, ctx, asked);
-    if (verdict.ok) return { ...response, experience };
+    // "I can't tell" never opens a specialist screen, whichever path it came from.
+    if (verdict.ok) return { ...response, experience: isCantTell(response.answer) ? selectExperience("general", confidence) : experience };
     console.warn(`[ask] response rejected: ${verdict.reason}`);
     return { ...unanswered(), experience: selectExperience("general", "low") };
   };
@@ -84,7 +88,7 @@ export async function answerQuestion(question: string | undefined, options: AskO
   const named = namedMerchants(asked, names.merchants);
   const factsText = facts.facts.map((f) => f.value).join(" ");
   const aboutOneShop = factIntent === "merchant_transactions" || factIntent === "merchant_refunds";
-  if (!aboutOneShop && factIntent !== "transaction_lookup" && named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) {
+  if (!aboutOneShop && named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) {
     return { ...unanswered(), experience: selectExperience("general", "high") };
   }
 

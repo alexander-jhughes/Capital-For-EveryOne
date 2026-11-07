@@ -110,7 +110,7 @@ const AMOUNT_IN_VALUE = /£[\d,.]*\d/g;
 const moneyIn = (value: string | undefined) => (value?.match(AMOUNT_IN_VALUE) ?? []).map(plainAmount);
 const datesIn = (value: string) => [...new Set(dayMonths(normaliseDates(value)))];
 
-const NOT_ARRIVED = /\b(pending|not (?:yet )?(?:arrived|been|reached|come|completed)|(?:has|have)(?:n't| not) (?:yet )?(?:arrived|come|reached|completed)|yet to|on its way|still processing|processing|waiting)\b/i;
+export const NOT_ARRIVED = /\b(pending|not (?:yet )?(?:arrived|been|reached|come|completed)|(?:has|have)(?:n't| not) (?:yet )?(?:arrived|come|reached|completed)|yet to|on its way|still processing|processing|waiting)\b/i;
 const ARRIVED = /\b(arrived|received|got|completed?|came through|gone through|paid back|back in your account|in your account|landed|cleared|finished|no longer pending|not pending|isn't pending)\b/i;
 const NEGATED = /\b(?:has|have)?(?:n't| not)\s+(?:yet\s+)?\w+/gi;
 const NOT_YET = new RegExp(NOT_ARRIVED.source, "i");
@@ -190,7 +190,7 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
       const shop = noteShop(set.merchant);
       add(money("merchant_total"), {
         must: /\b(total\w*|spent|spend|altogether|in all|net|comes? to|paid|at)\b/i,
-        mustNot: /\b(latest|last|most recent|each|single)\b/i,
+        mustNot: /\b(latest|last (?:one|purchase|transaction|refund)|most recent|each|single)\b/i,
         merchant: shop,
       });
       for (const f of withPrefix("transaction_")) {
@@ -217,6 +217,16 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
         );
         add(purchase, { must: /\b(purchase\w*|bought|order\w*|paid)\b/i, mustNot: /\brefund/i, merchant: shop, dates });
       }
+      break;
+    case "subscription_list": {
+      for (const f of withPrefix("subscription_")) add(moneyIn(f.value)[0], { merchant: noteShop(shopFrom(f.value, /^(.+?), £/)), dates: datesIn(f.value), mustNot: /\b(no charge|stopped|cancell?ed)\b/i });
+      for (const f of withPrefix("lapsed_subscription_")) {
+        add(moneyIn(f.value)[0], { merchant: noteShop(shopFrom(f.value, /^(.+?), £/)), dates: datesIn(f.value), must: /\b(no (?:recent )?charge|not (?:been )?charged|stopped|lapsed|since)\b/i, mustNot: /\b(paying|still|active|ongoing)\b/i });
+      }
+      break;
+    }
+    case "transaction_lookup":
+      for (const f of withPrefix("transaction")) add(moneyIn(f.value)[0], { merchant: noteShop(shopFrom(f.value, / at (.+?) on /)), dates: datesIn(f.value) });
       break;
     case "spend_pause":
       add(money("check_over"), { must: /\b(over|above|check\w*|more than|limit|threshold)\b/i, mustNot: /\bbudget\b/i, notFollowedBy: /^\s+(left|remaining)\b/i });

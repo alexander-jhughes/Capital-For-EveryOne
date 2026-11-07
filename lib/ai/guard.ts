@@ -1,6 +1,6 @@
 // Output guard. Any reply that fails here is thrown away and the template sentence is used instead.
 import type { AnswerFactSet } from "./answer-facts";
-import { claimProblem } from "./claims";
+import { claimProblem, NOT_ARRIVED } from "./claims";
 import { billQuestion, spendQuestion } from "./intent";
 import { amounts, dateWords, dayMonths, normaliseDates, plainAmount } from "./reply-text";
 
@@ -82,7 +82,7 @@ function anchorProblem(reply: string, facts: AnswerFactSet, question: string): s
   switch (facts.intent) {
     case "subscription_list": {
       if (value("no_subscriptions")) return DENIAL.test(reply) ? null : contradicted;
-      if (DENIAL.test(reply)) return contradicted;
+      if (DENIAL.test(reply) && values("lapsed_subscription_").length === 0) return contradicted;
       const items = values("subscription_").map((v) => v.match(/^(.+?), (£[\d,.]*\d), /));
       return items.every((m) => m && named(m[1]) && has(m[2])) ? null : unsupported;
     }
