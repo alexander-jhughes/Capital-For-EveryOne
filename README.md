@@ -24,6 +24,13 @@ The app works fully without an API key. To add AI-phrased answers, see below.
 
 The finance layer works out every figure. Gemini only turns the verified facts into a sentence. Every reply is checked on the server before it is used, and evidence IDs always come from the facts.
 
+### What it can answer
+
+- **Spending, bills and subscriptions:** the 8 intents from the facts layer.
+- **One shop:** "What did I spend on Argos?" or "Show me my Amazon transactions." Other businesses that share a name, such as Tesco Mobile, are not matched.
+- **Refunds:** "Did I get my Amazon refund?" Each refund is reported as pending or completed, with the purchase it reverses, and a pending refund is never described as arrived.
+- **Balances:** the current balance, statement balance and minimum payment are kept separate. "How much do I owe?" always uses a fixed template built from the facts, so that it explains all three.
+
 ### Set up Gemini
 
 1. Create a key at [Google AI Studio](https://aistudio.google.com/apikey).
@@ -50,6 +57,7 @@ npm run test:ask                        # 10 questions against the running serve
 | No key, invalid key, quota or rate limit, API error, or more than 4 seconds | A template sentence built from the same verified facts (`source: "template"`) |
 | Malformed, empty or blocked reply | Template sentence |
 | Reply with a figure, date or name not in the facts, the wrong balance, or advice | Rejected, then a template sentence |
+| "How much do I owe?" | Always a template sentence built from the facts, with no API call |
 | A question the facts can't answer | "I can't tell that from your transactions." with no evidence |
 
 The figures and evidence stay the same in every case. Only the wording changes.
