@@ -123,7 +123,14 @@ export function signalForAction(action: unknown, before?: { textSize?: number })
 
 type ReadStore = Pick<Storage, "getItem">;
 type WriteStore = Pick<Storage, "setItem" | "removeItem">;
-const browserStorage = (): Storage | undefined => (typeof window === "undefined" ? undefined : window.localStorage);
+/** Merely reading window.localStorage throws where storage is blocked, so this must never throw: undefined means "no storage". */
+const browserStorage = (): Storage | undefined => {
+  try {
+    return typeof window === "undefined" ? undefined : window.localStorage;
+  } catch {
+    return undefined;
+  }
+};
 
 /** Never throws: private mode, blocked storage or corrupt data all give the initial (consent unset) state. */
 export function loadState(storage: ReadStore | undefined = browserStorage()): PersonalisationState {
