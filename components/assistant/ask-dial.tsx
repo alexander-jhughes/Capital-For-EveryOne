@@ -8,6 +8,7 @@ import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognitio
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { paymentReply } from "@/lib/payments/dial";
 import { spendPauseReply, type SpendPauseReply } from "@/lib/spend-pause/dial";
+import { liveState } from "@/lib/assistant/live-state";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
 import { VoiceMode } from "../voice/voice-mode";
@@ -32,7 +33,7 @@ const secondary = `${button} hairline bg-card`;
 
 /** Ask Dial: one bottom sheet for the whole app. `openAsk(question)` opens it and asks straight away. */
 export function AskDialProvider({ children }: { children: React.ReactNode }) {
-  const { account, transactions, settings, payments, spendPauseActivity, dialState } = useAccount();
+  const { account, transactions, settings, payments, spendPauseActivity } = useAccount();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -73,7 +74,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setAnswer({ status: "loading", question: q });
-      const outcome = await askDial(q, { state: dialState });
+      const outcome = await askDial(q, { state: liveState(transactions, settings) });
       if (id !== requestId.current) return; // a newer question replaced this one
       if (outcome.kind === "answer") {
         const { answer: text, evidenceIds, source } = outcome.response;
@@ -89,7 +90,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [account, transactions, settings, payments, spendPauseActivity, dialState, stopSpeaking],
+    [account, transactions, settings, payments, spendPauseActivity, stopSpeaking],
   );
 
   const openAsk = useCallback(
