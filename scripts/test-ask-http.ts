@@ -1,8 +1,9 @@
 // End-to-end tests of POST /api/ask against the production build, with a fake Gemini API.
 // No real key and no network. Usage: npm run build, then npm run test:http
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import http from "node:http";
+import { createRequire } from "node:module";
 
 const API_PORT = 3213;
 const APP_PORT = 3212;
@@ -82,11 +83,15 @@ async function post(body: unknown, visitorId = `10.0.0.${(visitor += 1)}`) {
   return { status: response.status, ms: Date.now() - started, body: await response.json() };
 }
 
-async function withApp(env: Record<string, string>, run: () => Promise<void>) {
-  const app = spawn("node_modules/.bin/next", ["start", "-p", String(APP_PORT)], {
+async function withApp(env: Record<string, string>, run: () => Promise<void>): Promise<string> {
+  // Runs Next through Node itself, so it works without a shell on Windows, macOS and Linux.
+  const nextBin = createRequire(import.meta.url).resolve("next/dist/bin/next");
+  const windows = process.platform === "win32";
+  const app = spawn(process.execPath, [nextBin, "start", "-p", String(APP_PORT)], {
     env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1", ...env },
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
+    // A process group lets one signal stop Next and its workers. Windows has no groups, so taskkill does that.
+    detached: !windows,
   });
   let logs = "";
   app.stdout.on("data", (chunk) => (logs += chunk));
@@ -103,7 +108,10 @@ async function withApp(env: Record<string, string>, run: () => Promise<void>) {
     }
     await run();
   } finally {
-    if (app.pid) process.kill(-app.pid);
+    if (app.pid) {
+      if (windows) spawnSync("taskkill", ["/pid", String(app.pid), "/T", "/F"], { stdio: "ignore" });
+      else process.kill(-app.pid);
+    }
   }
   return logs;
 }
@@ -134,6 +142,8 @@ async function noKeyTests() {
   const pay = await post({ question: "How much do I need to pay?" });
   check("need to pay gives statement and minimum", ["£486.20", "£25.00"].every((a) => pay.body.answer.includes(a)) && !pay.body.answer.includes("£1,069.89"));
   check("minimum payment", (await post({ question: "What's my minimum payment?" })).body.answer.includes("£25.00"));
+  const status = await (await fetch(APP)).json();
+  check("GET shows Gemini isn't configured, and no key", status.gemini === "not configured" && !JSON.stringify(status).includes("key"), JSON.stringify(status));
   check("empty question is a friendly 400", (await post({ question: "  " })).status === 400);
   check("long question is a friendly 400", (await post({ question: "a".repeat(301) })).status === 400);
   check("bad JSON is a friendly 400", (await post("nope")).status === 400);
@@ -179,11 +189,13 @@ async function fakeApiTests() {
   const good = await post({ question: CHARGED });
   check("valid reply is used", good.body.source === "model" && isAskResponse(good.body), JSON.stringify(good.body));
 
+  const configured = await (await fetch(APP)).json();
+  check("GET shows Gemini is configured, without the key", configured.gemini === "configured" && !JSON.stringify(configured).includes(FAKE_KEY), JSON.stringify(configured));
   mode = "ok";
   modelCalls = 0;
   const sources = [];
-  for (let i = 0; i < 22; i += 1) sources.push((await post({ question: CHARGED }, "10.9.9.9")).body.source);
-  check("the rate limit stops Gemini calls, and answers keep coming", modelCalls === 20 && sources.slice(0, 20).every((s) => s === "model") && sources.slice(20).every((s) => s === "template"), `${modelCalls} calls`);
+  for (let i = 0; i < 6; i += 1) sources.push((await post({ question: CHARGED }, "10.9.9.9")).body.source);
+  check("the rate limit stops Gemini calls, and answers keep coming", modelCalls === 4 && sources.slice(0, 4).every((s) => s === "model") && sources.slice(4).every((s) => s === "template"), `${modelCalls} calls`);
 
   const tooBig = await post(JSON.stringify({ question: "a".repeat(5000) }));
   check("an oversized body is a friendly 400", tooBig.status === 400);
@@ -199,8 +211,9 @@ async function fakeApiTests() {
 }
 
 await new Promise<void>((resolve) => fakeApi.listen(API_PORT, resolve));
-await withApp({ GEMINI_API_KEY: "" }, noKeyTests);
-const logs = await withApp({ GEMINI_API_KEY: FAKE_KEY, GOOGLE_GEMINI_BASE_URL: `http://localhost:${API_PORT}` }, fakeApiTests);
+const noKeyLogs = await withApp({ GEMINI_API_KEY: "" }, noKeyTests);
+check("with no key, the server says so in its log", noKeyLogs.includes("GEMINI_API_KEY is not set"));
+const logs = await withApp({ GEMINI_API_KEY: FAKE_KEY, GOOGLE_GEMINI_BASE_URL: `http://localhost:${API_PORT}`, ASK_MODEL_CALLS_PER_MINUTE: "4" }, fakeApiTests);
 check("the API key is not in the server logs", !logs.includes(FAKE_KEY));
 check("no raw error details in the server logs", !/Error:|at .+:\d+:\d+/.test(logs), logs.slice(0, 300));
 fakeApi.closeAllConnections();
