@@ -1,7 +1,8 @@
 // The assistant flow: question -> intent -> facts -> phrasing -> guard. Facts and evidence never come from the model.
 import type { AskResponse, FactSet, Intent } from "../types";
 import { cachedAnswer } from "./cache";
-import { buildFacts, seedContext, type FactContext } from "./facts";
+import { answerFacts } from "./answer-facts";
+import { seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
 import { matchIntent, namedMerchants, UNSUPPORTED } from "./intent";
 import { describeError, type AskModel } from "./model";
@@ -40,7 +41,7 @@ const fromTemplate = (facts: FactSet, question: string): AskResponse => ({
 /** The fixed wording for a demo question, unless the facts no longer support it. */
 function fromCache(question: string, facts: FactSet): AskResponse | null {
   const cached = cachedAnswer(question);
-  if (cached?.intent !== facts.intent || !checkAnswer(cached.answer, facts).ok) return null;
+  if (cached?.intent !== facts.intent || !checkAnswer(cached.answer, facts, question).ok) return null;
   return { answer: cached.answer, evidenceIds: facts.evidenceIds, source: "cache" };
 }
 
@@ -68,7 +69,7 @@ export async function answerQuestion(question: string | undefined, options: AskO
   }
   if (!intent) return unanswered();
 
-  const facts = buildFacts(intent, ctx);
+  const facts = answerFacts(intent, ctx);
   // "Was Lidl charged twice?" must not be answered with the Tesco finding.
   const named = namedMerchants(asked, names.merchants);
   const factsText = facts.facts.map((f) => f.value).join(" ");
@@ -88,7 +89,7 @@ export async function answerQuestion(question: string | undefined, options: AskO
   }
 
   if (reply === null) return fromTemplate(facts, asked);
-  const verdict = checkAnswer(reply, facts);
+  const verdict = checkAnswer(reply, facts, asked);
   if (!verdict.ok) {
     console.warn(`[ask] reply rejected: ${verdict.reason}`);
     return fromTemplate(facts, asked);

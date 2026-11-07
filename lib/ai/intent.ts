@@ -1,6 +1,8 @@
 // Keyword intent matching. Runs before any model call, so the common questions need no network and no key.
 import type { Intent } from "../types";
 
+const simplify = (text: string) => text.toLowerCase().replace(/[’']/g, "");
+
 /** The facts can't answer this. It gets "I can't tell" directly and never reaches the model. */
 export const UNSUPPORTED = "unsupported";
 export type IntentMatch = Intent | typeof UNSUPPORTED | null;
@@ -13,7 +15,7 @@ export interface KnownNames {
 
 /** Asks for a judgement the facts can't give. Must not land on a nearby intent. */
 const OUT_OF_SCOPE =
-  /\b(should i|shall i|ought i|do you recommend|recommend|advice|advise|is it worth|worth it|good idea|best way|can i afford|can i spend|balance transfer|current balance|available|bill paid|paid (?:my|the) bill)\b/;
+  /\b(should i|shall i|ought i|do you recommend|recommend|advice|advise|is it worth|worth it|good idea|best way|can i afford|can i spend|balance transfer|available|bill paid|paid (?:my|the) bill)\b/;
 
 /** A spending question about one shop, category or period: the facts only hold whole-month totals. */
 const NARROW_PHRASE = /\b(?:at|on|from|for)\s+(?!this\b|last\b|the\b|my\b|me\b|total\b|november\b|october\b)[a-z0-9]/;
@@ -33,11 +35,21 @@ const RULES: Array<[Intent, RegExp]> = [
   ["spend_this_month", /\b(spend|spent|spending|this month|so far)\b/],
 ];
 
+/** Which money a bill question means. These are different amounts, so the answer has to say the right one. */
+export type BillQuestion = "current" | "owed" | "statement" | "balance" | "due";
+
+export function billQuestion(question: string): BillQuestion {
+  const q = simplify(question);
+  if (/\b(current|total|whole|full) balance\b|\bbalance (right )?now\b/.test(q)) return "current";
+  if (/\b(owe|owed|owing)\b/.test(q)) return "owed";
+  if (/\bstatement\b|\bhow much\b.*\b(pay|bill)\b/.test(q)) return "statement";
+  return /\bbalance\b/.test(q) ? "balance" : "due";
+}
+
 const SPENDING_INTENTS = new Set<Intent>(["spend_this_month", "spend_last_month", "top_items"]);
 /** These facts are about particular shops, so naming one is fine. */
 const MERCHANT_INTENTS = new Set<Intent>(["duplicates", "price_changes"]);
 
-const simplify = (text: string) => text.toLowerCase().replace(/[’']/g, "");
 const escapeRegExp = (text: string) => text.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
 const mentions = (question: string, names: string[]) =>
   names.some((name) => new RegExp(`\\b${escapeRegExp(simplify(name))}\\b`).test(question));

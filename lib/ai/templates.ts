@@ -1,12 +1,13 @@
 // Template sentences. Each one is built only from a FactSet, so it is correct by construction and needs no model.
 import type { FactSet } from "../types";
 import { CANT_TELL } from "./guard";
+import { billQuestion } from "./intent";
 
 const list = (values: string[]) => values.join("; ");
 
 /**
- * The plain answer for a fact set: at most two sentences, using only the fact values. The facts hold the statement
- * balance but not the current balance, so a question about "balance" is told which one this is.
+ * The plain answer for a fact set: at most two sentences, using only the fact values. The question only picks which
+ * bill facts to say: the statement balance is what's due now, and the current balance is everything owed.
  */
 export function templateAnswer(set: FactSet, question = ""): string {
   const value = (key: string) => set.facts.find((f) => f.key === key)?.value;
@@ -40,8 +41,22 @@ export function templateAnswer(set: FactSet, question = ""): string {
     case "days_until_due": {
       const left = value("days_until_due");
       const when = left === "Today" ? "That is today." : left?.startsWith("Overdue") ? `It is ${left.toLowerCase()}.` : `That is in ${left}.`;
-      if (/\bbalance\b/i.test(question)) return `Your statement balance is ${value("statement_balance")}, due on ${value("due_date")}.`;
-      return `Your bill of ${value("statement_balance")} is due on ${value("due_date")}. ${when}`;
+      const statement = value("statement_balance");
+      const current = value("current_balance");
+      const due = value("due_date");
+      switch (billQuestion(question)) {
+        case "current":
+          return `Your current balance is ${current}.`;
+        case "owed":
+          return `You owe ${current} in total. Your statement balance of ${statement} is due on ${due}.`;
+        case "balance":
+          return `Your current balance is ${current}. Your statement balance is ${statement}, due on ${due}.`;
+        case "statement":
+          return `Your statement balance is ${statement}, due on ${due}. The minimum payment is ${value("minimum_payment")}.`;
+        case "due":
+          return `Your bill of ${statement} is due on ${due}. ${when}`;
+      }
+      break;
     }
     case "minimum_payment":
       return `Your minimum payment is ${value("minimum_payment")}, due on ${value("due_date")}.`;
@@ -57,4 +72,5 @@ export function templateAnswer(set: FactSet, question = ""): string {
       return budget ? `${status} Right now ${budget}.` : status;
     }
   }
+  return CANT_TELL;
 }

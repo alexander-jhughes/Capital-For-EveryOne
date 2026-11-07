@@ -38,6 +38,7 @@ const PHRASE_SYSTEM = `You are Dial, a credit card assistant. Write one or two s
 Rules:
 - Copy every amount and date exactly as it appears in the facts. Never calculate, round or estimate.
 - If the facts do not answer the question, reply with exactly: ${CANT_TELL}
+- The statement balance is the bill due now. The current balance is everything owed right now. Never swap them, and use "you owe" only for the current balance.
 - Say what the facts show. Never give financial advice or tell the person what to do.
 - No lists, headings or markdown.
 
