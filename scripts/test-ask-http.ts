@@ -151,6 +151,16 @@ async function noKeyTests() {
   const pay = await post({ question: "How much do I need to pay?" });
   check("need to pay gives statement and minimum", ["£486.20", "£25.00"].every((a) => pay.body.answer.includes(a)) && !pay.body.answer.includes("£1,069.89"));
   check("minimum payment", (await post({ question: "What's my minimum payment?" })).body.answer.includes("£25.00"));
+  const payment = { id: "pay-1", date: "2026-11-08", amount: 10000 };
+  const purchase = { id: "demo-1", date: "2026-11-08", merchant: "Northwind Audio", amount: 12000 };
+  const live = await post({ question: "What's my current balance?", state: { payments: [payment] } });
+  check("a payment changes the answer", live.body.answer === "Your current balance is £969.89.", JSON.stringify(live.body));
+  const bought = await post({ question: "What did I spend this month?", state: { purchases: [purchase] } });
+  check("a purchase changes the answer and the evidence", bought.body.answer.includes("£522.35") && bought.body.evidenceIds.includes("demo-1"), JSON.stringify(bought.body).slice(0, 200));
+  const off = await post({ question: "Is Spend Pause on?", state: { spendPause: { enabled: false, singlePurchaseThreshold: 10000, monthlyBudget: 50000, quietHours: null } } });
+  check("turning Spend Pause off changes the answer", off.body.answer.includes("Spend Pause is off"), JSON.stringify(off.body));
+  const hostile = await post({ question: "What's my balance?", state: { purchases: [{ ...purchase, merchant: "<script>" }] } });
+  check("a bad state is a friendly 400", hostile.status === 400 && typeof hostile.body.error === "string");
   check("empty question is a friendly 400", (await post({ question: "  " })).status === 400);
   check("long question is a friendly 400", (await post({ question: "a".repeat(301) })).status === 400);
   check("bad JSON is a friendly 400", (await post("nope")).status === 400);
