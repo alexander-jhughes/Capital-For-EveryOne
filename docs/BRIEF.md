@@ -55,7 +55,7 @@ Work on a branch per stage (`feat/stage-N-name`). At the end of each stage, run 
 - `POST /api/ask` with an optional question. No question → default spending summary.
 - Flow: question → intent (keyword match first; fall back to the model only to CLASSIFY intent from a fixed list) → facts + their evidence IDs → model phrases at most two plain sentences, using only numbers in the facts, and says "I can't tell that from your transactions" when facts don't cover it. No financial advice.
 - `evidenceIds` come from the facts, never from the model. If the model's reply contains any amount or date not in the facts, use the template sentence instead.
-- Use a fast model via `ANTHROPIC_MODEL`. 4-second timeout. Hard-coded cache for the demo questions ("Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?") used on error, timeout or a missing key, with `source: 'cache'`.
+- Use a fast model via `ANTHROPIC_MODEL`. 4-second timeout. Hard-coded cache for the demo questions ("Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?") used ahead of the model so the live demo can't vary, with `source: 'cache'`.
 - `scripts/test-ask.ts`: runs 10 questions (including 2 the data can't answer) and prints answer, source and evidence.
 
 **Stage 4: Complex mode**
