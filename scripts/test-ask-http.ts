@@ -69,11 +69,14 @@ function check(name: string, passed: boolean, detail = "") {
   console.log(`${passed ? "PASS" : "FAIL"}  ${name}${passed || !detail ? "" : `\n      ${detail}`}`);
 }
 
-async function post(body: unknown) {
+let visitor = 0;
+
+async function post(body: unknown, visitorId = `10.0.0.${(visitor += 1)}`) {
   const started = Date.now();
   const response = await fetch(APP, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // A new visitor each call, so this suite doesn't hit the Gemini rate limit. That limit has its own test below.
+    headers: { "Content-Type": "application/json", "x-forwarded-for": visitorId },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
   return { status: response.status, ms: Date.now() - started, body: await response.json() };
@@ -175,6 +178,15 @@ async function fakeApiTests() {
   mode = "ok";
   const good = await post({ question: CHARGED });
   check("valid reply is used", good.body.source === "model" && isAskResponse(good.body), JSON.stringify(good.body));
+
+  mode = "ok";
+  modelCalls = 0;
+  const sources = [];
+  for (let i = 0; i < 22; i += 1) sources.push((await post({ question: CHARGED }, "10.9.9.9")).body.source);
+  check("the rate limit stops Gemini calls, and answers keep coming", modelCalls === 20 && sources.slice(0, 20).every((s) => s === "model") && sources.slice(20).every((s) => s === "template"), `${modelCalls} calls`);
+
+  const tooBig = await post(JSON.stringify({ question: "a".repeat(5000) }));
+  check("an oversized body is a friendly 400", tooBig.status === 400);
 
   modelCalls = 0;
   mode = "server-error";
