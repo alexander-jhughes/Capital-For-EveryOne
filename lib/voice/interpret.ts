@@ -106,6 +106,10 @@ function ui(s: string, textSize: TextSize): UiAction[] {
 
   if (has(s, / (animation|animations|motion|moving|movement|dizzy|distracting|sliding|jumping) /)) actions.push({ type: "motion", value: "reduced" });
 
+  if (has(s, / (step by step|one step at a time|in steps|walk me through|break it down) /)) actions.push({ type: "explanations", value: "stepByStep" });
+  if (has(s, / (rather talk|prefer talking|prefer to talk|talk instead|voice first|use my voice|speak instead|talking first) /)) actions.push({ type: "voiceFirst", value: true });
+  else if (has(s, / (rather tap|prefer tapping|tapping first|stop voice first) /)) actions.push({ type: "voiceFirst", value: false });
+
   if (!target && has(s, / (too much|overwhelm|overwhelming|overwhelmed|busy|clutter|cluttered|less information|less info|less on (the|my) screen|simpler|simplify|calmer|going on|confusing|confused|a lot) /))
     actions.push({ type: "density", value: "calm" });
   else if (has(s, / (show everything|all the sections|everything back|full dashboard) /)) actions.push({ type: "density", value: "standard" });

@@ -50,6 +50,11 @@ const CASES: Case[] = [
   ["It's all a bit busy", ui("density=calm")],
   ["Show everything again", ui("density=standard")],
   ["Bigger text and a dark background please", ui("textSize=125", "theme=dark")],
+  // Assistant preferences
+  ["Explain things step by step", ui("explanations=stepByStep")],
+  ["Can you walk me through it in steps", ui("explanations=stepByStep")],
+  ["I'd rather talk than tap", ui("voiceFirst=true")],
+  ["I prefer tapping first", ui("voiceFirst=false")],
   // View (mode)
   ["Switch to simple view", { kind: "mode", mode: "simple" }],
   ["Show me more detail", { kind: "mode", mode: "complex" }],

@@ -36,6 +36,12 @@ export interface Preferences {
   motion: "system" | "reduced";
   theme: "system" | "light" | "dark";
   targets: "standard" | "large";
+  /** How Dial's financial cards explain things: plain, or with numbered steps. */
+  explanations: "standard" | "stepByStep";
+  /** Puts "Talk to Dial" first: the Dial button opens Voice Mode and Home shows a voice shortcut. */
+  voiceFirst: boolean;
+  /** Whether the optional "Make it yours" setup was completed or skipped (so it never nags). */
+  onboarding: "unset" | "done" | "skipped";
   layout: Layout;
 }
 
@@ -46,6 +52,9 @@ export const DEFAULT_PREFS: Preferences = {
   motion: "system",
   theme: "system",
   targets: "standard",
+  explanations: "standard",
+  voiceFirst: false,
+  onboarding: "unset",
   layout: { pinned: [], shown: [], hidden: [], emphasis: null, density: "standard" },
 };
 
@@ -66,6 +75,9 @@ export type UiAction =
   | { type: "theme"; value: Preferences["theme"] }
   | { type: "targets"; value: Preferences["targets"] }
   | { type: "density"; value: Layout["density"] }
+  | { type: "explanations"; value: Preferences["explanations"] }
+  | { type: "voiceFirst"; value: boolean }
+  | { type: "onboarding"; value: Preferences["onboarding"] }
   | { type: "moveToTop"; widget: WidgetId }
   | { type: "emphasize"; widget: WidgetId }
   | { type: "show"; widget: WidgetId }
@@ -89,6 +101,9 @@ export function sanitize(input: unknown): Preferences {
     motion: oneOf(o.motion, ["system", "reduced"] as const, d.motion),
     theme: oneOf(o.theme, ["system", "light", "dark"] as const, d.theme),
     targets: oneOf(o.targets, ["standard", "large"] as const, d.targets),
+    explanations: oneOf(o.explanations, ["standard", "stepByStep"] as const, d.explanations),
+    voiceFirst: o.voiceFirst === true,
+    onboarding: oneOf(o.onboarding, ["unset", "done", "skipped"] as const, d.onboarding),
     layout: {
       pinned: widgetList(l.pinned),
       shown: widgetList(l.shown),
@@ -113,6 +128,9 @@ export function applyAction(p: Preferences, a: UiAction): Preferences {
     case "motion":
     case "theme":
     case "targets":
+    case "explanations":
+    case "voiceFirst":
+    case "onboarding":
       return { ...p, [a.type]: a.value };
     case "density":
       return { ...p, layout: { ...l, density: a.value } };
@@ -167,6 +185,12 @@ export function describeActions(actions: UiAction[]): string {
         return a.value === "system" ? "follow your device's light or dark setting" : `use a ${a.value} interface`;
       case "targets":
         return a.value === "large" ? "make buttons bigger and easier to press" : "use standard button sizes";
+      case "explanations":
+        return a.value === "stepByStep" ? "explain things step by step" : "use standard explanations";
+      case "voiceFirst":
+        return a.value ? "make talking to Dial the first option" : "make touch and typing the first option";
+      case "onboarding":
+        return a.value === "skipped" ? "skip personalising for now" : "finish personalising";
       case "density":
         return a.value === "calm" ? "show less on the home screen, keeping the most important parts" : "show everything on the home screen";
       case "moveToTop":

@@ -14,6 +14,8 @@ import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import type { Mode } from "@/lib/types";
 import { interpret, type Route } from "@/lib/voice/interpret";
+import type { ExperienceTemplate } from "@/lib/assistant/experience";
+import { ExperienceCard } from "../experience/templates";
 import { DialMark } from "../wordmark";
 
 type Phase = "ready" | "listening" | "thinking" | "speaking";
@@ -21,6 +23,8 @@ type Offer = { kind: "ui"; actions: UiAction[] } | { kind: "mode"; to: Mode; fro
 interface Reply {
   text: string;
   evidence?: string[];
+  /** Backend-chosen financial card (validated); "general" shows none. */
+  template?: ExperienceTemplate;
 }
 
 const PAGE_NAMES: Record<Route, string> = {
@@ -197,7 +201,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
           setPhase("thinking");
           setReply({ text: "Checking your account..." });
           const outcome = await askDial(text);
-          if (outcome.kind === "answer") return say({ text: outcome.response.answer, evidence: outcome.response.evidenceIds });
+          if (outcome.kind === "answer") return say({ text: outcome.response.answer, evidence: outcome.response.evidenceIds, template: outcome.experience.template });
           if (outcome.kind === "invalid") return say({ text: outcome.message });
           const intent = intentForQuestion(text);
           if (intent) {
@@ -319,7 +323,12 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
               )}
             </div>
           )}
-          {evidence.length > 0 && (
+          {reply.template && reply.template !== "general" && (
+            <div className="text-base">
+              <ExperienceCard template={reply.template} evidenceIds={reply.evidence ?? []} onNavigate={() => setDocked(true)} />
+            </div>
+          )}
+          {evidence.length > 0 && (!reply.template || reply.template === "general") && (
             <Link href={evidenceHref(evidence)} onClick={() => setDocked(true)} className={`${btn} self-start bg-[#27314a] text-[#9dd8f0]`}>
               See the {evidence.length} {evidence.length === 1 ? "transaction" : "transactions"}
             </Link>

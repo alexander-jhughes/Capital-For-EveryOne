@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, CalendarClock, ChevronRight, PauseCircle, TrendingUp } from "lucide-react";
+import { ArrowRight, CalendarClock, ChevronRight, Mic, PauseCircle, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { evidenceHref } from "@/lib/assistant/client";
 import { DEMO_TODAY } from "@/lib/demo-clock";
@@ -20,6 +20,7 @@ import { DEFAULT_PREFS, visibleWidgets, WIDGET_LABELS, type WidgetId } from "@/l
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import { FlagBadges } from "../account/flag-badges";
+import { useAskDial } from "../assistant/ask-dial";
 import { Money } from "../ui/money";
 
 const card = "elevated rounded-xl bg-card p-(--space)";
@@ -364,7 +365,8 @@ const SPAN: Partial<Record<WidgetId, string>> = {
 /** Home for both views. Which widgets appear, their order and emphasis come from the person's layout preference. */
 export function HomeScreen() {
   const { mode } = useMode();
-  const { prefs } = usePreferences();
+  const { prefs, apply } = usePreferences();
+  const { openVoice } = useAskDial();
   const d = useHomeData();
   const simple = mode === "simple";
   const widgets = visibleWidgets(mode, prefs.layout);
@@ -393,6 +395,29 @@ export function HomeScreen() {
     <div className="flex flex-col gap-(--space)">
       <h1 className="sr-only">{simple ? "Your bill" : "Account overview"}</h1>
       {simple && <p className="text-sm text-muted-foreground lg:hidden">Credit card ending {d.account.cardLast4}</p>}
+      {prefs.voiceFirst && (
+        <button type="button" onClick={openVoice} className="elevated flex min-h-(--target-min) items-center justify-center gap-3 rounded-xl bg-primary px-5 text-lg font-bold text-primary-foreground">
+          <Mic aria-hidden className="size-[1.2em]" />
+          Talk to Dial
+        </button>
+      )}
+      {prefs.onboarding === "unset" && (
+        <section aria-labelledby="invite-h" className="hairline flex flex-col gap-2 rounded-xl bg-card p-(--space)">
+          <h2 id="invite-h" className="flex items-center gap-2 font-bold">
+            <Sparkles aria-hidden className="size-[1.1em] text-primary" />
+            Make it yours
+          </h2>
+          <p className="text-muted-foreground">Optional: tell us what you&apos;d like, and we&apos;ll suggest a style you can preview first.</p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/account/personalise" className="inline-flex min-h-(--target-min) items-center rounded-full bg-primary px-5 font-bold text-primary-foreground">
+              Personalise
+            </Link>
+            <button type="button" onClick={() => apply([{ type: "onboarding", value: "skipped" }], { save: true })} className="hairline inline-flex min-h-(--target-min) items-center rounded-full px-5 font-bold">
+              Not now
+            </button>
+          </div>
+        </section>
+      )}
       {personalised && (
         <p className="rounded-lg bg-accent px-(--space) py-2 text-sm text-accent-foreground">
           This home screen uses your layout.{" "}

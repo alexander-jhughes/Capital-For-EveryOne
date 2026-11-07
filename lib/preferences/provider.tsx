@@ -18,7 +18,7 @@ interface PrefsApi {
   acceptPreview: (opts?: { save?: boolean }) => void;
   rejectPreview: () => void;
   /** Applies straight away (settings page): still undoable, still session-only until saved. */
-  apply: (actions: UiAction[]) => void;
+  apply: (actions: UiAction[], opts?: { save?: boolean }) => void;
   undo: () => void;
   save: () => void;
   resetToDefault: () => void;
@@ -84,7 +84,14 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
         }
       },
       rejectPreview: () => setPreview(null),
-      apply: (actions) => keep(applyActions(kept, actions), kept),
+      apply: (actions, opts) => {
+        const next = applyActions(kept, actions);
+        keep(next, kept);
+        if (opts?.save) {
+          writeCookie(next);
+          setSaved(next);
+        }
+      },
       undo: () => {
         const prev = history.current.pop();
         setHistoryLength(history.current.length);
