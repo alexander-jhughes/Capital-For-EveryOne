@@ -1,8 +1,9 @@
 import { ComplexHome } from "@/components/account/complex-home";
+import { SimpleHome } from "@/components/account/simple-home";
+import { ModeView } from "@/components/mode-view";
 
 export const metadata = { title: "Home" };
 
-// Stage 5 adds the Simple home here; until then both modes show this screen at their own sizes.
 export default function HomePage() {
-  return <ComplexHome />;
+  return <ModeView simple={<SimpleHome />} complex={<ComplexHome />} />;
 }

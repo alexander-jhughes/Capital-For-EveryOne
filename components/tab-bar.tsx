@@ -13,11 +13,10 @@ const TABS = [
 
 export function TabBar() {
   const path = usePathname();
-  if (!path.startsWith("/account")) return null; // no tabs before sign-in
 
+  // Placement (sticky, hidden before sign-in) is decided by BottomDock.
   return (
-    // Sticky only on screens tall enough; at 400% zoom it scrolls with the page instead of covering it.
-    <nav aria-label="Main" className="gutter z-40 border-t-2 bg-card pb-[env(safe-area-inset-bottom)] [@media(min-height:480px)]:sticky [@media(min-height:480px)]:bottom-0">
+    <nav aria-label="Main" className="gutter border-t-2 bg-card pb-[env(safe-area-inset-bottom)]">
       <ul className="grid grid-cols-4">
         {TABS.map(({ href, label, Icon }) => (
           <li key={href}>
