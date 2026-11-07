@@ -283,6 +283,36 @@ try {
     await page.context().close();
   }
 
+  console.log("\nDial and Voice Mode, with the backend down");
+  {
+    const page = await open();
+    await page.route("**/api/ask", (route) => route.fulfill({ status: 503, body: "{}" }));
+    await payOther(page, "100");
+    await page.goto(HOME);
+    const ask = async (question, expected) => {
+      await page.getByRole("button", { name: /Dial/ }).first().click();
+      const input = page.getByRole("dialog").getByRole("textbox");
+      await input.fill(question);
+      await input.press("Enter");
+      await page.getByRole("dialog").getByText(expected).first().waitFor({ timeout: 5000 });
+      await page.keyboard.press("Escape");
+      return true;
+    };
+    check("Dial knows what was just paid", await ask("How much did I just pay?", /Your last payment was £100\.00/));
+    check("Dial knows it was recorded", await ask("Has my payment been recorded?", /£969\.89/));
+    check("Dial knows spending didn't change", await ask("Did my spending increase after making that payment?", /You've spent £402\.35/));
+    await page.getByRole("button", { name: /Dial/ }).first().click();
+    await page.getByRole("dialog").getByRole("button", { name: "Talk to Dial" }).click();
+    const voice = page.locator("dialog.voice-mode");
+    await voice.waitFor();
+    await voice.getByRole("button", { name: /Type/ }).click();
+    await voice.getByRole("textbox").fill("How much did I just pay?");
+    await voice.getByRole("textbox").press("Enter");
+    await voice.getByText(/Your last payment was £100\.00/).first().waitFor({ timeout: 5000 });
+    check("Voice Mode knows too", true);
+    await page.context().close();
+  }
+
   console.log("\nStorage trouble");
   {
     const page = await open({

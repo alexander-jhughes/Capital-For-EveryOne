@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useRef, useSt
 import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@/lib/assistant/client";
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
+import { paymentReply } from "@/lib/payments/dial";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
 import { VoiceMode } from "../voice/voice-mode";
@@ -30,7 +31,7 @@ const secondary = `${button} hairline bg-card`;
 
 /** Ask Dial: one bottom sheet for the whole app. `openAsk(question)` opens it and asks straight away. */
 export function AskDialProvider({ children }: { children: React.ReactNode }) {
-  const { account, transactions, settings } = useAccount();
+  const { account, transactions, settings, payments } = useAccount();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -63,6 +64,12 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
       }
       stopSpeaking();
       const id = ++requestId.current;
+      // Payment questions are answered here from live state, so they work with or without the backend.
+      const local = paymentReply(q, { account, transactions, payments });
+      if (local) {
+        setAnswer({ status: "answered", question: q, text: local, evidenceIds: [], source: "template", template: "general" });
+        return;
+      }
       setAnswer({ status: "loading", question: q });
       const outcome = await askDial(q);
       if (id !== requestId.current) return; // a newer question replaced this one
@@ -80,7 +87,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [account, transactions, settings, stopSpeaking],
+    [account, transactions, settings, payments, stopSpeaking],
   );
 
   const openAsk = useCallback(

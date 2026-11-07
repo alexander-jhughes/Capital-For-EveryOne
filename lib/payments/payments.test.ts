@@ -5,6 +5,7 @@ import { RESET_SPEND_PAUSE } from "../demo-config";
 import { biggestItems, budgetStatus, dailySpend, evaluatePurchase, findPossibleDuplicates, flagTransactions, monthOverMonth, monthToDateSpend, spendingSummary, totalByMerchant } from "../finance";
 import type { Payment } from "../types";
 import { newPaymentId } from "./client";
+import { paymentReply } from "./dial";
 import { accountAfterPayments, isNewId, parsePaymentAmount, paymentHistory, paymentOptions, paymentTransaction, recordPayment, restorePayments, type PaymentRequest } from "./rules";
 import { PAYMENTS_KEY, readPayments, writePayments } from "./storage";
 
@@ -253,5 +254,37 @@ describe("saved payments", () => {
     expect(readPayments(broken, SEED_ACCOUNT)).toEqual([]);
     expect(writePayments(broken, list)).toBe(false);
     expect(writePayments(null, list)).toBe(false);
+  });
+});
+
+describe("Dial answers about payments", () => {
+  const seedState = { account: SEED_ACCOUNT, transactions: SEED_TRANSACTIONS, payments: [] as Payment[] };
+  const paid = [pay("pay-1", 100), pay("pay-2", BILL - 100)];
+  const after = { account: accountAfterPayments(SEED_ACCOUNT, paid), transactions: [...SEED_TRANSACTIONS, ...paid.map(paymentTransaction)], payments: paid };
+
+  it("says how much was just paid", () => {
+    for (const q of ["How much did I just pay?", "How much have I just paid?", "What was my last payment?"]) {
+      expect(paymentReply(q, after)).toBe("Your last payment was £485.20 on Sunday 8 November. It's pending.");
+    }
+    expect(paymentReply("How much did I just pay?", seedState)).toContain("£180.00");
+  });
+
+  it("says whether a payment has been recorded", () => {
+    expect(paymentReply("Has my payment been recorded?", after)).toContain("Yes. Your simulated payment of £485.20");
+    expect(paymentReply("Has my payment been recorded?", after)).toContain("£583.69");
+    expect(paymentReply("Did my payment go through?", after)).toMatch(/^Yes/);
+    expect(paymentReply("Has my payment been recorded?", seedState)).toMatch(/^You haven't made a payment/);
+  });
+
+  it("says a payment doesn't count as spending", () => {
+    for (const q of ["Did my spending increase after making that payment?", "Does a payment count as spending?"]) {
+      expect(paymentReply(q, after)).toBe("No. Payments aren't spending, so they don't change your spending total. You've spent £402.35 this month.");
+    }
+  });
+
+  it("leaves everything else to the assistant", () => {
+    for (const q of ["How much do I owe?", "What did I spend this month?", "Did I pay Tesco twice this month?", "How much did I pay at Argos?", "When is my next payment due?", "What is my minimum payment?", "Where is my Amazon refund?", "Has my Amazon refund been processed?"]) {
+      expect(paymentReply(q, after), q).toBeNull();
+    }
   });
 });
