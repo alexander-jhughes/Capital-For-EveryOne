@@ -10,5 +10,5 @@ export const RESET_SPEND_PAUSE: SpendPauseSettings = {
   quietHours: null,
 };
 
-// localStorage + cookie key for the Dial (mode).
+// Cookie name for the Dial (mode). The cookie is the single source of truth.
 export const MODE_KEY = "cfe-mode";
