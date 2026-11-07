@@ -1,18 +1,18 @@
 // Runs 10 questions against a running server and prints each answer, source and evidence.
 // Usage: npm run dev, then in another terminal: npm run test:ask
-// Set ASK_URL to test somewhere else. Questions 9 and 10 are ones the data can't answer.
+// Set ASK_URL to test somewhere else. Questions 9 and 10 are ones the data can't answer. With GEMINI_API_KEY set, this makes real API calls.
 
 const url = process.env.ASK_URL ?? "http://localhost:3000/api/ask";
 
 const QUESTIONS = [
-  "Did I pay Tesco twice this month?",
-  "What did I spend this month?",
-  "Has any subscription gone up?",
-  "When is my bill due?",
-  "What did I spend last month?",
-  "What were my biggest purchases?",
-  "What is my minimum payment?",
-  "Is Spend Pause on?",
+  "How much did I spend this month?",
+  "What subscriptions increased?",
+  "Did I get my Amazon refund?",
+  "How much do I need to pay?",
+  "What's my current balance?",
+  "How much do I owe?",
+  "Did Tesco charge me twice?",
+  "What did I spend on Argos?",
   "What is my credit score?",
   "Should I get a second credit card?",
 ];

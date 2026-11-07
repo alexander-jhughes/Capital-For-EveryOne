@@ -1,4 +1,4 @@
-// End-to-end tests of POST /api/ask against the production build, with a fake Anthropic API.
+// End-to-end tests of POST /api/ask against the production build, with a fake Gemini API.
 // No real key and no network. Usage: npm run build, then npm run test:http
 
 import { spawn } from "node:child_process";
@@ -10,46 +10,52 @@ const APP = `http://localhost:${APP_PORT}/api/ask`;
 const FAKE_KEY = "fake-key-must-never-be-printed";
 const CHARGED = "Was I charged twice for anything?";
 
-type Mode = "ok" | "stall" | "500" | "429" | "401" | "refusal" | "bad-reply" | "contradiction" | "wrong-balance" | "cut-off" | "not-json" | "html" | "empty" | "no-content" | "reset";
+type Mode =
+  | "ok" | "stall" | "reset" | "invalid-key" | "forbidden" | "quota" | "server-error" | "unavailable" | "html"
+  | "not-json" | "bad-json-reply" | "wrong-shape" | "empty" | "no-candidates" | "safety" | "cut-off"
+  | "invented-amount" | "advice" | "contradiction" | "wrong-balance" | "invented-evidence";
 
 let mode: Mode = "ok";
 let modelCalls = 0;
 let failures = 0;
 
-const message = (text: string | null, stopReason = "end_turn", extra: object = {}) =>
-  JSON.stringify({
-    id: "m", type: "message", role: "assistant", model: "m", stop_sequence: null, stop_reason: stopReason,
-    usage: { input_tokens: 1, output_tokens: 1 },
-    content: text === null ? [] : [{ type: "text", text }],
-    ...extra,
-  });
-
-const apiError = (type: string) => JSON.stringify({ type: "error", error: { type, message: "failed" } });
+const reply = (text: string | null, finishReason = "STOP") =>
+  JSON.stringify({ candidates: [{ finishReason, content: { role: "model", parts: text === null ? [] : [{ text }] } }] });
+const answer = (text: string, extra: object = {}) => reply(JSON.stringify({ answer: text, ...extra }));
+const apiError = (code: number, status: string) => JSON.stringify({ error: { code, status, message: "failed" } });
 
 const fakeApi = http.createServer((request, response) => {
-  request.resume();
+  let received = "";
+  request.on("data", (chunk) => (received += chunk));
   request.on("end", () => {
     modelCalls += 1;
     const send = (status: number, body: string, type = "application/json") => {
       response.writeHead(status, { "content-type": type });
       response.end(body);
     };
+    const isClassify = received.includes("You sort questions");
     switch (mode) {
       case "stall": return;
       case "reset": request.socket.destroy(); return;
-      case "500": return send(500, apiError("api_error"));
-      case "429": return send(429, apiError("rate_limit_error"));
-      case "401": return send(401, apiError("authentication_error"));
-      case "refusal": return send(200, message("You owe £1.", "refusal"));
-      case "bad-reply": return send(200, message("You owe £999.99 and should pay it now."));
-      case "contradiction": return send(200, message("No, you were not charged twice."));
-      case "wrong-balance": return send(200, message("Your current balance is £486.20."));
-      case "cut-off": return send(200, message(null, "max_tokens"));
-      case "not-json": return send(200, "this is not json");
+      case "invalid-key": return send(400, apiError(400, "INVALID_ARGUMENT"));
+      case "forbidden": return send(403, apiError(403, "PERMISSION_DENIED"));
+      case "quota": return send(429, apiError(429, "RESOURCE_EXHAUSTED"));
+      case "server-error": return send(500, apiError(500, "INTERNAL"));
+      case "unavailable": return send(503, apiError(503, "UNAVAILABLE"));
       case "html": return send(502, "<html>Bad gateway</html>", "text/html");
-      case "empty": return send(200, message(null));
-      case "no-content": return send(200, message(null, "end_turn", { content: undefined }));
-      case "ok": return send(200, message("Tesco charged you £38.62 twice."));
+      case "not-json": return send(200, "this is not json");
+      case "bad-json-reply": return send(200, reply("Tesco charged you twice"));
+      case "wrong-shape": return send(200, reply(JSON.stringify({ text: "hello" })));
+      case "empty": return send(200, reply(null));
+      case "no-candidates": return send(200, JSON.stringify({ promptFeedback: { blockReason: "SAFETY" } }));
+      case "safety": return send(200, reply(null, "SAFETY"));
+      case "cut-off": return send(200, reply(null, "MAX_TOKENS"));
+      case "invented-amount": return send(200, answer("Tesco charged you £999.99 twice."));
+      case "advice": return send(200, answer("Tesco charged you £38.62 twice, so you should complain."));
+      case "contradiction": return send(200, answer("No, you were not charged twice."));
+      case "wrong-balance": return send(200, answer("Your current balance is £486.20."));
+      case "invented-evidence": return send(200, answer("Tesco charged you £38.62 twice.", { evidenceIds: ["t999"] }));
+      case "ok": return send(200, isClassify ? reply(JSON.stringify({ category: "spend_this_month" })) : answer("Tesco charged you £38.62 twice."));
     }
   });
 });
@@ -116,14 +122,22 @@ async function noKeyTests() {
 }
 
 async function fakeApiTests() {
-  console.log("\nFake Anthropic API");
+  console.log("\nFake Gemini API");
   const template = "You may have been charged twice: Tesco, £38.62, on Thursday 5 November and Friday 6 November.";
 
-  for (const failure of ["500", "429", "401", "refusal", "bad-reply", "contradiction", "cut-off", "not-json", "html", "empty", "no-content", "reset"] as const) {
+  const failuresToTest: Mode[] = [
+    "invalid-key", "forbidden", "quota", "server-error", "unavailable", "html", "reset", "not-json", "bad-json-reply",
+    "wrong-shape", "empty", "no-candidates", "safety", "cut-off", "invented-amount", "advice", "contradiction",
+  ];
+  for (const failure of failuresToTest) {
     mode = failure;
     const { status, body } = await post({ question: CHARGED });
     check(`${failure}: template answer, right evidence`, status === 200 && body.source === "template" && body.answer === template && body.evidenceIds.join() === "t051,t052", JSON.stringify(body));
   }
+
+  mode = "invented-evidence";
+  const invented = await post({ question: CHARGED });
+  check("evidence from the model is ignored", invented.body.evidenceIds.join() === "t051,t052", JSON.stringify(invented.body));
 
   mode = "stall";
   const stalled = await post({ question: CHARGED });
@@ -140,7 +154,7 @@ async function fakeApiTests() {
   check("valid reply is used", good.body.source === "model" && isAskResponse(good.body), JSON.stringify(good.body));
 
   modelCalls = 0;
-  mode = "500";
+  mode = "server-error";
   for (const question of ["Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?"]) {
     check(`no model call: ${question}`, (await post({ question })).body.source === "cache");
   }
@@ -150,8 +164,8 @@ async function fakeApiTests() {
 }
 
 await new Promise<void>((resolve) => fakeApi.listen(API_PORT, resolve));
-await withApp({ ANTHROPIC_API_KEY: "" }, noKeyTests);
-const logs = await withApp({ ANTHROPIC_API_KEY: FAKE_KEY, ANTHROPIC_BASE_URL: `http://localhost:${API_PORT}` }, fakeApiTests);
+await withApp({ GEMINI_API_KEY: "" }, noKeyTests);
+const logs = await withApp({ GEMINI_API_KEY: FAKE_KEY, GOOGLE_GEMINI_BASE_URL: `http://localhost:${API_PORT}` }, fakeApiTests);
 check("the API key is not in the server logs", !logs.includes(FAKE_KEY));
 check("no raw error details in the server logs", !/Error:|at .+:\d+:\d+/.test(logs), logs.slice(0, 300));
 fakeApi.closeAllConnections();
