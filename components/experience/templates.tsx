@@ -104,6 +104,7 @@ function Missing({ text }: { text: string }) {
 export function StatementTemplate({ evidenceIds, onNavigate }: TemplateProps) {
   const { simple, steps, account, transactions } = useCommon();
   const days = daysUntilDue(account, DEMO_TODAY);
+  const paid = account.statementBalance === 0;
   const byId = new Map(transactions.map((t) => [t.id, t]));
   const evidence = knownEvidence(evidenceIds, new Set(byId.keys())).map((id) => byId.get(id)!);
   const recent = evidence.length ? evidence.slice(0, simple ? 2 : 5) : [...transactions].sort((a, b) => b.date.localeCompare(a.date)).slice(0, simple ? 0 : 4);
@@ -116,10 +117,8 @@ export function StatementTemplate({ evidenceIds, onNavigate }: TemplateProps) {
           <p className="text-xl font-bold leading-tight tracking-tight">
             <Money pence={account.statementBalance} />
           </p>
-          <p className="mt-1 font-bold">
-            Due {formatLongDate(account.paymentDueDate)}, {when(days)}
-          </p>
-          <p className="text-muted-foreground">You owe {formatPence(account.currentBalance)} in total, including spending since this bill.</p>
+          <p className="mt-1 font-bold">{paid ? "Your bill is paid. Nothing is due." : `Due ${formatLongDate(account.paymentDueDate)}, ${when(days)}`}</p>
+          <p className="text-muted-foreground">You owe {formatPence(account.currentBalance)} in total{paid ? "" : ", including spending since this bill"}.</p>
         </div>
       ) : (
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -130,9 +129,7 @@ export function StatementTemplate({ evidenceIds, onNavigate }: TemplateProps) {
             <Money pence={account.statementBalance} />
           </Stat>
           <Stat label="Minimum payment">{formatPence(account.minimumPayment)}</Stat>
-          <Stat label="Due">
-            {formatDate(account.paymentDueDate)}, {when(days)}
-          </Stat>
+          <Stat label="Due">{paid ? "Nothing due" : `${formatDate(account.paymentDueDate)}, ${when(days)}`}</Stat>
           <Stat label="Available credit">{formatPence(availableCredit(account))}</Stat>
           <Stat label="Credit limit">{formatPence(account.creditLimit)}</Stat>
         </dl>
@@ -141,7 +138,7 @@ export function StatementTemplate({ evidenceIds, onNavigate }: TemplateProps) {
         <Steps
           items={[
             `Your statement balance, ${formatPence(account.statementBalance)}, is what you owed when your last statement was made.`,
-            `It is due on ${formatLongDate(account.paymentDueDate)}.`,
+            paid ? "You have paid it, so nothing is due." : `It is due on ${formatLongDate(account.paymentDueDate)}.`,
             `Your current balance, ${formatPence(account.currentBalance)}, also includes newer spending.`,
           ]}
         />
@@ -152,9 +149,11 @@ export function StatementTemplate({ evidenceIds, onNavigate }: TemplateProps) {
           <TxRows txns={recent} />
         </div>
       )}
-      <Link href="/account/pay" onClick={onNavigate} className={nextStep}>
-        Pay my bill
-      </Link>
+      {account.currentBalance > 0 && (
+        <Link href="/account/pay" onClick={onNavigate} className={nextStep}>
+          {paid ? "Make a payment" : "Pay my bill"}
+        </Link>
+      )}
     </div>
   );
 }
@@ -398,6 +397,20 @@ export function PaymentTemplate({ onNavigate }: TemplateProps) {
   const days = daysUntilDue(account, DEMO_TODAY);
   const atMinimum = payoffEstimate(account.statementBalance, account.apr, account.minimumPayment);
 
+  if (account.statementBalance === 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-xl font-bold leading-tight tracking-tight">Your bill is paid.</p>
+        <p className="text-muted-foreground">Nothing is due. You owe {formatPence(account.currentBalance)} in total.</p>
+        {account.currentBalance > 0 && (
+          <Link href="/account/pay" onClick={onNavigate} className={nextStep}>
+            Make a payment <ArrowRight aria-hidden className="size-[1em]" />
+          </Link>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <div>
@@ -431,7 +444,7 @@ export function PaymentTemplate({ onNavigate }: TemplateProps) {
           <li className="rounded-lg bg-muted p-3">
             <p className="font-bold">A different amount</p>
             <p className="text-sm text-muted-foreground">
-              Any amount from {formatPence(account.minimumPayment)} up to your current balance of {formatPence(account.currentBalance)}.
+              Any amount up to your current balance of {formatPence(account.currentBalance)}.
             </p>
           </li>
         </ul>

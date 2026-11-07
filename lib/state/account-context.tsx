@@ -2,13 +2,15 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { SEED_ACCOUNT, SEED_TRANSACTIONS } from "@/lib/data/seed";
-import { DEMO_NOW } from "@/lib/demo-clock";
+import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { INITIAL_SPEND_PAUSE } from "@/lib/demo-config";
 import { evaluatePurchase } from "@/lib/finance";
+import { accountAfterPayments, paymentTransaction, recordPayment, type PaymentResult } from "@/lib/payments/rules";
+import { paymentStore, readPayments, writePayments } from "@/lib/payments/storage";
 import { initialSpendPauseState, purchasesTotal, spendPauseReducer, type PauseOutcome, type PauseRecord, type SpendPauseActivity } from "@/lib/spend-pause/state";
 import { browserStore, readActivity, readSession, readSettings, writeActivity, writeSession, writeSettings } from "@/lib/spend-pause/storage";
 import { toClientState, type ClientState } from "@/lib/assistant/client-state";
-import type { Account, PauseDecision, PendingPurchase, SpendPauseSettings, Transaction } from "@/lib/types";
+import type { Account, PauseDecision, Payment, PendingPurchase, Pence, SpendPauseSettings, Transaction } from "@/lib/types";
 
 interface AccountState {
   account: Account;
@@ -18,8 +20,16 @@ interface AccountState {
   spendPauseActivity: SpendPauseActivity;
   /** What has happened since the seed, for Dial's backend. See docs/SPEND-PAUSE.md. */
   dialState: ClientState;
-  /** False until saved settings have been read. Show a loading state rather than the defaults. */
+  /** False until saved state has been read. Show a loading state rather than seed figures or defaults. */
   ready: boolean;
+  /** Payments made this session, oldest first. */
+  payments: Payment[];
+  /** False if payments can't be saved here, so they only last until the page reloads. */
+  paymentsSaved: boolean;
+  /** Safe to repeat: the same `id` can only ever be paid once. */
+  makePayment: (amount: Pence, kind: Payment["kind"], id: string) => PaymentResult;
+  /** Removes a payment made this session. Every figure goes back, because nothing else was stored. */
+  undoPayment: (id: string) => void;
   /** False if settings can't be saved here, so they only last until the app closes. */
   settingsSaved: boolean;
   updateSettings: (next: SpendPauseSettings) => void;
@@ -33,17 +43,29 @@ interface AccountState {
 
 const AccountContext = createContext<AccountState | null>(null);
 
-/** The one account every screen reads. Starts from the seed; Stage 6 adds payments, purchases and saved settings. */
+// evaluatePurchase promises this balance before the person decides, so an approved purchase has to deliver it.
+const accountWithPurchases = (purchases: Transaction[]): Account => ({ ...SEED_ACCOUNT, currentBalance: SEED_ACCOUNT.currentBalance + purchasesTotal(purchases) });
+
+/** The one account every screen reads. Worked out from the seed and what has happened since; never stored as figures. */
 export function AccountProvider({ children }: { children: React.ReactNode }) {
   const [pause, dispatch] = useReducer(spendPauseReducer, INITIAL_SPEND_PAUSE, initialSpendPauseState);
   const [ready, setReady] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(true);
   const skipFirstSave = useRef(true);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [paymentsSaved, setPaymentsSaved] = useState(true);
+  // Read by makePayment, so a second tap sees the first before React has rendered it.
+  const latestPayments = useRef<Payment[]>([]);
 
   // Storage only exists in the browser, so this runs after the server-rendered first paint.
   useEffect(() => {
     const saved = browserStore("localStorage");
-    dispatch({ type: "restore", settings: readSettings(saved), activity: readActivity(saved), session: readSession(browserStore("sessionStorage")) });
+    const session = readSession(browserStore("sessionStorage"));
+    dispatch({ type: "restore", settings: readSettings(saved), activity: readActivity(saved), session });
+    // Checked against the balance with the saved purchases in it: a payment can cover those too.
+    const paid = readPayments(paymentStore(), accountWithPurchases(session?.purchases ?? []));
+    latestPayments.current = paid;
+    setPayments(paid);
     setReady(true);
   }, []);
 
@@ -59,12 +81,29 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     writeSession(browserStore("sessionStorage"), { pendingPurchase, pendingChecked, purchases, history });
   }, [pause, ready]);
 
-  const account = useMemo(
-    // evaluatePurchase promises this balance before the person decides, so an approved purchase has to deliver it.
-    () => ({ ...SEED_ACCOUNT, currentBalance: SEED_ACCOUNT.currentBalance + purchasesTotal(pause.purchases) }),
-    [pause.purchases],
+  const base = useMemo(() => accountWithPurchases(pause.purchases), [pause.purchases]);
+  const account = useMemo(() => accountAfterPayments(base, payments), [base, payments]);
+  const transactions = useMemo(() => [...SEED_TRANSACTIONS, ...pause.purchases, ...payments.map(paymentTransaction)], [pause.purchases, payments]);
+
+  const updatePayments = useCallback((next: Payment[]) => {
+    latestPayments.current = next;
+    setPayments(next);
+    setPaymentsSaved(writePayments(paymentStore(), next));
+  }, []);
+  const makePayment = useCallback(
+    (amount: Pence, kind: Payment["kind"], id: string) => {
+      const result = recordPayment(latestPayments.current, base, { id, amount, kind, date: DEMO_TODAY });
+      if (result.ok && !result.repeat) updatePayments(result.payments);
+      return result;
+    },
+    [base, updatePayments],
   );
-  const transactions = useMemo(() => [...SEED_TRANSACTIONS, ...pause.purchases], [pause.purchases]);
+  const undoPayment = useCallback(
+    (id: string) => {
+      if (latestPayments.current.some((p) => p.id === id)) updatePayments(latestPayments.current.filter((p) => p.id !== id));
+    },
+    [updatePayments],
+  );
 
   const updateSettings = useCallback((settings: SpendPauseSettings) => dispatch({ type: "update-settings", settings, at: DEMO_NOW.toISOString() }), []);
   const resolvePurchase = useCallback((id: string, outcome: PauseOutcome) => dispatch({ type: "resolve-purchase", id, outcome }), []);
@@ -78,7 +117,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
     [account, transactions, pause.settings, pause.pendingPurchase],
   );
 
-  const dialState = useMemo(() => toClientState({ settings: pause.settings, activity: pause.activity, purchases: pause.purchases }), [pause.settings, pause.activity, pause.purchases]);
+  const dialState = useMemo(() => toClientState({ settings: pause.settings, activity: pause.activity, purchases: pause.purchases, payments }), [pause.settings, pause.activity, pause.purchases, payments]);
 
   const value = useMemo(
     () => ({
@@ -88,6 +127,10 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       spendPauseActivity: pause.activity,
       dialState,
       ready,
+      payments,
+      paymentsSaved,
+      makePayment,
+      undoPayment,
       settingsSaved,
       updateSettings,
       addPendingPurchase,
@@ -95,7 +138,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
       pendingPurchase: pause.pendingPurchase,
       pauseHistory: pause.history,
     }),
-    [account, transactions, pause.settings, pause.activity, dialState, pause.pendingPurchase, pause.history, ready, settingsSaved, updateSettings, addPendingPurchase, resolvePurchase],
+    [account, transactions, pause.settings, pause.activity, dialState, pause.pendingPurchase, pause.history, ready, payments, paymentsSaved, makePayment, undoPayment, settingsSaved, updateSettings, addPendingPurchase, resolvePurchase],
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

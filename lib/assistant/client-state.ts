@@ -34,12 +34,13 @@ export function toClientState({
   settings: SpendPauseSettings;
   activity: SpendPauseActivity;
   purchases: Transaction[];
+  /** Oldest first: the backend treats the last one as the latest. */
   payments?: ClientPayment[];
 }): ClientState {
   return {
     spendPause: settings,
     spendPauseActivity: activity,
     purchases: purchases.map(({ id, date, merchant, amount }) => ({ id, date, merchant, amount })),
-    payments,
+    payments: payments.map(({ id, date, amount }) => ({ id, date, amount })),
   };
 }

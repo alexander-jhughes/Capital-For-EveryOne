@@ -194,7 +194,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
               return say({ text: HELP });
             case "readBalance":
               return say({
-                text: `Your bill is ${formatPence(account.statementBalance)}, due on ${formatLongDate(account.paymentDueDate)}. You owe ${formatPence(account.currentBalance)} in total.`,
+                text: `${account.statementBalance === 0 ? "Your bill is paid." : `Your bill is ${formatPence(account.statementBalance)}, due on ${formatLongDate(account.paymentDueDate)}.`} You owe ${formatPence(account.currentBalance)} in total.`,
               });
             case "readPage": {
               const main = document.querySelector("main")?.innerText.replace(/\s+/g, " ").trim() ?? "";
