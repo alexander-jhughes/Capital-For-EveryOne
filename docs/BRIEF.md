@@ -4,6 +4,11 @@ This is the authoritative brief. It supersedes the v1 "Capital For EveryOne" pro
 
 We are building **Dial**, a hackathon prototype for Capital One's WHACK challenge: "Make Credit Accessible. Help customers with accessibility requirements independently manage their account." Judged in a strict 3-minute live demo by two Capital One software engineers. Dial is a **mobile-first installable web app** (add to home screen, runs standalone) for one credit card account, with two interface modes, Simple and Complex, from one component tree.
 
+## Status
+
+- Phase 1 (foundation) and Stage 1b (v2 alignment: Dial shell, cookie-only mode, Base UI) are on the branch `feat/phase-1-foundation`. They have **not** yet been merged into `main`.
+- `main` currently holds only the Next.js scaffold (Base UI) and `.env.example`.
+
 ## Team split
 
 - **Alexander:** Stage 3 (AI backend): `app/api/ask/route.ts`, intent matching, model call, number guard, cache, `scripts/test-ask.ts`.
