@@ -6,6 +6,12 @@ import { CANT_TELL } from "./guard";
 
 const DEFAULT_MODEL = "claude-haiku-5-5";
 
+// Thinking is left on, at low effort. Anthropic's Haiku 5.5 guidance is to use effort rather than disable thinking, and
+// `disabled` is a 400 on Opus 5.5 and Sonnet 5.5, so it would fail if ANTHROPIC_MODEL changed. Thinking counts toward
+// max_tokens, so these caps leave room for it. A cap costs nothing unless it is used; the time limit bounds the wait.
+const CLASSIFY_MAX_TOKENS = 1024;
+const PHRASE_MAX_TOKENS = 2048;
+
 /** What ask.ts needs from a model. Each call may throw; ask.ts turns that into a cached or template answer. */
 export interface AskModel {
   classify(question: string, timeoutMs: number): Promise<Intent | null>;
@@ -73,12 +79,12 @@ export function createModel(): AskModel | null {
 
   return {
     async classify(question, timeoutMs) {
-      const label = await send(CLASSIFY_SYSTEM, `<question>${sanitise(question)}</question>`, 512, timeoutMs);
+      const label = await send(CLASSIFY_SYSTEM, `<question>${sanitise(question)}</question>`, CLASSIFY_MAX_TOKENS, timeoutMs);
       return INTENTS.find((intent) => intent === label?.toLowerCase()) ?? null;
     },
     async phrase(question, facts, timeoutMs) {
       const lines = facts.facts.map((f) => `- ${f.label}: ${f.value}`).join("\n");
-      return send(PHRASE_SYSTEM, `<facts>\n${lines}\n</facts>\n<question>${sanitise(question)}</question>`, 1024, timeoutMs);
+      return send(PHRASE_SYSTEM, `<facts>\n${lines}\n</facts>\n<question>${sanitise(question)}</question>`, PHRASE_MAX_TOKENS, timeoutMs);
     },
   };
 }

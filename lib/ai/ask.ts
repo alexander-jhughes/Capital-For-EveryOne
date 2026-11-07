@@ -3,7 +3,7 @@ import type { AskResponse, FactSet, Intent } from "../types";
 import { cachedAnswer } from "./cache";
 import { buildFacts, seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
-import { matchIntent } from "./intent";
+import { matchIntent, namedMerchants, UNSUPPORTED } from "./intent";
 import { describeError, type AskModel } from "./model";
 import { templateAnswer } from "./templates";
 
@@ -31,13 +31,17 @@ const log = (step: string, error: unknown) => console.warn(`[ask] ${step}: ${des
 
 const unanswered = (): AskResponse => ({ answer: CANT_TELL, evidenceIds: [], source: "template" });
 
-/** Cached wording when this is a demo question and it still matches the facts, otherwise the template. */
-function fallback(question: string, facts: FactSet): AskResponse {
+const fromTemplate = (facts: FactSet, question: string): AskResponse => ({
+  answer: templateAnswer(facts, question),
+  evidenceIds: facts.evidenceIds,
+  source: "template",
+});
+
+/** The fixed wording for a demo question, unless the facts no longer support it. */
+function fromCache(question: string, facts: FactSet): AskResponse | null {
   const cached = cachedAnswer(question);
-  if (cached?.intent === facts.intent && checkAnswer(cached.answer, facts).ok) {
-    return { answer: cached.answer, evidenceIds: facts.evidenceIds, source: "cache" };
-  }
-  return { answer: templateAnswer(facts), evidenceIds: facts.evidenceIds, source: "template" };
+  if (cached?.intent !== facts.intent || !checkAnswer(cached.answer, facts).ok) return null;
+  return { answer: cached.answer, evidenceIds: facts.evidenceIds, source: "cache" };
 }
 
 /** Answers one question. Never throws for a model problem; the worst case is a template sentence. */
@@ -47,7 +51,14 @@ export async function answerQuestion(question: string | undefined, options: AskO
   const deadline = Date.now() + timeoutMs;
   const remaining = () => deadline - Date.now();
 
-  let intent: Intent | null = matchIntent(asked);
+  const names = {
+    merchants: [...new Set(ctx.txns.map((t) => t.merchant))],
+    categories: [...new Set(ctx.txns.map((t) => t.category))],
+  };
+  const match = matchIntent(asked, names);
+  if (match === UNSUPPORTED) return unanswered();
+
+  let intent: Intent | null = match;
   if (!intent && model) {
     try {
       intent = await model.classify(asked, remaining());
@@ -58,21 +69,29 @@ export async function answerQuestion(question: string | undefined, options: AskO
   if (!intent) return unanswered();
 
   const facts = buildFacts(intent, ctx);
-  if (!model || remaining() < MIN_CALL_MS) return fallback(asked, facts);
+  // "Was Lidl charged twice?" must not be answered with the Tesco finding.
+  const named = namedMerchants(asked, names.merchants);
+  const factsText = facts.facts.map((f) => f.value).join(" ");
+  if (named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) return unanswered();
+
+  // Demo questions skip the model on purpose, so the live demo says the same thing every time.
+  const cached = fromCache(asked, facts);
+  if (cached) return cached;
+  if (!model || remaining() < MIN_CALL_MS) return fromTemplate(facts, asked);
 
   let reply: string | null;
   try {
     reply = await model.phrase(asked, facts, remaining());
   } catch (error) {
     log("phrasing failed", error);
-    return fallback(asked, facts);
+    return fromTemplate(facts, asked);
   }
 
-  if (reply === null) return { answer: templateAnswer(facts), evidenceIds: facts.evidenceIds, source: "template" };
+  if (reply === null) return fromTemplate(facts, asked);
   const verdict = checkAnswer(reply, facts);
   if (!verdict.ok) {
     console.warn(`[ask] reply rejected: ${verdict.reason}`);
-    return { answer: templateAnswer(facts), evidenceIds: facts.evidenceIds, source: "template" };
+    return fromTemplate(facts, asked);
   }
   // A reply that says the facts don't cover it has no evidence to show.
   if (isCantTell(reply)) return { answer: CANT_TELL, evidenceIds: [], source: "model" };

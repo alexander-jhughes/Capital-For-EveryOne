@@ -4,8 +4,11 @@ import { CANT_TELL } from "./guard";
 
 const list = (values: string[]) => values.join("; ");
 
-/** The plain answer for a fact set: at most two sentences, using only the fact values. */
-export function templateAnswer(set: FactSet): string {
+/**
+ * The plain answer for a fact set: at most two sentences, using only the fact values. The facts hold the statement
+ * balance but not the current balance, so a question about "balance" is told which one this is.
+ */
+export function templateAnswer(set: FactSet, question = ""): string {
   const value = (key: string) => set.facts.find((f) => f.key === key)?.value;
   const values = (prefix: string) => set.facts.filter((f) => f.key.startsWith(prefix)).map((f) => f.value);
 
@@ -37,6 +40,7 @@ export function templateAnswer(set: FactSet): string {
     case "days_until_due": {
       const left = value("days_until_due");
       const when = left === "Today" ? "That is today." : left?.startsWith("Overdue") ? `It is ${left.toLowerCase()}.` : `That is in ${left}.`;
+      if (/\bbalance\b/i.test(question)) return `Your statement balance is ${value("statement_balance")}, due on ${value("due_date")}.`;
       return `Your bill of ${value("statement_balance")} is due on ${value("due_date")}. ${when}`;
     }
     case "minimum_payment":
