@@ -10,7 +10,7 @@ We are building **Dial**, a hackathon prototype for Capital One's WHACK challeng
 - Stage 2 (seed additions, `findPriceChanges` / `monthOverMonth` / `daysUntilDue` / `budgetStatus`, `lib/ai/facts.ts`, contract types) is merged into `main` (PR #2).
 - Stage 4 (Complex Home and Spending, `flagTransactions`, account context, `?highlight=` evidence hook) is merged into `main` (PR #3). It reuses Alexander's TransactionTable and four Base UI components from `origin/complex-mode`, adapted to `lib/`; that branch itself is untouched.
 - Stage 5 hand-off: the assistant links to `/account/spending?highlight=<AskResponse.evidenceIds joined by commas>` to highlight evidence rows in Complex mode.
-- Next: Stage 3 (Alexander) builds on `buildFacts(intent, ctx)` from `lib/ai/facts.ts` and the `Intent`, `Fact`, `FactSet`, `EvidenceRow` and `AskResponse` types in `lib/types.ts`. `AskResponse.evidenceIds` must be copied from `FactSet.evidenceIds`.
+- Stage 3 (AI backend: `POST /api/ask`, intent matching, model call, output guard, demo cache, `scripts/test-ask.ts`) is in review. `npm run test:ask` runs the 10 questions against a running server.
 
 ## Team split
 
