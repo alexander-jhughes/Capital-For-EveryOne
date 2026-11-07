@@ -36,7 +36,7 @@ describe("askDial carries the experience without risking the answer", () => {
   });
   it("an invalid experience still returns the answer, as general", async () => {
     const r = await askDial("x", { fetchImpl: reply({ ...base, experience: { template: "hack" } }) });
-    expect(r).toEqual({ kind: "answer", response: base, experience: GENERAL });
+    expect(r).toEqual({ kind: "answer", response: base, experience: GENERAL, followUps: [] });
   });
   it("no experience field means general", async () => {
     const r = await askDial("x", { fetchImpl: reply(base) });

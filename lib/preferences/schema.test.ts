@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyAction,
   applyActions,
+  dialStyle,
   decodePrefs,
   DEFAULT_PREFS,
   describeActions,
@@ -105,5 +106,26 @@ describe("assistant preferences (explanations, voice first, onboarding)", () => 
     const p = applyActions(DEFAULT_PREFS, [{ type: "explanations", value: "stepByStep" }, { type: "voiceFirst", value: true }]);
     expect(p).toMatchObject({ explanations: "stepByStep", voiceFirst: true });
     expect(describeActions([{ type: "voiceFirst", value: true }])).toBe("make talking to Dial the first option");
+  });
+});
+
+describe("Dial upgrade preferences (answer style, listening, speech consent)", () => {
+  it("default to standard answers, tap to talk, and not asked about speech yet", () => {
+    expect(DEFAULT_PREFS).toMatchObject({ answerStyle: "standard", listenMode: "tap", speechInput: "unset" });
+  });
+  it("are allowlisted and round-trip through the cookie", () => {
+    const p = sanitize({ answerStyle: "brief", listenMode: "continuous", speechInput: "on-device" });
+    expect(decodePrefs(encodePrefs(p))).toEqual(p);
+    expect(sanitize({ answerStyle: "essay", listenMode: "always", speechInput: "yes" })).toMatchObject({ answerStyle: "standard", listenMode: "tap", speechInput: "unset" });
+  });
+  it("dialStyle: step by step wins, then brief, else standard", () => {
+    expect(dialStyle({ explanations: "stepByStep", answerStyle: "brief" })).toBe("stepByStep");
+    expect(dialStyle({ explanations: "standard", answerStyle: "brief" })).toBe("brief");
+    expect(dialStyle(DEFAULT_PREFS)).toBe("standard");
+  });
+  it("actions apply and describe", () => {
+    const p = applyActions(DEFAULT_PREFS, [{ type: "answerStyle", value: "brief" }, { type: "listenMode", value: "hold" }]);
+    expect(p).toMatchObject({ answerStyle: "brief", listenMode: "hold" });
+    expect(describeActions([{ type: "answerStyle", value: "brief" }])).toBe("keep my answers short");
   });
 });

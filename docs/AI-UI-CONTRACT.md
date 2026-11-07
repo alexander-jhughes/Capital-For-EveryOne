@@ -165,3 +165,52 @@ PR #9 reads `experience` in `lib/assistant/experience.ts`, with the same six tem
 3. **Agent 3, finance validator (`lib/ai/validator.ts`, `lib/ai/guard.ts`):** checks every response, including cached and template ones. Amounts, dates, names, balances, statuses and evidence must match the facts. Anything else falls back to a template, then to "I can't tell that from your transactions."
 
 Gemini never calculates, chooses evidence, or chooses a screen. At most two Gemini calls per question, and most questions use one or none.
+
+## Dial intelligence additions (proposed by the frontend lead, `feat/dial-intelligence`)
+
+All additive and optional. A client that ignores them, and a server that doesn't send them, both keep working.
+Owner of this contract is still the AI backend; these are for review on the `feat/dial-intelligence` PR.
+
+### Request
+
+```ts
+{
+  question?: string;
+  state?: ClientState;
+  previousQuestion?: string;
+  style?: "standard" | "brief" | "stepByStep"; // NEW. The person's own display setting, one word.
+}
+```
+
+`style` changes only how the answer is worded (length, numbered steps). It never changes figures, facts or evidence,
+and it is the only personal preference the backend receives. Unknown values are ignored (treated as `standard`).
+
+### Response
+
+```ts
+interface OrchestratedResponse {
+  answer: string;
+  evidenceIds: string[];
+  source: "model" | "template" | "cache";
+  experience?: Experience & {
+    insights?: string[]; // NEW. lib/insights ids the answer is about, e.g. "category_change:Groceries". Max 5.
+  };
+  resolvedQuestion?: string; // NEW. The full question that was answered, after follow-up resolution. Max 300 chars.
+  followUps?: string[];      // NEW. Up to 3 suggested next questions the backend can answer. Plain text, max 120 chars.
+}
+```
+
+- **`resolvedQuestion`:** "What about groceries?" after "How much did I spend this month?" comes back as "How much did
+  I spend on groceries this month?". The browser sends it as the next `previousQuestion`, so "Has that gone up?"
+  still knows the subject.
+- **`followUps`:** chosen deterministically from what the facts can answer, never invented by the model.
+- **`experience.insights`:** the card re-derives each insight with `lib/insights` on the device. Ids that don't
+  match are dropped.
+
+The browser validates all three (`parseResolvedQuestion`, `parseFollowUps`, `parseExperience`). A bad value drops
+that field only, never the answer.
+
+### Cancellation
+
+The browser may abort a request when a newer question replaces it, for example when the person interrupts or
+corrects themselves. The server needs nothing new for this. An aborted request is simply never shown.

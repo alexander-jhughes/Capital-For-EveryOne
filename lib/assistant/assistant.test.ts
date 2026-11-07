@@ -18,7 +18,7 @@ describe("askDial against the AskResponse contract", () => {
   it("returns a valid answer unchanged and posts the question", async () => {
     const body = { answer: "Tesco charged you £38.62 twice.", evidenceIds: ["t051", "t052"], source: "cache" };
     const f = reply(200, body);
-    expect(await askDial("Did I pay Tesco twice this month?", { fetchImpl: f })).toEqual({ kind: "answer", response: body, experience: { template: "general", intent: null } });
+    expect(await askDial("Did I pay Tesco twice this month?", { fetchImpl: f })).toEqual({ kind: "answer", response: body, experience: { template: "general", intent: null }, followUps: [] });
     const [url, init] = (f as unknown as { mock: { calls: [string, RequestInit][] } }).mock.calls[0];
     expect(url).toBe("/api/ask");
     expect(JSON.parse(init.body as string)).toEqual({ question: "Did I pay Tesco twice this month?" });

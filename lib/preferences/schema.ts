@@ -1,6 +1,7 @@
 // Accessibility preferences and personal layout. Independent of the Simple/Detailed view (its own cookie).
 // Everything Dial or the settings page can change is listed here; anything else is rejected by sanitize().
 import type { Mode } from "../types";
+import type { ListenMode } from "../voice/types";
 
 export const WIDGETS = ["bill", "balance", "insights", "budget", "chart", "recent", "pause"] as const;
 export type WidgetId = (typeof WIDGETS)[number];
@@ -42,8 +43,23 @@ export interface Preferences {
   voiceFirst: boolean;
   /** Whether the optional "Make it yours" setup was completed or skipped (so it never nags). */
   onboarding: "unset" | "done" | "skipped";
+  /** How long Dial's answers are: standard, or brief (the key fact first, fewer words). */
+  answerStyle: "standard" | "brief";
+  /** How the microphone listens: one question per tap, while held (push-to-talk), or continuously (opt-in). */
+  listenMode: ListenMode;
+  /**
+   * Where the person agreed their voice is turned into text. Asked before the microphone is first used.
+   * unset: not asked yet. on-device: only on this device. cloud: the browser's online speech service may be used.
+   * typing: the person prefers not to use voice input.
+   */
+  speechInput: "unset" | "on-device" | "cloud" | "typing";
   layout: Layout;
 }
+
+/** The one-word answer style sent to /api/ask. Step by step wins over brief, because it was asked for explicitly. */
+export type DialStyle = "standard" | "brief" | "stepByStep";
+export const dialStyle = (p: Pick<Preferences, "explanations" | "answerStyle">): DialStyle =>
+  p.explanations === "stepByStep" ? "stepByStep" : p.answerStyle === "brief" ? "brief" : "standard";
 
 export const DEFAULT_PREFS: Preferences = {
   textSize: 100,
@@ -55,6 +71,9 @@ export const DEFAULT_PREFS: Preferences = {
   explanations: "standard",
   voiceFirst: false,
   onboarding: "unset",
+  answerStyle: "standard",
+  listenMode: "tap",
+  speechInput: "unset",
   layout: { pinned: [], shown: [], hidden: [], emphasis: null, density: "standard" },
 };
 
@@ -78,6 +97,9 @@ export type UiAction =
   | { type: "explanations"; value: Preferences["explanations"] }
   | { type: "voiceFirst"; value: boolean }
   | { type: "onboarding"; value: Preferences["onboarding"] }
+  | { type: "answerStyle"; value: Preferences["answerStyle"] }
+  | { type: "listenMode"; value: ListenMode }
+  | { type: "speechInput"; value: Preferences["speechInput"] }
   | { type: "moveToTop"; widget: WidgetId }
   | { type: "emphasize"; widget: WidgetId }
   | { type: "show"; widget: WidgetId }
@@ -104,6 +126,9 @@ export function sanitize(input: unknown): Preferences {
     explanations: oneOf(o.explanations, ["standard", "stepByStep"] as const, d.explanations),
     voiceFirst: o.voiceFirst === true,
     onboarding: oneOf(o.onboarding, ["unset", "done", "skipped"] as const, d.onboarding),
+    answerStyle: oneOf(o.answerStyle, ["standard", "brief"] as const, d.answerStyle),
+    listenMode: oneOf(o.listenMode, ["tap", "hold", "continuous"] as const, d.listenMode),
+    speechInput: oneOf(o.speechInput, ["unset", "on-device", "cloud", "typing"] as const, d.speechInput),
     layout: {
       pinned: widgetList(l.pinned),
       shown: widgetList(l.shown),
@@ -131,6 +156,9 @@ export function applyAction(p: Preferences, a: UiAction): Preferences {
     case "explanations":
     case "voiceFirst":
     case "onboarding":
+    case "answerStyle":
+    case "listenMode":
+    case "speechInput":
       return { ...p, [a.type]: a.value };
     case "density":
       return { ...p, layout: { ...l, density: a.value } };
@@ -191,6 +219,18 @@ export function describeActions(actions: UiAction[]): string {
         return a.value ? "make talking to Dial the first option" : "make touch and typing the first option";
       case "onboarding":
         return a.value === "skipped" ? "skip personalising for now" : "finish personalising";
+      case "answerStyle":
+        return a.value === "brief" ? "keep my answers short" : "use standard-length answers";
+      case "listenMode":
+        return a.value === "hold" ? "listen only while I hold the button" : a.value === "continuous" ? "keep listening until I stop it" : "listen for one question each time I tap";
+      case "speechInput":
+        return a.value === "on-device"
+          ? "turn my voice into text on this device only"
+          : a.value === "cloud"
+            ? "allow my browser's online speech service to turn my voice into text"
+            : a.value === "typing"
+              ? "use typing instead of voice input"
+              : "ask me before using the microphone";
       case "density":
         return a.value === "calm" ? "show less on the home screen, keeping the most important parts" : "show everything on the home screen";
       case "moveToTop":

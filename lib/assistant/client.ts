@@ -3,6 +3,7 @@
 import { buildFacts, type FactContext } from "../ai/facts";
 import type { AskResponse, Intent } from "../types";
 import { parseExperience, type Experience } from "./experience";
+import type { DialStyle } from "../preferences/schema";
 import type { ClientStateBody } from "./live-state";
 
 /** The demo questions from docs/BRIEF.md. The intent is only used for the offline fallback. */
@@ -14,8 +15,10 @@ export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
 ];
 
 export type AskOutcome =
-  /** The backend answered. */
-  | { kind: "answer"; response: AskResponse; experience: Experience }
+  /** The backend answered. `resolvedQuestion` is what the backend understood (send it back as previousQuestion). */
+  | { kind: "answer"; response: AskResponse; experience: Experience; resolvedQuestion?: string; followUps: string[] }
+  /** The caller cancelled the request (a newer question replaced it). Show nothing for it. */
+  | { kind: "cancelled" }
   /** The backend rejected the question (HTTP 400); `message` is its friendly text. */
   | { kind: "invalid"; message: string }
   /** No usable answer: network error, timeout, HTTP 5xx/404, or a malformed body. */
@@ -40,10 +43,24 @@ export async function askDial(
     timeoutMs = 8000,
     state,
     previousQuestion,
-  }: { fetchImpl?: typeof fetch; timeoutMs?: number; state?: ClientStateBody; previousQuestion?: string } = {},
+    style,
+    signal,
+  }: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    state?: ClientStateBody;
+    previousQuestion?: string;
+    /** The person's answer style from their own display settings (dialStyle). Nothing learned or inferred. */
+    style?: DialStyle;
+    /** Abort to cancel an obsolete request, e.g. when the person asks something new or interrupts. */
+    signal?: AbortSignal;
+  } = {},
 ): Promise<AskOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onCancel = () => controller.abort();
+  if (signal?.aborted) return { kind: "cancelled" };
+  signal?.addEventListener("abort", onCancel, { once: true });
   try {
     const res = await fetchImpl("/api/ask", {
       method: "POST",
@@ -53,6 +70,7 @@ export async function askDial(
         ...(question === undefined ? {} : { question }),
         ...(state ? { state } : {}),
         ...(previousQuestion?.trim() ? { previousQuestion: previousQuestion.trim().slice(0, 300) } : {}),
+        ...(style && STYLES.includes(style) ? { style } : {}),
       }),
       signal: controller.signal,
     });
@@ -65,12 +83,42 @@ export async function askDial(
     const response = parseAskResponse(body);
     // `experience` is optional and validated separately: a bad one never costs the answer itself.
     const experience = parseExperience((body as { experience?: unknown } | null)?.experience);
-    return response ? { kind: "answer", response, experience } : { kind: "unavailable" };
+    if (!response) return { kind: "unavailable" };
+    const extra = body as { resolvedQuestion?: unknown; followUps?: unknown };
+    return { kind: "answer", response, experience, resolvedQuestion: parseResolvedQuestion(extra.resolvedQuestion), followUps: parseFollowUps(extra.followUps) };
   } catch {
-    return { kind: "unavailable" };
+    return signal?.aborted ? { kind: "cancelled" } : { kind: "unavailable" };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", onCancel);
   }
+}
+
+const STYLES: DialStyle[] = ["standard", "brief", "stepByStep"];
+/** Plain text only: no markup, no control characters. */
+const PLAIN = /^[^<>{}\u0000-\u001f]+$/;
+
+/** The question the backend actually answered, or undefined. Optional field: a bad value never costs the answer. */
+export function parseResolvedQuestion(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const q = raw.trim();
+  return q.length > 0 && q.length <= 300 && PLAIN.test(q) ? q : undefined;
+}
+
+/** Up to 3 suggested next questions, each plain text up to 120 characters, without duplicates. */
+export function parseFollowUps(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const q = item.trim();
+    if (!q || q.length > 120 || !PLAIN.test(q) || seen.has(q.toLowerCase())) continue;
+    seen.add(q.toLowerCase());
+    out.push(q);
+    if (out.length === 3) break;
+  }
+  return out;
 }
 
 /** What the facts layer says for a known intent, used when the backend is unavailable. Up to two facts. */
