@@ -12,7 +12,7 @@ We are building **Dial**, a hackathon prototype for Capital One's WHACK challeng
 - Redesign (Capital for Everyone identity, accessibility preferences, personal layout, Dial Voice Mode) is on `feat/redesign-voice-adaptive`, in review. See `docs/INTEGRATION.md`.
 - Stage 5 (Simple Home and Spending, Ask Dial sheet with voice and read-aloud, evidence links) is on `feat/stage-5-simple-mode`, in review. Integration status and contracts for every stage: `docs/INTEGRATION.md`.
 - Stage 5 hand-off: the assistant links to `/account/spending?highlight=<AskResponse.evidenceIds joined by commas>` to highlight evidence rows in Complex mode.
-- Next: Stage 3 (Alexander) builds on `buildFacts(intent, ctx)` from `lib/ai/facts.ts` and the `Intent`, `Fact`, `FactSet`, `EvidenceRow` and `AskResponse` types in `lib/types.ts`. `AskResponse.evidenceIds` must be copied from `FactSet.evidenceIds`.
+- Stage 3 (AI backend: `POST /api/ask`, intent matching, model call, output guard, demo cache, `scripts/test-ask.ts`) is in review. `npm run test:ask` runs the 10 questions against a running server.
 
 ## Team split
 
@@ -57,7 +57,7 @@ Work on a branch per stage (`feat/stage-N-name`). At the end of each stage, run 
 - `POST /api/ask` with an optional question. No question → default spending summary.
 - Flow: question → intent (keyword match first; fall back to the model only to CLASSIFY intent from a fixed list) → facts + their evidence IDs → model phrases at most two plain sentences, using only numbers in the facts, and says "I can't tell that from your transactions" when facts don't cover it. No financial advice.
 - `evidenceIds` come from the facts, never from the model. If the model's reply contains any amount or date not in the facts, use the template sentence instead.
-- Use a fast model via `ANTHROPIC_MODEL`. 4-second timeout. Hard-coded cache for the demo questions ("Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?") used on error, timeout or a missing key, with `source: 'cache'`.
+- Use a fast Gemini model via `GEMINI_MODEL`, with Gemini as the only AI provider. 4-second timeout. Hard-coded cache for the demo questions ("Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?") used ahead of the model so the live demo can't vary, with `source: 'cache'`.
 - `scripts/test-ask.ts`: runs 10 questions (including 2 the data can't answer) and prints answer, source and evidence.
 
 **Stage 4: Complex mode**
