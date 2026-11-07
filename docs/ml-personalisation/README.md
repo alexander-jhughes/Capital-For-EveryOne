@@ -3,7 +3,7 @@
 A small, trained machine-learning model that works in the background. It looks at the display settings a person has **explicitly** chosen, and (with their consent) at counts of explicit display actions, and predicts which *other* presentation settings they might like. Dial can then **ask**: "Would you like me to make the text larger?" The person can say yes, no, or ignore it. **The model never changes the interface by itself.**
 
 > **Status: prototype, trained on synthetic data only.** It is a working, tested ML pipeline. It has not been validated on real people (see [Limitations](#limitations)).
-> **Integration: proposed contract, not wired in.** No frontend, Gemini backend, shared-state or package files were changed. The [contract](#frontend-integration-contract-proposed) needs agreement with the frontend lead.
+> **Integration:** wired into the adaptive UI behind explicit consent. See [Integration on the adaptive UI](#integration-on-the-adaptive-ui-agreed).
 
 - Generated metrics and example predictions: [`EVALUATION.md`](./EVALUATION.md)
 - Code: `lib/personalisation/` · Training script: `scripts/personalisation/train.ts`
@@ -19,7 +19,7 @@ A small, trained machine-learning model that works in the background. It looks a
 5. [Training](#training)
 6. [Evaluation](#evaluation)
 7. [Inference](#inference)
-8. [Frontend integration contract (proposed)](#frontend-integration-contract-proposed)
+8. [Integration on the adaptive UI (agreed)](#integration-on-the-adaptive-ui-agreed)
 9. [Reproducing the model](#reproducing-the-model)
 10. [Limitations](#limitations)
 11. [Files](#files)
@@ -183,60 +183,37 @@ From `lib/personalisation/examples.ts`. Full inputs are in `EVALUATION.md`.
 
 Measured on a laptop (Node 24): about 0.006 ms per call on the full recommendation path. The model is structurally validated once per loaded model (about 3 ms) and then cached. The test allows 2 ms per call.
 
-## Frontend integration contract (proposed)
+## Integration on the adaptive UI (agreed)
 
-**Not yet agreed with the frontend lead, and nothing in their files was changed.** Everything below is a proposal to review together.
+Wired into `feat/hackathon-adaptive-ui` (PR #9) on `feat/ml-personalisation-integration`, following the contract agreed with the frontend lead.
 
-```ts
-import {
-  getPersonalisation, loadState, saveState, setConsent, recordSignal, recordOutcome,
-  resetPersonalisation, signalForAction, type PersonalisationResult,
-} from "@/lib/personalisation";
+**Consent.** A "Suggestions from Dial" section in Display and voice (`/account/settings#suggestions`) with an Off/On switch. It is off by default and is the only place to turn it on.
+- ML state lives in `localStorage` under `cfe-personalisation`. It is never part of `Preferences`, the `cfe-prefs` cookie or Make it yours.
+- Off deletes the key. Display settings are left alone.
+- "Reset suggestions" forgets counts and answers but keeps consent.
+- The display "Reset to default" resets display settings only.
+- The 204 KB model is fetched with a dynamic `import()` **only after consent**. In the browser run, it was never requested without consent; with consent it was fetched about 50 ms after "On".
 
-interface PersonalisationInput {
-  preferences?: PreferenceSnapshot | null; // pass `prefs` from usePreferences() as-is (either schema)
-  view?: "simple" | "complex" | null;      // from useMode()
-  choices?: readonly string[] | null;      // "Make it yours" ticks; null if never done
-}
+**Signals.** `PreferencesProvider` tags every change with a `ChangeSource` and, after a change is kept, undone or reset, emits a `PrefsEvent` (`lib/preferences/events.ts`). Previews emit nothing and don't touch undo history. `lib/personalisation/controller.ts` counts:
+- only kept changes from `settings` or `voice`;
+- taps that open Voice Mode, as a count. Nothing said is recorded.
 
-interface PersonalisationResult {
-  status: "ok" | "no_recommendation" | "needs_consent" | "disabled" | "insufficient_data" | "unavailable";
-  recommendedLayout: "calm" | "visual" | "voice" | null; // matches "Make it yours" style ids
-  preferences: {
-    target: TargetId;          // stable id for accept/reject
-    title: string;             // "Larger text"
-    offer: string;             // "Would you like me to make the text larger?"
-    actions: SuggestedAction[];// UiAction-shaped, pass to startPreview()
-    confidence: number;        // 0-1
-    reasons: string[];         // never empty
-  }[];
-  confidence: number | null;
-  reasons: string[];
-  offer: string | null;        // one question for the whole set
-  withheld: { target: TargetId; reason: WithheldReason }[];
-  fingerprint: string | null;  // pass back to recordOutcome()
-  modelVersion: string | null;
-  trainedOn: "synthetic" | null;
-}
-```
+`style` (Make it yours), `ml`, `other` (the default), view switches and resets are never counted.
 
-Suggested wiring, for the frontend lead to decide:
+**Lifecycle.**
+- The Home card (`components/personalise/ml-suggestion.tsx`) shows one suggestion. It appears only when consent is on, Make it yours has been done or skipped, no preview is active, and the model returned `ok`.
+- **Preview it** uses the existing preview bar (`StylePreviewProvider.startRequest`, `source: "ml"`).
+- **Keep it** saves the change. **Go back** and **No thanks** count as a no. **Not now** holds the suggestion until settings change.
+- Undoing, resetting or changing back a kept suggestion counts as a no (`reconcile`).
 
-| Where | What |
-|---|---|
-| Display and voice settings, and "Make it yours" | A plain on/off "Let Dial suggest display changes" control → `setConsent()`. Off deletes data. A "Reset suggestions" button → `resetPersonalisation()`. |
-| `PreferencesProvider.apply` / voice previews the person keeps | `recordSignal(state, signalForAction(action, prefsBefore))` |
-| Opening Voice Mode / switching to Detailed / Undo | `recordSignal(state, "voiceSessions" \| "moreDetail" \| "undoneChanges")` |
-| Home, after load or after a preference change (debounced) | `getPersonalisation({ preferences: prefs, view: mode, choices }, state)` |
-| `status === "ok"` | Dial asks `result.offer` and shows `reasons` under "Why am I seeing this?". Yes → `startPreview(rec.actions)`, then the existing keep/undo flow, then `recordOutcome(…, "accepted")`. No → `"rejected"`. Dismissed → `"ignored"`. |
-| Any other status | Show nothing. The adaptive UI works exactly as today. |
+**Fallback.** If the model is missing, invalid or blocked, there's no card and Settings says "Suggestions aren't available right now". Make it yours (`recommend.ts`) is unchanged and works whatever ML is doing.
 
-Rules that matter:
+**Boundaries.**
+- `lib/ai`, `lib/assistant`, `app/api` and `lib/finance` never import this module.
+- `liveState()` (sent with `/api/ask`) carries only Spend Pause, purchases and payments.
+- Ask Dial uses only `noteVoiceOpened()`.
 
-1. **Don't count accepted ML suggestions as signals.** Call `recordOutcome` instead, so the model doesn't learn from itself.
-2. "Make it yours" ticks aren't stored today (only the resulting style is). Passing them improves suggestions, but storing them is the frontend's decision.
-3. `stepByStep` and `voiceFirst` suggestions need PR #9's schema. On the redesign schema they are automatically `not_supported`.
-4. Show that suggestions come from a model trained on synthetic data while this is a prototype (`trainedOn`).
+All of this is covered by `lib/personalisation/integration.test.ts`.
 
 ## Reproducing the model
 
@@ -265,12 +242,13 @@ To change the model, edit `DEFAULT_CONFIG` (`train.ts`) or the generator (and bu
 - **Feature set is fixed.** If `lib/preferences/schema.ts` gains settings, `features.ts` must be updated and the model retrained. `isValidModel` refuses a model whose feature list doesn't match.
 - **Probabilities are only roughly calibrated.** Brier beats the baseline, but there is no separate calibration step, so read "0.7" as "fairly confident", not exactly 70%.
 - **Explanations are based on contributions.** They show which of the person's own actions pushed the prediction up. They are not causal claims.
-- **Signal collection isn't wired.** Until the frontend calls `recordSignal`, only explicit settings and ticks are available, so there will be fewer suggestions.
+- **Make it yours ticks are not used** (agreed, to keep the rules flow independent). The model sees settings, view and the counted actions only.
+- **View matters.** Switching to Detailed changes a model input, so a suggestion offered in Simple view may be withheld in Detailed view.
 - **Model size** is 204 KB of JSON (lazy-loaded, compresses well). It could be shrunk further by quantising thresholds or pruning low-value trees if needed.
 
 ## Files
 
-All new. No existing file was modified.
+The engine files below are new. The integration also makes small, agreed changes to frontend files: `lib/preferences/provider.tsx`, `components/personalise/style-preview.tsx`, `components/settings/display-settings.tsx`, `components/home/home-screen.tsx`, `components/voice/voice-mode.tsx`, `components/assistant/ask-dial.tsx` and `app/(dial)/layout.tsx`.
 
 | File | Purpose |
 |---|---|
@@ -286,6 +264,10 @@ All new. No existing file was modified.
 | `lib/personalisation/state.ts` | Consent, signals, outcomes, reset, storage |
 | `lib/personalisation/index.ts` | Public entry point (lazy model loading) |
 | `lib/personalisation/examples.ts` | Example people for docs and tests |
-| `lib/personalisation/*.test.ts` | 69 tests |
+| `lib/personalisation/controller.ts` | Events → signals, `reconcile`, card visibility |
+| `lib/personalisation/provider.tsx` | React provider: consent, storage, lazy model, evaluation |
+| `lib/preferences/events.ts` | `ChangeSource` and `PrefsEvent` emitted by the preferences provider |
+| `components/personalise/ml-suggestion.tsx` | The Home suggestion card |
+| `lib/personalisation/*.test.ts` | 96 tests, including `integration.test.ts` |
 | `scripts/personalisation/train.ts`, `ts-resolve.mjs` | Reproducible training script |
 | `docs/ml-personalisation/README.md`, `EVALUATION.md` | This document and the generated report |

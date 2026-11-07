@@ -2,6 +2,7 @@
 // "would this person keep this setting if Dial offered it?" Only asked when the setting is currently off.
 // Suggested changes use the same shapes as `UiAction` in lib/preferences/schema.ts, so the frontend can
 // preview them with the existing PreferencesProvider.startPreview(). Nothing here applies anything.
+import type { UiAction } from "../preferences/schema";
 import type { PreferenceSnapshot } from "./features";
 
 export const TARGET_IDS = [
@@ -16,7 +17,7 @@ export const TARGET_IDS = [
 ] as const;
 export type TargetId = (typeof TARGET_IDS)[number];
 
-/** A subset of `UiAction` (lib/preferences/schema.ts). explanations/voiceFirst exist from feat/hackathon-adaptive-ui onwards. */
+/** A subset of `UiAction` (lib/preferences/schema.ts), checked at compile time below. */
 export type SuggestedAction =
   | { type: "textSize"; value: 125 }
   | { type: "density"; value: "calm" }
@@ -27,6 +28,10 @@ export type SuggestedAction =
   | { type: "voiceFirst"; value: true }
   | { type: "motion"; value: "reduced" }
   | { type: "contrast"; value: "high" };
+
+/** Compile-time proof that every suggested change is a valid preferences action. */
+type Assert<T extends true> = T;
+export type SuggestedActionIsUiAction = Assert<SuggestedAction extends UiAction ? true : false>;
 
 /** Matches the style ids in lib/preferences/recommend.ts ("Make it yours"). */
 export type LayoutStyle = "calm" | "visual" | "voice";

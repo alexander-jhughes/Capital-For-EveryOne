@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyActions, DEFAULT_PREFS, sanitize, type UiAction } from "../preferences/schema";
+import { applyActions, DEFAULT_PREFS, sanitize } from "../preferences/schema";
 import type { ModelArtifact } from "./artifact";
 import { EXAMPLES, DEFAULTS, REDESIGN_DEFAULTS } from "./examples";
 import { FEATURE_IDS, FEATURES, type PersonalisationInput } from "./features";
@@ -181,7 +181,7 @@ describe("inference: the person stays in control", () => {
     const first = recommendPreferences(CALM.input, CALM.state, model);
     const accepted = first.preferences.find((p) => p.target === "calmLayout")!;
     // What the frontend does on "yes": apply the actions through the existing schema.
-    const prefs = applyActions(CALM.input.preferences as typeof DEFAULT_PREFS, accepted.actions as unknown as UiAction[]);
+    const prefs = applyActions(CALM.input.preferences as typeof DEFAULT_PREFS, accepted.actions);
     const r = recommendPreferences({ ...CALM.input, preferences: prefs }, recordOutcome(CALM.state, accepted.target, "accepted", first.fingerprint!), model);
     expect(r.withheld).toContainEqual({ target: "calmLayout", reason: "already_on" });
   });
@@ -298,9 +298,9 @@ describe("privacy and safety", () => {
   });
 
   it("suggested actions are valid for the existing preferences schema and turn the setting on", () => {
-    // stepByStep and voiceFirst need the adaptive-UI schema; the rest work on this branch's schema as-is.
-    for (const id of TARGET_IDS.filter((t) => t !== "stepByStep" && t !== "voiceFirst")) {
-      const prefs = applyActions(DEFAULT_PREFS, TARGETS[id].actions as unknown as UiAction[]);
+    // Every target, including step-by-step and voice-first, on the adaptive-UI schema.
+    for (const id of TARGET_IDS) {
+      const prefs = applyActions(DEFAULT_PREFS, TARGETS[id].actions);
       expect(sanitize(prefs), id).toEqual(prefs);
       expect(TARGETS[id].status(prefs), id).toBe("on");
     }
