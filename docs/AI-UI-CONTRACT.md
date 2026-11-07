@@ -8,8 +8,23 @@
 {
   question?: string;   // Up to 300 characters. Missing means the default spending summary.
   state?: ClientState; // Optional. What has happened in the app. See "Live app state".
+  previousQuestion?: string; // Optional, up to 300 characters. The question asked just before. See "Follow-ups".
 }
 ```
+
+`GET /api/ask` returns `{ gemini: "configured" | "not configured", model: string }`, so you can see whether answers can come from Gemini. It never includes the key.
+
+### Follow-ups
+
+**Proposed addition, backward compatible.** Send the question the person asked just before as `previousQuestion`, and short follow-ups are read against it:
+
+| Previous | Follow-up | Answered as |
+|---|---|---|
+| "What did I spend at Tesco?" | "What about Argos?" | "What did I spend at Argos?" |
+| "What's my biggest spending category?" | "And last month?" | "What's my biggest spending category last month?" |
+| "How much did I spend on groceries?" | "How about eating out?" | "How much did I spend on eating out?" |
+
+Only these elliptical shapes ("what about X", "how about X", "and X", "and last month") are rewritten. Any other question is answered on its own, and an unknown shop ("What about Lidl?") still gets "I can't tell". A `previousQuestion` that isn't a string, or is over 300 characters, is a 400. Leaving it out changes nothing.
 
 ## Response
 
@@ -90,11 +105,11 @@ Each intent has exactly one template. The table is fixed in code, so the model c
 | `template` | `intent` | Example | Evidence |
 |---|---|---|---|
 | `statement` | `statement_balance` | "How much do I owe?" | Empty: account-level figures |
-| `spending` | `spending_insights` | "How much did I spend at Argos?" | The transactions behind the total |
+| `spending` | `spending_insights` | "How much did I spend at Argos?", "What's my biggest spending category?" | The transactions behind the total, or only the categories asked about |
 | `subscriptions` | `subscription_query` | "What subscriptions am I paying for?" | Latest charge for each, or the two charges for a price change |
 | `transaction` | `transaction_investigation` | "Where is my Amazon refund?" | The refunds or charges, with the purchases they reverse |
-| `payment` | `payment_planning` | "When is my next payment due?" | Empty: account-level figures |
-| `general` | `general` | Everything else | Usually empty |
+| `payment` | `payment_planning` | "When is my next payment due?", "Did my payment go through?" | Empty for bill figures. The payments themselves for payment history |
+| `general` | `general` | Everything else, including Spend Pause | Usually empty. Spend Pause answers have none |
 
 ## Reading `confidence`
 
