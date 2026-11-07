@@ -10,5 +10,8 @@ export const RESET_SPEND_PAUSE: SpendPauseSettings = {
   quietHours: null,
 };
 
+// Spend Pause is off until the person turns it on. Only "Reset demo" may start it on, using the settings above.
+export const INITIAL_SPEND_PAUSE: SpendPauseSettings = { ...RESET_SPEND_PAUSE, enabled: false };
+
 // Cookie name for the Dial (mode). The cookie is the single source of truth.
 export const MODE_KEY = "cfe-mode";

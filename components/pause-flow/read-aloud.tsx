@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { actionClass } from "@/components/spend-pause/styles";
+import { canSpeak, pickVoice } from "@/lib/assistant/speech";
 
 /** Reads a sentence on request, in a British voice where there is one. Never plays by itself, and hides if unsupported. */
 export function ReadAloud({ text }: { text: string }) {
@@ -10,9 +11,9 @@ export function ReadAloud({ text }: { text: string }) {
   const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => {
-    setSupported("speechSynthesis" in window && typeof window.SpeechSynthesisUtterance === "function");
+    setSupported(canSpeak(window));
     return () => {
-      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      if (canSpeak(window)) window.speechSynthesis.cancel();
     };
   }, []);
 
@@ -22,8 +23,7 @@ export function ReadAloud({ text }: { text: string }) {
     window.speechSynthesis.cancel();
     if (speaking) return setSpeaking(false);
     const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find((v) => v.lang.toLowerCase().replace("_", "-") === "en-gb") ?? voices.find((v) => v.lang.toLowerCase().startsWith("en"));
+    const voice = pickVoice(window.speechSynthesis.getVoices());
     if (voice) utterance.voice = voice;
     utterance.lang = "en-GB";
     utterance.onend = () => setSpeaking(false);

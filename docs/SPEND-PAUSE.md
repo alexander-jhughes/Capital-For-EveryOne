@@ -27,10 +27,16 @@ Everything lives in `useAccount()` in `lib/state/account-context.tsx`, following
 | `pendingPurchase` | The purchase waiting for an answer |
 | `pauseHistory` | Finished purchases this session. Not in the contract: added for "Your recent choices" |
 | `ready`, `settingsSaved` | Not in the contract: added for the loading and can't-save states |
+| `spendPauseActivity` | When it was last turned on and off. Kept apart from `SpendPauseSettings`, which is frozen |
+| `dialState` | Events since the seed, for `POST /api/ask`. See "Live state for Dial" |
 
 State rules are pure and tested in `lib/spend-pause/state.ts`. Seed data is never edited. `account.currentBalance` is the seed balance plus approved purchases, because the check states the balance after the purchase and has to be true.
 
-**Storage:** settings are in `localStorage` under `cfe-spend-pause-settings`, and purchases are in `sessionStorage` under `cfe-spend-pause-session`. Stage 8's reset needs to clear both. Everything read is validated, and the app runs from the demo settings if storage is blocked or damaged.
+**Starting state:** off, from `INITIAL_SPEND_PAUSE`, as the brief says. `RESET_SPEND_PAUSE` is unchanged: it's what a demo reset may start with, and the seed context and backend tests use it.
+
+**What it doesn't touch:** turning it on or off changes settings and `spendPauseActivity` only. Balance, statement, minimum payment, due date, transactions, purchases and refunds are never affected, and the tests check this.
+
+**Storage:** settings are in `localStorage` under `cfe-spend-pause-settings`, activity under `cfe-spend-pause-activity`, and purchases are in `sessionStorage` under `cfe-spend-pause-session`. Stage 8's reset needs to clear all three. Everything read is validated, and the app runs from the demo settings if storage is blocked or damaged.
 
 ## For Dial
 
@@ -50,7 +56,11 @@ To turn it on or off, send the person to `proposal.href`:
 
 For "Can I turn it off?", say yes, and offer the proposal. For "Help me avoid unnecessary spending", explain Spend Pause using `spendPauseStatus`, and offer it only if it's off. Never present it as blocking real purchases.
 
-The `POST /api/ask` route answers from seed data, so it won't reflect these settings until it accepts client state. Dial screens can use `spendPauseStatus(settings)`, which reads live state.
+`spendPauseReply(question, settings, activity)` is the single entry point. The Ask sheet and Voice Mode call it first, so these questions work from live state with or without the backend: is it active, when was it turned on, what does it do, does it affect the balance, and can it be turned off.
+
+### Live state for Dial
+
+`useAccount().dialState` is sent with every other question to `POST /api/ask`, as `state`. It follows the `ClientState` proposal in `docs/AI-UI-CONTRACT.md`: events only, and the server works out every balance. `spendPauseActivity` is an extra field the backend ignores until it reads it. A backend without live state ignores `state`, and Dial answers from the seed until it's merged.
 
 ## Tests
 
