@@ -29,6 +29,7 @@ The finance layer works out every figure. Gemini only turns the verified facts i
 - **Spending, bills and subscriptions:** the 8 intents from the facts layer.
 - **One shop:** "What did I spend on Argos?" or "Show me my Amazon transactions." Other businesses that share a name, such as Tesco Mobile, are not matched.
 - **Refunds:** "Did I get my Amazon refund?" Each refund is reported as pending or completed, with the purchase it reverses, and a pending refund is never described as arrived.
+- **Each figure is checked against what it belongs to.** Every amount in a reply has to match the shop, date, meaning and status of its fact, not just appear somewhere in the data (`lib/ai/claims.ts`).
 - **Balances:** the current balance, statement balance and minimum payment are kept separate. "How much do I owe?" always uses a fixed template built from the facts, so that it explains all three.
 
 ### Set up Gemini
@@ -58,6 +59,7 @@ npm run test:ask                        # 10 questions against the running serve
 | Malformed, empty or blocked reply | Template sentence |
 | Reply with a figure, date or name not in the facts, the wrong balance, or advice | Rejected, then a template sentence |
 | "How much do I owe?" | Always a template sentence built from the facts, with no API call |
+| More than 20 Gemini calls a minute from one visitor | Template sentence, with no error |
 | A question the facts can't answer | "I can't tell that from your transactions." with no evidence |
 
 The figures and evidence stay the same in every case. Only the wording changes.

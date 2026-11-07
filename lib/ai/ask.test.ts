@@ -501,11 +501,11 @@ describe("the Gemini request", () => {
 
 describe("the two balances", () => {
   it.each<[string, string, string]>([
-    ["Your current balance is £486.20.", "What's my current balance?", "contradicts facts"],
-    ["£486.20 is your current balance.", "What's my balance?", "contradicts facts"],
-    ["Your statement balance is £1,069.89.", "How much do I need to pay?", "contradicts facts"],
-    ["Your bill is £1,069.89.", "When is it due?", "contradicts facts"],
-    ["You owe £486.20.", "How much do I owe?", "contradicts facts"],
+    ["Your current balance is £486.20.", "What's my current balance?", "no supporting fact"],
+    ["£486.20 is your current balance.", "What's my balance?", "no supporting fact"],
+    ["Your statement balance is £1,069.89.", "How much do I need to pay?", "no supporting fact"],
+    ["Your bill is £1,069.89.", "When is it due?", "no supporting fact"],
+    ["You owe £486.20.", "How much do I owe?", "no supporting fact"],
     ["Your minimum payment is £486.20.", "When is it due?", "contradicts facts"],
     ["Your bill is due on Friday 13 November.", "What's my current balance?", "no supporting fact"],
     ["It is due in 5 days.", "How much do I owe?", "no supporting fact"],
@@ -800,7 +800,7 @@ describe("merchant lookups", () => {
   it("a partial list with no total is rejected, and refunds can't pass as purchases", () => {
     const set = answerFacts("merchant_transactions", seed, "", "Amazon");
     const partial = "Your Amazon transactions are £45.99 on Friday 6 November and £19.99 on Tuesday 3 November.";
-    expect(checkAnswer(partial, set)).toEqual({ ok: false, reason: "contradicts facts" });
+    expect(checkAnswer(partial, set)).toEqual({ ok: false, reason: "no supporting fact" });
     expect(checkAnswer("Your Amazon purchases were £45.99 on Friday 6 November.", set)).toEqual({ ok: false, reason: "no supporting fact" });
     expect(checkAnswer("You have 7 Amazon transactions, totalling £99.48, after refunds.", set)).toEqual({ ok: true });
     expect(checkAnswer("Your latest Amazon refund is £19.99, and your total is £99.48.", set)).toEqual({ ok: true });
