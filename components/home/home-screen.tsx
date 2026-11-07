@@ -17,6 +17,8 @@ import {
 import { formatDate, formatLongDate, formatMonth, formatPence, formatShortDate } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences/provider";
 import { DEFAULT_PREFS, visibleWidgets, WIDGET_LABELS, type WidgetId } from "@/lib/preferences/schema";
+import { activeSince } from "@/lib/spend-pause/dial";
+import { describeChecks } from "@/lib/spend-pause/settings";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import { FlagBadges } from "../account/flag-badges";
@@ -27,13 +29,15 @@ const card = "elevated rounded-xl bg-card p-(--space)";
 const linkBtn = "inline-flex min-h-(--target-min) items-center gap-1.5 font-bold text-primary underline-offset-4 hover:underline";
 
 function useHomeData() {
-  const { account, transactions, settings } = useAccount();
+  const { account, transactions, settings, spendPauseActivity, ready } = useAccount();
   const days = daysUntilDue(account, DEMO_TODAY);
   const mom = monthOverMonth(transactions, DEMO_TODAY);
   return {
     account,
     transactions,
     settings,
+    pauseSince: activeSince(settings, spendPauseActivity),
+    ready,
     days,
     when: days === 0 ? "today" : days === 1 ? "tomorrow" : days > 0 ? `in ${days} days` : `${-days} days ago`,
     mom,
@@ -371,16 +375,29 @@ function Recent({ d }: { d: HomeData }) {
 
 function Pause({ d }: { d: HomeData }) {
   const s = d.settings;
+  const { mode } = useMode();
   return (
     <Link href="/account/spend-pause" className="hairline flex min-h-(--target-min) items-center justify-between gap-3 rounded-xl bg-card px-(--space) py-2">
       <span className="flex min-w-0 flex-1 items-center gap-3">
         <PauseCircle aria-hidden className="size-[1.3em] shrink-0 text-primary" />
+        {/* Saved settings load after the first paint, so say nothing about on or off until they have. */}
         <span>
-          {s.enabled
-            ? s.singlePurchaseThreshold !== null
-              ? `Spend Pause is on: we check before anything over ${formatPence(s.singlePurchaseThreshold)}`
-              : "Spend Pause is on"
-            : "Spend Pause is off"}
+          {!d.ready ? (
+            "Spend Pause"
+          ) : s.enabled ? (
+            <>
+              <span className="block font-bold">
+                {s.singlePurchaseThreshold !== null ? `Spend Pause is on: we check before anything over ${formatPence(s.singlePurchaseThreshold)}` : "Spend Pause is on"}
+              </span>
+              {mode === "complex" && (
+                <span className="block text-sm text-muted-foreground">
+                  {[d.pauseSince && `Since ${d.pauseSince}`, `${describeChecks(s).length} ${describeChecks(s).length === 1 ? "check" : "checks"} in the demo shop`].filter(Boolean).join(". ")}.
+                </span>
+              )}
+            </>
+          ) : (
+            "Spend Pause is off"
+          )}
         </span>
       </span>
       <span className="font-bold text-primary">Change</span>
