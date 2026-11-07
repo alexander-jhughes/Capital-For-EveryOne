@@ -6,7 +6,7 @@ import { DEMO_ANSWERS } from "./cache";
 import { buildFacts as stage2Facts, INTENTS, seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer } from "./guard";
 import { matchIntent, UNSUPPORTED, type AnswerIntent } from "./intent";
-import { createModel, describeError, type AskModel } from "./model";
+import { createModel, describeError, type AskModel, type ModelInterpretation } from "./model";
 import { templateAnswer } from "./templates";
 
 const buildFacts = (intent: AnswerIntent, ctx: FactContext = seedContext(), question = "", merchant?: string) => answerFacts(intent, ctx, question, merchant);
@@ -24,7 +24,7 @@ const duplicates = buildFacts("duplicates");
 const bill = buildFacts("days_until_due");
 
 const fakeModel = (over: Partial<AskModel> = {}): AskModel => ({
-  classify: vi.fn(async (): Promise<Intent | null> => null),
+  classify: vi.fn(async (): Promise<ModelInterpretation | null> => null),
   phrase: vi.fn(async (): Promise<string | null> => GOOD_REPLY),
   ...over,
 });
@@ -225,7 +225,7 @@ describe("templates and cached answers pass the guard", () => {
 describe("answerQuestion", () => {
   it("uses a checked model reply, with evidence from the facts", async () => {
     const result = await answerQuestion(CHARGED, { model: fakeModel() });
-    expect(result).toEqual({ answer: GOOD_REPLY, evidenceIds: duplicates.evidenceIds, source: "model" });
+    expect(result).toMatchObject({ answer: GOOD_REPLY, evidenceIds: duplicates.evidenceIds, source: "model" });
   });
 
   it("gives the model the facts and never takes evidence from it", async () => {
@@ -240,14 +240,14 @@ describe("answerQuestion", () => {
     async (reply) => {
       vi.spyOn(console, "warn").mockImplementation(() => {});
       const result = await answerQuestion(CHARGED, { model: fakeModel({ phrase: async () => reply }) });
-      expect(result).toEqual({ answer: templateAnswer(duplicates), evidenceIds: duplicates.evidenceIds, source: "template" });
+      expect(result).toMatchObject({ answer: templateAnswer(duplicates), evidenceIds: duplicates.evidenceIds, source: "template" });
     },
   );
 
   it("never gives a narrow question the monthly total, and never asks the model", async () => {
-    const model = fakeModel({ classify: vi.fn(async (): Promise<Intent | null> => "spend_this_month") });
+    const model = fakeModel({ classify: vi.fn(async (): Promise<ModelInterpretation | null> => ({ intent: "spend_this_month", confidence: "high" })) });
     const result = await answerQuestion("How much did I spend on groceries?", { model });
-    expect(result).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+    expect(result).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "template" });
     expect(model.classify).not.toHaveBeenCalled();
     expect(model.phrase).not.toHaveBeenCalled();
   });
@@ -256,7 +256,7 @@ describe("answerQuestion", () => {
     for (const [question, cached] of Object.entries(DEMO_ANSWERS)) {
       const model = fakeModel();
       const result = await answerQuestion(question, { model });
-      expect(result).toEqual({ answer: cached.answer, evidenceIds: buildFacts(cached.intent).evidenceIds, source: "cache" });
+      expect(result).toMatchObject({ answer: cached.answer, evidenceIds: buildFacts(cached.intent).evidenceIds, source: "cache" });
       expect(model.phrase).not.toHaveBeenCalled();
     }
   });
@@ -272,12 +272,12 @@ describe("answerQuestion", () => {
     ["When do I need to pay?", "Your bill of £486.20 is due on Friday 13 November. That is in 5 days."],
   ])("%s", async (question, answer) => {
     const result = await answerQuestion(question, { model: null });
-    expect(result).toEqual({ answer, evidenceIds: [], source: "template" });
+    expect(result).toMatchObject({ answer, evidenceIds: [], source: "template" });
     expect(checkAnswer(answer, bill, question)).toEqual({ ok: true });
   });
 
   it.each(["Have I been charged twice by Lidl?", "Was I charged twice at Lidl?", "Did Spotify go up?"])("does not answer %s with a finding about another shop", async (question) => {
-    expect(await answerQuestion(question, { model: fakeModel() })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+    expect(await answerQuestion(question, { model: fakeModel() })).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "template" });
   });
 
   it("still answers a duplicates question that names the right shop", async () => {
@@ -298,7 +298,7 @@ describe("answerQuestion", () => {
 
   it("shows no evidence when the model says the facts don't cover it", async () => {
     const result = await answerQuestion(CHARGED, { model: fakeModel({ phrase: async () => "I can’t tell that from your transactions." }) });
-    expect(result).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "model" });
+    expect(result).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "model" });
   });
 
   it("uses the template on an error", async () => {
@@ -317,7 +317,7 @@ describe("answerQuestion", () => {
   it("with no key: cache for demo questions, template otherwise, and no call out", async () => {
     expect((await answerQuestion(TESCO, { model: null })).source).toBe("cache");
     expect((await answerQuestion("How much is my bill?", { model: null })).source).toBe("template");
-    expect(await answerQuestion("What is my credit score?", { model: null })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+    expect(await answerQuestion("What is my credit score?", { model: null })).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "template" });
   });
 
   it("no question gives the spending summary", async () => {
@@ -327,7 +327,7 @@ describe("answerQuestion", () => {
   });
 
   it("classifies with the model only when keywords don't match", async () => {
-    const classify = vi.fn(async (): Promise<Intent | null> => "days_until_due");
+    const classify = vi.fn(async (): Promise<ModelInterpretation | null> => ({ intent: "days_until_due", confidence: "high" }));
     const phrase = vi.fn(async () => "Your bill is £486.20.");
     await answerQuestion(TESCO, { model: fakeModel({ classify }) });
     expect(classify).not.toHaveBeenCalled();
@@ -343,9 +343,9 @@ describe("answerQuestion", () => {
   });
 
   it("shares one time limit across both model calls", async () => {
-    const classify = vi.fn(async (): Promise<Intent | null> => {
+    const classify = vi.fn(async (): Promise<ModelInterpretation | null> => {
       await new Promise((resolve) => setTimeout(resolve, 60));
-      return "days_until_due";
+      return { intent: "days_until_due", confidence: "high" };
     });
     const phrase = vi.fn(async () => "Your bill is £486.20.");
     const result = await answerQuestion("Am I square with you lot?", { model: fakeModel({ classify, phrase }), timeoutMs: 100 });
@@ -458,12 +458,14 @@ describe("the Gemini request", () => {
   });
 
   it("reads the classification from the structured reply", async () => {
-    replyWith(JSON.stringify({ category: "duplicates" }));
-    expect(await classify()).toBe("duplicates");
+    replyWith(JSON.stringify({ category: "duplicates", confidence: "high" }));
+    expect(await classify()).toEqual({ intent: "duplicates", confidence: "high" });
   });
 
-  it.each(["something_else", "none"])("treats the category %s as no intent", async (category) => {
-    replyWith(JSON.stringify({ category }));
+  it("reads none as no intent, and rejects anything off the list", async () => {
+    replyWith(JSON.stringify({ category: "none", confidence: "high" }));
+    expect(await classify()).toEqual({ intent: null, confidence: "high" });
+    replyWith(JSON.stringify({ category: "something_else", confidence: "high" }));
     expect(await classify()).toBeNull();
   });
 
@@ -495,7 +497,7 @@ describe("the Gemini request", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     replyWith(JSON.stringify({ answer: GOOD_REPLY, evidenceIds: ["t999"] }));
     const result = await answerQuestion(CHARGED, { model: createModel() });
-    expect(result).toEqual({ answer: GOOD_REPLY, evidenceIds: ["t051", "t052"], source: "model" });
+    expect(result).toMatchObject({ answer: GOOD_REPLY, evidenceIds: ["t051", "t052"], source: "model" });
   });
 });
 
@@ -532,7 +534,7 @@ describe("the two balances", () => {
   it("how much is owed never depends on the model's wording", async () => {
     const model = fakeModel({ phrase: vi.fn(async () => "You owe £1,069.89 right now.") });
     const result = await answerQuestion("How much do I owe?", { model });
-    expect(result).toEqual({ answer: OWE, evidenceIds: [], source: "template" });
+    expect(result).toMatchObject({ answer: OWE, evidenceIds: [], source: "template" });
     expect(model.phrase).not.toHaveBeenCalled();
     expect(result.answer).toContain("not all of it is due yet");
   });
@@ -541,7 +543,7 @@ describe("the two balances", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const model = fakeModel({ phrase: async () => "Your current balance is £486.20." });
     const result = await answerQuestion("What's my current balance?", { model });
-    expect(result).toEqual({ answer: "Your current balance is £1,069.89.", evidenceIds: [], source: "template" });
+    expect(result).toMatchObject({ answer: "Your current balance is £1,069.89.", evidenceIds: [], source: "template" });
   });
 });
 
@@ -609,9 +611,9 @@ describe("a merchant question can't return another figure", () => {
     ["How much have I spent at Amazon?", "You have 7 Amazon transactions, totalling £99.48, after refunds, counting pending items. The latest is £19.99 on Sunday 8 November (pending refund).", ["t062", "t054", "t061", "t036", "t028", "t018", "t009"]],
     ["How much did I spend at Amazon last month?", "You have 4 Amazon transactions last month, totalling £53.49, after refunds. The latest is £14.99 on Thursday 29 October (refund).", ["t036", "t028", "t018", "t009"]],
   ])("%s", async (question, answer, evidenceIds) => {
-    const model = fakeModel({ classify: vi.fn(async (): Promise<Intent | null> => "spend_this_month"), phrase: async () => null });
+    const model = fakeModel({ classify: vi.fn(async (): Promise<ModelInterpretation | null> => ({ intent: "spend_this_month", confidence: "high" })), phrase: async () => null });
     const result = await answerQuestion(question, { model });
-    expect(result).toEqual({ answer, evidenceIds, source: "template" });
+    expect(result).toMatchObject({ answer, evidenceIds, source: "template" });
     expect(result.answer).not.toContain("£402.35");
     expect(model.classify).not.toHaveBeenCalled();
   });
@@ -640,7 +642,7 @@ describe("refunds", () => {
     async (question) => {
       expect(matchIntent(question, NAMES)).toBe("merchant_refunds");
       const result = await answerQuestion(question, { model: null });
-      expect(result).toEqual({ answer: `${PENDING} ${COMPLETED}`, evidenceIds: ["t062", "t061", "t036", "t028"], source: "template" });
+      expect(result).toMatchObject({ answer: `${PENDING} ${COMPLETED}`, evidenceIds: ["t062", "t061", "t036", "t028"], source: "template" });
     },
   );
 
@@ -653,21 +655,21 @@ describe("refunds", () => {
 
   it("only a pending refund", async () => {
     const result = await answerQuestion("Did I get my Amazon refund?", { model: null, ctx: onlyPending });
-    expect(result).toEqual({ answer: PENDING, evidenceIds: ["t062", "t061"], source: "template" });
+    expect(result).toMatchObject({ answer: PENDING, evidenceIds: ["t062", "t061"], source: "template" });
   });
 
   it("only a completed refund", async () => {
     const result = await answerQuestion("Did I get my Amazon refund?", { model: null, ctx: onlyCompleted });
-    expect(result).toEqual({ answer: COMPLETED, evidenceIds: ["t036", "t028"], source: "template" });
+    expect(result).toMatchObject({ answer: COMPLETED, evidenceIds: ["t036", "t028"], source: "template" });
   });
 
   it("no refund from a known shop says so, with no evidence", async () => {
     const result = await answerQuestion("Did I get my Tesco refund?", { model: null });
-    expect(result).toEqual({ answer: "I can't see any refund from Tesco in your transactions.", evidenceIds: [], source: "template" });
+    expect(result).toMatchObject({ answer: "I can't see any refund from Tesco in your transactions.", evidenceIds: [], source: "template" });
   });
 
   it("a refund from an unknown shop is the fallback, not Amazon's", async () => {
-    expect(await answerQuestion("Did I get my Currys refund?", { model: fakeModel() })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+    expect(await answerQuestion("Did I get my Currys refund?", { model: fakeModel() })).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "template" });
   });
 
   it("a refund with no matching purchase still has its own evidence", () => {
@@ -712,7 +714,7 @@ describe("refunds", () => {
   it("a model reply saying pending money arrived is replaced", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const result = await answerQuestion("Has my Amazon refund arrived?", { model: fakeModel({ phrase: async () => "Yes, your £19.99 refund has arrived. So has your £14.99 refund." }) });
-    expect(result).toEqual({ answer: `${PENDING} ${COMPLETED}`, evidenceIds: ["t062", "t061", "t036", "t028"], source: "template" });
+    expect(result).toMatchObject({ answer: `${PENDING} ${COMPLETED}`, evidenceIds: ["t062", "t061", "t036", "t028"], source: "template" });
   });
 
   it("a denial is required when there is no refund", () => {
@@ -730,13 +732,13 @@ describe("merchant lookups", () => {
     "%s finds the one Argos purchase",
     async (question) => {
       expect(matchIntent(question, NAMES)).toBe("merchant_transactions");
-      expect(await answerQuestion(question, { model: null })).toEqual({ answer: ARGOS, evidenceIds: ["t060"], source: "template" });
+      expect(await answerQuestion(question, { model: null })).toMatchObject({ answer: ARGOS, evidenceIds: ["t060"], source: "template" });
     },
   );
 
   it("a month with nothing says so, with no evidence", async () => {
     const result = await answerQuestion("How much did I spend at Argos this month?", { model: null });
-    expect(result).toEqual({ answer: "I can't see any Argos transactions this month.", evidenceIds: [], source: "template" });
+    expect(result).toMatchObject({ answer: "I can't see any Argos transactions this month.", evidenceIds: [], source: "template" });
   });
 
   it("several purchases at one shop are all evidence", async () => {
@@ -771,7 +773,7 @@ describe("merchant lookups", () => {
     "%s never matches a different shop",
     async (question) => {
       const model = fakeModel({ classify: async () => null });
-      expect(await answerQuestion(question, { model })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+      expect(await answerQuestion(question, { model })).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "template" });
     },
   );
 
