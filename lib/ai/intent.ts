@@ -6,7 +6,7 @@ const simplify = (text: string) => text.toLowerCase().replace(/[’']/g, "");
 /** The facts can't answer this. It gets "I can't tell" directly and never reaches the model. */
 export const UNSUPPORTED = "unsupported";
 /** Stage 2's intents plus two about one shop. Kept here so the shared Intent type doesn't change. */
-export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds" | "subscription_list" | "transaction_lookup";
+export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds" | "subscription_list" | "transaction_lookup" | "category_spending" | "payment_history";
 export type IntentMatch = AnswerIntent | typeof UNSUPPORTED | null;
 export type MerchantPeriod = "all" | "this_month" | "last_month";
 
@@ -20,7 +20,7 @@ export interface KnownNames {
 
 /** Asks for a judgement the facts can't give. Must not land on a nearby intent. */
 const OUT_OF_SCOPE =
-  /\b(should i|shall i|ought i|do you recommend|recommend|advice|advise|is it worth|worth it|good idea|best way|can i afford|can i spend|balance transfer|available|bill paid|cancell?ed|cancel|paid (?:my|the) bill)\b/;
+  /\b(should i|shall i|ought i|do you recommend|recommend|advice|advise|is it worth|worth it|good idea|best way|can i afford|can i spend|balance transfer|available|cancell?ed|cancel)\b/;
 
 /** A spending question about one shop, category or period: the facts only hold whole-month totals. */
 const NARROW_PHRASE = /\b(?:at|on|in|from|for)\s+(?!this\b|last\b|the\b|my\b|me\b|total\b|november\b|october\b)[a-z0-9]/;
@@ -34,6 +34,8 @@ const OTHER_PERIOD =
 const SPEND_WORD = /\b(?:spend|spent|spending|cost|costs)\b(?! pause)/;
 
 // First match wins, so the specific intents sit above the general spending ones.
+/** "at Uber": a shop the data doesn't know, so a category answer would be about the wrong thing. */
+const NARROW_PHRASE_AT = /\b(?:at|from)\s+(?!this\b|last\b|the\b|my\b|november\b|october\b)[a-z0-9]/;
 const COMPARES_MONTHS = /\b(compare[ds]?|comparison|versus|vs|more than|less than|than last month)\b/;
 
 const RULES: Array<[Intent, RegExp]> = [
@@ -61,6 +63,12 @@ export function billQuestion(question: string): BillQuestion {
   if (/\bhow much\b.*\bpay\b|\bwhat\b.*\b(?:need|have) to pay\b/.test(q)) return "pay";
   if (/\bstatement\b|\bhow much\b.*\bbill\b/.test(q)) return "bill";
   return /\bbalance\b/.test(q) ? "balance" : "due";
+}
+
+/** What a Spend Pause question wants: how it works, or how it's set up now. */
+export function pauseQuestion(question: string): "explain" | "status" {
+  const q = simplify(question);
+  return /\bwhat (?:happens|would happen|does (?:it|spend pause) do|is spend pause)\b|\bhow (?:does|do|would) (?:it|spend pause|this) work|\bexplain\b|\baffect\w* my (?:balance|account|card)|\b(?:will|does|would|can) (?:it|spend pause) (?:block|stop|change|affect|cancel)|\bwhat (?:can|can't) (?:it|spend pause)\b|\b(?:if|when) i (?:activate|turn on|switch on|enable)/.test(q) ? "explain" : "status";
 }
 
 /** What a spending question wants from the month's facts. */
@@ -109,6 +117,45 @@ export function cannotAnswer(question: string): boolean {
   return OUT_OF_SCOPE.test(q) || UNRANKED.test(q) || OTHER_PERIOD.test(q) || COMPARES_MONTHS.test(q) || /\b(compare|better|cheaper)\b/.test(q);
 }
 
+/** Spending categories in the data, and everyday words for them. Matching a word here is how a category is named. */
+export const CATEGORY_WORDS: Record<string, RegExp> = {
+  Groceries: /\b(groceries|grocery|food shop(?:ping)?|supermarkets?)\b/,
+  "Eating out": /\b(eating out|restaurants?|takeaways?|dining|meals? out|cafes?)\b/,
+  Transport: /\b(transport|commut\w*|trains?|tube|bus(?:es)?|taxis?)\b/,
+  Travel: /\b(travel|holidays?|trips?|flights?)\b/,
+  Shopping: /(?<!food )\b(shopping|clothes)\b(?! list)/,
+  Subscriptions: /\b(subscriptions?)\b/,
+};
+const CATEGORY_QUESTION = /\bcategor(?:y|ies)\b/;
+const SPENDING_ASK = /\b(spend|spent|spending|cost|costs|how much|total)\b(?! pause)/;
+
+export type CategoryRank = "biggest" | "smallest" | "named" | "all";
+
+/** The categories a question names, from the ones in the data. */
+export function namedCategories(question: string, categories: string[]): string[] {
+  const q = simplify(question);
+  return categories.filter((c) => CATEGORY_WORDS[c]?.test(q) || new RegExp(`\\b${escapeRegExp(c.toLowerCase())}\\b`).test(q));
+}
+
+/** Which category answer a question wants. */
+export function categoryRank(question: string, categories: string[]): CategoryRank {
+  const q = simplify(question);
+  if (/\b(smallest|least|lowest|fewest)\b/.test(q)) return "smallest";
+  if (/\b(biggest|largest|most|top|highest|main)\b/.test(q)) return "biggest";
+  return namedCategories(question, categories).length > 0 ? "named" : "all";
+}
+
+/** True when a question is about spending per category, as opposed to one shop or the whole month. */
+function isCategoryQuestion(q: string, categories: string[]): boolean {
+  if (CATEGORY_QUESTION.test(q)) return true;
+  const named = categories.filter((c) => CATEGORY_WORDS[c]?.test(q));
+  // "subscriptions" on its own is about the list or price changes, which have their own facts.
+  return named.length > 0 && SPENDING_ASK.test(q) && !(named.length === 1 && named[0] === "Subscriptions" && !/\b(spend|spent|spending|how much|total)\b/.test(q));
+}
+
+const PAYMENT_HISTORY =
+  /\b(payment history|payments? (?:i(?:ve| have)|have i|did i) (?:made|make)|(?:my|past|previous|recent) payments|have i (?:made|paid) (?:a |any )?payments?|did (?:my|the) payment (?:go through|arrive|clear|work)|(?:is|was|has) (?:my|the|that) payment (?:been |gone |come )?(?:through|recorded|received|made|arrived|cleared|pending|processed|taken|showing|in)\b|how much did i (?:just |last )?pay\b|did i (?:just )?(?:make|pay) (?:a|my|the) (?:card )?payment|have i paid (?:my|the) bill|is (?:my|the) bill paid|bill (?:been )?paid)\b/;
+
 /** The one shop a question is about, or undefined if it names none or several. */
 export function merchantSubject(question: string, merchants: string[]): string | undefined {
   const shops = shopsIn(simplify(question), merchants);
@@ -151,7 +198,13 @@ export function namedMerchants(question: string, merchants: string[]): string[] 
  */
 export function matchIntent(question: string, names: KnownNames = { merchants: [], categories: [] }): IntentMatch {
   const q = simplify(question);
-  if (OUT_OF_SCOPE.test(q) || UNRANKED.test(q)) return UNSUPPORTED;
+  if (OUT_OF_SCOPE.test(q)) return UNSUPPORTED;
+  if (PAYMENT_HISTORY.test(q)) return "payment_history";
+  if (isCategoryQuestion(q, names.categories) && shopsIn(q, names.merchants).length === 0) {
+    const otherPeriod = OTHER_PERIOD.test(q) && !/\b(this month|last month|november|october)\b/.test(q);
+    return otherPeriod || NARROW_PHRASE_AT.test(q) ? UNSUPPORTED : "category_spending";
+  }
+  if (UNRANKED.test(q)) return UNSUPPORTED;
   const references = transactionRefs(question);
   if (references.length > 1) return UNSUPPORTED;
   if (references.length === 1 && ((names.ids ?? []).includes(references[0]) || REFERENCE_WORD.test(q))) return "transaction_lookup";

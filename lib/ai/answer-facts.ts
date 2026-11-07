@@ -4,8 +4,8 @@ import { monthOverMonth } from "../finance";
 import { formatLongDate, formatPence } from "../format";
 import type { Fact, FactSet, Intent } from "../types";
 import { buildFacts, type FactContext } from "./facts";
-import { merchantPeriod, transactionRefs, type AnswerIntent } from "./intent";
-import { merchantFacts, refundFacts, subscriptionFacts, topItemFacts, transactionFacts } from "./merchant-facts";
+import { categoryRank, merchantPeriod, namedCategories, pauseQuestion, transactionRefs, type AnswerIntent } from "./intent";
+import { categoryFacts, merchantFacts, paymentFacts, refundFacts, SPEND_PAUSE_HOW, subscriptionFacts, topItemFacts, transactionFacts } from "./merchant-facts";
 
 /** A FactSet that can also be about one shop. Same shape as Stage 2's, so everything downstream reads it the same way. */
 export type AnswerFactSet = Omit<FactSet, "intent"> & { intent: AnswerIntent; merchant?: string };
@@ -27,6 +27,12 @@ function withEvidence(base: Pick<AnswerFactSet, "intent" | "asOf" | "merchant">,
 
 /** The facts for one question, with evidence limited to what supports the answer and both balances available. */
 export function answerFacts(intent: AnswerIntent, ctx: FactContext, question = "", merchant?: string, reference?: string): AnswerFactSet {
+  if (intent === "category_spending") {
+    const categories = [...new Set(ctx.txns.filter((t) => t.category !== "Payments").map((t) => t.category))];
+    const facts = categoryFacts(ctx, merchantPeriod(question) === "last_month" ? "last_month" : "this_month", categoryRank(question, categories), namedCategories(question, categories));
+    return withEvidence({ intent, asOf: ctx.today }, facts, ctx);
+  }
+  if (intent === "payment_history") return withEvidence({ intent, asOf: ctx.today }, paymentFacts(ctx), ctx);
   if (intent === "subscription_list") return withEvidence({ intent, asOf: ctx.today }, subscriptionFacts(ctx), ctx);
   if (intent === "transaction_lookup") return withEvidence({ intent, asOf: ctx.today }, transactionFacts(ctx, reference ?? transactionRefs(question)[0]), ctx);
   if (intent === "merchant_refunds") return withEvidence({ intent, asOf: ctx.today, merchant }, refundFacts(ctx, merchant), ctx);
@@ -53,9 +59,20 @@ export function answerFacts(intent: AnswerIntent, ctx: FactContext, question = "
     value: `${formatPence(ctx.account.lastPayment.amount)}, on ${formatLongDate(ctx.account.lastPayment.date)}`,
     evidenceIds: [],
   };
+  // Spend Pause answers are about settings, not transactions, so its budget figures carry no rows of evidence.
+  // Stage 2 nets every refund off the total, pending ones too. Say so, so a pending refund is never read as arrived.
+  const pendingRefund = (f: Fact) => f.key === "month_refunds" && f.evidenceIds.some((id) => ctx.txns.find((t) => t.id === id)?.status === "pending");
+  const relabel = (f: Fact): Fact => (pendingRefund(f) ? { ...f, label: "Refunds this month, taken off the total, including a pending refund that has not arrived yet" } : f);
+  const contextOnly = (key: string) => CONTEXT_ONLY_FACTS.has(key) || intent === "spend_pause";
+  const howItWorks = intent === "spend_pause" && pauseQuestion(question) === "explain" ? SPEND_PAUSE_HOW.map((text, i): Fact => ({ key: `how_${i + 1}`, label: "How Spend Pause works", value: text, evidenceIds: [] })) : [];
   const facts = [
-    ...set.facts.map((f) => (CONTEXT_ONLY_FACTS.has(f.key) ? { ...f, evidenceIds: [] } : f)),
+    ...set.facts.map(relabel).map((f) => (contextOnly(f.key) ? { ...f, evidenceIds: [] } : f)),
+    ...howItWorks,
     ...(BILL_INTENTS.has(intent) ? [currentBalance, lastPayment] : []),
+    // Said outright, because "your bill is due on Friday" is the natural sentence and it is wrong here.
+    ...(BILL_INTENTS.has(intent) && ctx.account.statementBalance === 0
+      ? [{ key: "nothing_due", label: "Due on this statement", value: "Nothing: the statement balance is £0.00, so there is no payment due", evidenceIds: [] }]
+      : []),
   ];
   const evidenceIds = [...new Set(facts.flatMap((f) => f.evidenceIds))];
   const kept = new Set(evidenceIds);

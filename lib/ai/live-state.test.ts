@@ -136,6 +136,7 @@ describe("state from the client is checked", () => {
 
   it("a shop name reaching the model is still only a fact", async () => {
     const result = await ask("How much did I spend at Northwind Audio?", { purchases: [purchase] }, { classify: async () => null, phrase: async () => CANT_TELL });
-    expect(result.experience?.template).toBe("general");
+    expect(result).toMatchObject({ source: "template" });
+    expect(result.answer).toContain("Northwind Audio");
   });
 });

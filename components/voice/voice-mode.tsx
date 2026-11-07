@@ -10,6 +10,8 @@ import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { formatLongDate, formatPence } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences/provider";
 import { describeActions, type UiAction } from "@/lib/preferences/schema";
+import { paymentReply } from "@/lib/payments/dial";
+import { spendPauseReply } from "@/lib/spend-pause/dial";
 import { liveState } from "@/lib/assistant/live-state";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
@@ -49,9 +51,11 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
   const ref = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const recognition = useRef<Recognition | null>(null);
+  /** The person's own last question, sent as previousQuestion so the backend can resolve follow-ups. */
+  const lastQuestion = useRef<string | undefined>(undefined);
   const router = useRouter();
   const inputId = useId();
-  const { account, transactions, settings } = useAccount();
+  const { account, transactions, settings, payments, spendPauseActivity } = useAccount();
   const { mode, setMode } = useMode();
   const prefsApi = usePreferences();
   const { prefs, startPreview, acceptPreview, rejectPreview, undo, save, resetToDefault, canUndo } = prefsApi;
@@ -145,6 +149,12 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
       if (offer?.kind === "mode") setMode(offer.from);
       setOffer(null);
 
+      // Spend Pause is answered from live state. A change is only offered: the person confirms it on the Spend Pause page.
+      // Payments are answered the same way.
+      const asked = r.kind === "question" || r.kind === "unknown";
+      const local = asked ? (spendPauseReply(text, settings, spendPauseActivity)?.text ?? paymentReply(text, { account, transactions, payments })) : null;
+      if (local) return say({ text: local });
+
       switch (r.kind) {
         case "ui":
           startPreview(r.actions, { source: "voice" });
@@ -190,7 +200,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
               return say({ text: HELP });
             case "readBalance":
               return say({
-                text: `Your bill is ${formatPence(account.statementBalance)}, due on ${formatLongDate(account.paymentDueDate)}. You owe ${formatPence(account.currentBalance)} in total.`,
+                text: `${account.statementBalance === 0 ? "Your bill is paid." : `Your bill is ${formatPence(account.statementBalance)}, due on ${formatLongDate(account.paymentDueDate)}.`} You owe ${formatPence(account.currentBalance)} in total.`,
               });
             case "readPage": {
               const main = document.querySelector("main")?.innerText.replace(/\s+/g, " ").trim() ?? "";
@@ -201,7 +211,8 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
         case "question": {
           setPhase("thinking");
           setReply({ text: "Checking your account..." });
-          const outcome = await askDial(text, { state: liveState(transactions, settings) });
+          const outcome = await askDial(text, { state: liveState(transactions, settings), previousQuestion: lastQuestion.current });
+          lastQuestion.current = text;
           if (outcome.kind === "answer") return say({ text: outcome.response.answer, evidence: outcome.response.evidenceIds, template: outcome.experience.template });
           if (outcome.kind === "invalid") return say({ text: outcome.message });
           const intent = intentForQuestion(text);
@@ -215,7 +226,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
           return say({ text: "Sorry, I didn't catch that. You could say: make everything bigger, put my bill at the top, or how much do I owe?" });
       }
     },
-    [prefs.textSize, offer, decide, rejectPreview, setMode, startPreview, say, mode, router, stopSpeaking, canUndo, undo, save, account, transactions, settings],
+    [prefs.textSize, offer, decide, rejectPreview, setMode, startPreview, say, mode, router, stopSpeaking, canUndo, undo, save, account, transactions, settings, payments, spendPauseActivity],
   );
 
   function listen() {

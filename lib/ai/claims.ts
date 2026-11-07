@@ -141,7 +141,11 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
         mustNot: new RegExp(`\\b(last month|october|same days|previous|biggest|categor\\w*${categoryWords}|refund\\w*)\\b`, "i"),
       });
       if (category) add(money("month_top_category"), { must: new RegExp(`\\b(${escapeRegExp(category)})\\b`, "i"), mustNot: /\b(total|same days|last month)\b/i });
-      add(money("month_refunds"), { must: /\brefund/i, mustNot: /\b(arrived|received|in your account)\b/i });
+      const refundsPending = set.facts.some((f) => f.key === "month_refunds" && f.label.includes("pending"));
+      add(money("month_refunds"), {
+        must: refundsPending ? /\bpending\b|\bnot (?:yet )?arrived\b|\bhasn't arrived\b/i : /\brefund/i,
+        mustNot: /\b(?<!not |hasn't |not yet )(arrived|received|in your account)\b|\balready\b/i,
+      });
       add(money("same_days_last_month_total"), { must: /\b(same days|last month|october|previous)\b/i, mustNot: /\b(so far|november)\b/i });
       add(money("change_vs_same_days_last_month"), { must: /\b(more|less|up|down|higher|lower|than|difference)\b/i });
       break;
@@ -218,6 +222,28 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
         add(purchase, { must: /\b(purchase\w*|bought|order\w*|paid)\b/i, mustNot: /\brefund/i, merchant: shop, dates });
       }
       break;
+    case "category_spending": {
+      const when = set.facts[0]?.label.includes("last month") ? "last" : "this";
+      const wrongPeriod = when === "last" ? /\b(this month|november|so far)\b/i : /\b(last month|october)\b/i;
+      for (const f of set.facts.filter((x) => /^category_(biggest|smallest|\d+)$/.test(x.key))) {
+        const name = noteShop(f.value.split(",")[0]);
+        const rank = f.key === "category_biggest" ? /\b(smallest|least|lowest)\b/i : f.key === "category_smallest" ? /\b(biggest|largest|most|top|highest)\b/i : undefined;
+        add(moneyIn(f.value)[0], { merchant: name, mustNot: rank ? new RegExp(`${rank.source}|${wrongPeriod.source}`, "i") : wrongPeriod });
+      }
+      add(money("category_difference"), { must: /\b(more|less|than|difference|higher|lower)\b/i });
+      break;
+    }
+    case "payment_history":
+      for (const f of withPrefix("payment_")) {
+        const pending = f.value.includes("(pending)");
+        add(moneyIn(f.value)[0], {
+          must: /\b(pa(?:y|id|yment)\w*)\b/i,
+          mustNot: pending ? /\b(completed?|cleared|gone through|went through|arrived|received|processed)\b/i : /\b(pending|not (?:yet )?cleared|processing)\b/i,
+          dates: datesIn(f.value),
+        });
+      }
+      add(money("statement_remaining"), { must: /\b(statement|bill|left|still|to pay|owe)\b/i, mustNot: /\b(paid|payment)\b(?! to)/i });
+      break;
     case "subscription_list": {
       for (const f of withPrefix("subscription_")) add(moneyIn(f.value)[0], { merchant: noteShop(shopFrom(f.value, /^(.+?), £/)), dates: datesIn(f.value), mustNot: /\b(no charge|stopped|cancell?ed)\b/i });
       for (const f of withPrefix("lapsed_subscription_")) {
@@ -241,7 +267,10 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
   const forbidden: Partial<Record<AnswerFactSet["intent"], RegExp | undefined>> = {
     duplicates: /\b(once|one time|single charge|just one|only one)\b/i,
     price_changes: /\b(same|unchanged|stayed|didn't change|hasn't changed|no change)\b/i,
-    spend_pause: on ? /\b(off|disabled|inactive|turned off|switched off)\b/i : /\bpause\b[^.]*\b(on|enabled|active)\b/i,
+    // "When Spend Pause is on" or "if you turn it off" describes what would happen, not how it is now.
+    spend_pause: on
+      ? /(?<!\b(?:when|if|once|while) (?:it is |it's |spend pause is |you turn it |you switch it |turned |switched )?)\b(off|disabled|inactive)\b/i
+      : /(?<!\b(?:when|if|once|while) (?:it is |it's |you turn |you switch )?spend )\bpause\b[^.]*\b(on|enabled|active)\b/i,
   };
 
   const counts: ClaimSet["counts"] = [];
@@ -262,11 +291,11 @@ export function claimProblem(reply: string, set: AnswerFactSet): string | null {
   if (forbidden?.test(reply)) return "contradicts facts";
 
   for (const { noun, value } of counts ?? []) {
-    const stated = [...reply.matchAll(new RegExp(`\\b(\\d+)\\s+(?:[\\w']+\\s+){0,2}${noun}\\b`, "gi"))];
+    const stated = [...reply.matchAll(new RegExp(`(?<![\\d.,£])\\b(\\d+)\\s+(?:[\\w']+\\s+){0,2}${noun}\\b`, "gi"))];
     if (stated.some((m) => Number(m[1]) !== value)) return "contradicts facts";
   }
 
-  const stated = [...reply.matchAll(/\b(\d+) days?\b/gi)];
+  const stated = [...reply.matchAll(/(?<![\d.,£])\b(\d+) days?\b/gi)];
   if (days !== undefined && stated.some((m) => Number(m[1]) !== days)) return "contradicts facts";
 
   for (const span of amountSpans(reply)) {
