@@ -21,3 +21,7 @@ export const daysBetween = (a: ISODate, b: ISODate) => Math.round((day(b).getTim
 /** "Friday 13 November" (Simple mode: no abbreviations) */
 export const formatLongDate = (d: ISODate) =>
   new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(day(d));
+
+/** "November" */
+export const formatMonth = (d: ISODate) =>
+  new Intl.DateTimeFormat("en-GB", { month: "long", timeZone: "UTC" }).format(day(d));
