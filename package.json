@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:ask": "node --no-warnings scripts/test-ask.ts",
+    "test:http": "node --no-warnings scripts/test-ask-http.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
