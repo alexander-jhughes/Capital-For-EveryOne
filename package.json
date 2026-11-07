@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:pay": "npm exec --yes --package=playwright-core@1 --package=axe-core@4 -- node scripts/test-pay-browser.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
