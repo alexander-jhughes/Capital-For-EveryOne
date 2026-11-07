@@ -6,6 +6,7 @@ import { askDial, evidenceHref, knownEvidence, offlineFacts } from "@/lib/assist
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { biggestItems, findPossibleDuplicates, flagTransactions, spendingSummary, type TransactionFlags } from "@/lib/finance";
 import { formatLongDate, formatPence, formatShortDate } from "@/lib/format";
+import { liveState } from "@/lib/assistant/live-state";
 import { useAccount } from "@/lib/state/account-context";
 import type { Transaction } from "@/lib/types";
 import { FlagBadges } from "./flag-badges";
@@ -39,7 +40,7 @@ export function SimpleSpending({ highlightIds }: { highlightIds: string[] }) {
   const [summary, setSummary] = useState<{ text: string } | { offline: string } | null>(null);
   useEffect(() => {
     let live = true;
-    void askDial(SUMMARY_QUESTION).then((outcome) => {
+    void askDial(SUMMARY_QUESTION, { state: liveState(transactions, settings) }).then((outcome) => {
       if (!live) return;
       if (outcome.kind === "answer") setSummary({ text: outcome.response.answer });
       else {

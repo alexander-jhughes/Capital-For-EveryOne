@@ -7,6 +7,7 @@ import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { paymentReply } from "@/lib/payments/dial";
+import { liveState } from "@/lib/assistant/live-state";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
 import { VoiceMode } from "../voice/voice-mode";
@@ -71,7 +72,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setAnswer({ status: "loading", question: q });
-      const outcome = await askDial(q);
+      const outcome = await askDial(q, { state: liveState(transactions, settings) });
       if (id !== requestId.current) return; // a newer question replaced this one
       if (outcome.kind === "answer") {
         const { answer: text, evidenceIds, source } = outcome.response;

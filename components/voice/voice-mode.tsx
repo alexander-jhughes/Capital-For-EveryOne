@@ -11,6 +11,7 @@ import { formatLongDate, formatPence } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences/provider";
 import { describeActions, type UiAction } from "@/lib/preferences/schema";
 import { paymentReply } from "@/lib/payments/dial";
+import { liveState } from "@/lib/assistant/live-state";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import type { Mode } from "@/lib/types";
@@ -205,7 +206,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
         case "question": {
           setPhase("thinking");
           setReply({ text: "Checking your account..." });
-          const outcome = await askDial(text);
+          const outcome = await askDial(text, { state: liveState(transactions, settings) });
           if (outcome.kind === "answer") return say({ text: outcome.response.answer, evidence: outcome.response.evidenceIds, template: outcome.experience.template });
           if (outcome.kind === "invalid") return say({ text: outcome.message });
           const intent = intentForQuestion(text);
