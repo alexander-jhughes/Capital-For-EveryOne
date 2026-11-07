@@ -1,14 +1,34 @@
 import Link from "next/link";
 
-/** Text wordmark with a small dial knob. The needle points left in Simple and right in Complex (CSS in globals.css). */
-export function Wordmark() {
+/** The Dial mark: a dial with a red needle (it turns with the view). Original artwork, not a Capital One mark. */
+export function DialMark({ className = "size-[1.6em]", tone = "brand" }: { className?: string; tone?: "brand" | "onDark" }) {
   return (
-    <Link href="/account" className="inline-flex min-h-(--target-min) items-center gap-2 rounded-md text-lg font-bold">
-      <svg viewBox="0 0 24 24" aria-hidden className="size-[1.2em]">
-        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" />
-        <line className="dial-needle" x1="12" y1="12" x2="12" y2="5" stroke="var(--primary)" strokeWidth="3.5" strokeLinecap="round" />
-      </svg>
-      Dial<span className="sr-only">, home</span>
+    <svg viewBox="0 0 32 32" aria-hidden className={className}>
+      <circle cx="16" cy="16" r="15" fill={tone === "brand" ? "var(--primary)" : "#004977"} />
+      <circle cx="16" cy="16" r="9.5" stroke={tone === "brand" ? "var(--primary-foreground)" : "#ffffff"} strokeWidth="2.4" fill="none" />
+      <line className="dial-needle" x1="16" y1="16" x2="10" y2="10" stroke="var(--signal)" strokeWidth="3.2" strokeLinecap="round" />
+      <circle cx="16" cy="16" r="2.2" fill={tone === "brand" ? "var(--primary-foreground)" : "#ffffff"} />
+    </svg>
+  );
+}
+
+/** Product wordmark. "Dial" is only the assistant. */
+export function Wordmark({ stacked = false }: { stacked?: boolean }) {
+  return (
+    <Link href="/account" className="inline-flex min-h-(--target-min) items-center gap-2 rounded-lg font-bold leading-[1.05] tracking-[-0.01em]">
+      <DialMark />
+      <span className="text-sm">
+        {stacked ? (
+          <>
+            Capital for
+            <br />
+            Everyone
+          </>
+        ) : (
+          "Capital for Everyone"
+        )}
+        <span className="sr-only">, home</span>
+      </span>
     </Link>
   );
 }
