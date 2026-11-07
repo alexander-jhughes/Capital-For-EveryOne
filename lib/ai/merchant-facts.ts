@@ -4,7 +4,7 @@ import { biggestItems, flagTransactions, monthOverMonth, totalByMerchant } from 
 import { daysBetween, formatLongDate, formatPence } from "../format";
 import type { Fact, Transaction } from "../types";
 import type { FactContext } from "./facts";
-import type { MerchantPeriod } from "./intent";
+import type { CategoryRank, MerchantPeriod } from "./intent";
 
 /** How many individual transactions to spell out. Evidence still lists every one. */
 const MAX_LISTED = 5;
@@ -104,3 +104,52 @@ export function transactionFacts(ctx: FactContext, id: string | undefined): Fact
   const kind = flags?.payment ? "payment" : flags?.refund ? "refund" : "purchase";
   return [fact("transaction", "Transaction", `${formatPence(Math.abs(t.amount))} at ${t.merchant} on ${formatLongDate(t.date)} (${flags?.pending ? "pending" : "completed"} ${kind})`, [t.id])];
 }
+
+/** Spending per category for one month, from the finance layer's own totals. Card payments are never spending. */
+export function categoryFacts(ctx: FactContext, period: MerchantPeriod, rank: CategoryRank, named: string[]): Fact[] {
+  const { thisMonth, lastMonth } = monthOverMonth(ctx.txns, ctx.today);
+  const month = period === "last_month" ? lastMonth : thisMonth;
+  const when = period === "last_month" ? "last month" : "this month";
+  const all = month.byCategory;
+  if (all.length === 0) return [fact("no_categories", `Spending by category ${when}`, "None found")];
+
+  const entry = (category: string) => all.find((c) => c.category === category) ?? { category, total: 0, ids: [] as string[] };
+  const row = (key: string, label: string, c: { category: string; total: number; ids: string[] }) => fact(key, label, `${c.category}, ${formatPence(c.total)}`, c.ids);
+
+  if (rank === "biggest") return [row("category_biggest", `Biggest spending category ${when}`, all[0])];
+  if (rank === "smallest") return [row("category_smallest", `Smallest spending category ${when}`, all[all.length - 1])];
+  if (rank === "named") {
+    const rows = named.map((c, i) => row(`category_${i + 1}`, `Spent on this category ${when}`, entry(c)));
+    if (named.length !== 2) return rows;
+    const [a, b] = named.map(entry);
+    const difference = a.total - b.total;
+    const comparison =
+      difference === 0
+        ? `${a.category} and ${b.category} are the same`
+        : `${formatPence(Math.abs(difference))} more on ${difference > 0 ? a.category : b.category} than on ${difference > 0 ? b.category : a.category}`;
+    return [...rows, fact("category_difference", `Difference between the two ${when}`, comparison)];
+  }
+  return all.map((c, i) => row(`category_${i + 1}`, `Spent on this category ${when}`, c));
+}
+
+/** Payments made to the card, newest first, with their real status. Nothing here can claim a payment that isn't there. */
+export function paymentFacts(ctx: FactContext): Fact[] {
+  const flags = flagTransactions(ctx.txns);
+  const payments = ctx.txns.filter((t) => flags.get(t.id)?.payment).sort(newestFirst);
+  const statement = fact("statement_remaining", "Statement balance still to pay", formatPence(ctx.account.statementBalance));
+  if (payments.length === 0) return [fact("no_payments", "Payments made", "None found"), statement];
+  return [
+    ...payments.map((t, i) =>
+      fact(`payment_${i + 1}`, i === 0 ? "Latest payment" : "Earlier payment", `${formatPence(-t.amount)}, on ${formatLongDate(t.date)} (${flags.get(t.id)?.pending ? "pending" : "completed"})`, [t.id]),
+    ),
+    statement,
+  ];
+}
+
+/** What Spend Pause does, in plain words. Static, so no reply can claim more than this. */
+export const SPEND_PAUSE_HOW = [
+  "It checks a purchase in the Dial demo shop before it goes through, if the purchase is over your limit, would go over your monthly budget, or is in your quiet hours",
+  "You then choose Go ahead or Cancel it, and nothing is bought until you choose",
+  "It does not change your balance or any past purchase",
+  "It is not connected to a real card, so it cannot stop purchases anywhere else",
+];

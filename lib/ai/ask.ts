@@ -6,13 +6,14 @@ import { answerFacts, type AnswerFactSet } from "./answer-facts";
 import { seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
 import { selectExperience, type OrchestratedResponse } from "./experience";
+import { resolveFollowUp } from "./follow-up";
 import { billQuestion, namedMerchants } from "./intent";
 import { interpretQuestion, periodLabelFor } from "./interpreter";
 import { contextFromState, parseClientState, type ClientState } from "./live-state";
 import { describeError, type AskModel } from "./model";
 import { allowModelCall, clientKey } from "./rate-limit";
 import { templateAnswer } from "./templates";
-import { validateResponse } from "./validator";
+import { foundNothing, validateResponse } from "./validator";
 
 export const MAX_QUESTION_LENGTH = 300;
 /** Room for a question and the most events the live state allows. */
@@ -34,6 +35,8 @@ interface AskOptions {
   model: AskModel | null;
   ctx?: FactContext;
   timeoutMs?: number;
+  /** The question asked just before, so "What about Argos?" can be read as a follow-up. */
+  previousQuestion?: string;
 }
 
 const log = (step: string, error: unknown) => console.warn(`[ask] ${step}: ${describeError(error)}`);
@@ -58,8 +61,7 @@ function fromCache(question: string, facts: AnswerFactSet): AskResponse | null {
  * Never throws for a model problem; the worst case is a safe sentence.
  */
 export async function answerQuestion(question: string | undefined, options: AskOptions): Promise<OrchestratedResponse> {
-  const { model, ctx = seedContext(), timeoutMs = TIMEOUT_MS } = options;
-  const asked = question ?? DEFAULT_QUESTION;
+  const { model, ctx = seedContext(), timeoutMs = TIMEOUT_MS, previousQuestion } = options;
   const deadline = Date.now() + timeoutMs;
   const remaining = () => deadline - Date.now();
 
@@ -68,6 +70,7 @@ export async function answerQuestion(question: string | undefined, options: AskO
     categories: [...new Set(ctx.txns.map((t) => t.category))],
     ids: ctx.txns.map((t) => t.id),
   };
+  const asked = resolveFollowUp(question ?? DEFAULT_QUESTION, previousQuestion, names);
 
   const reading = await interpretQuestion(asked, names, model, timeoutMs, (error) => log("classify failed", error));
   if (reading.kind === "clarify") return { answer: reading.message, evidenceIds: [], source: "template", experience: selectExperience("general", "low") };
@@ -115,7 +118,11 @@ export async function answerQuestion(question: string | undefined, options: AskO
 
   if (reply === null) return finish(fromTemplate(facts, asked));
   // A reply that says the facts don't cover it has no evidence to show, and no specialist screen to open.
-  if (isCantTell(reply)) return { answer: CANT_TELL, evidenceIds: [], source: "model", experience: selectExperience("general", confidence) };
+  if (isCantTell(reply)) {
+    // The rules matched this question and the facts answer it, so a model that gives up shouldn't win.
+    if (confidence === "high" && !foundNothing(facts)) return finish(fromTemplate(facts, asked));
+    return { answer: CANT_TELL, evidenceIds: [], source: "model", experience: selectExperience("general", confidence) };
+  }
   const verdict = validateResponse(reply, facts.evidenceIds, facts, ctx, asked);
   if (!verdict.ok) {
     console.warn(`[ask] reply rejected: ${verdict.reason}`);
@@ -144,7 +151,7 @@ async function readBody(request: Request): Promise<string | null> {
   }
 }
 
-type ParsedQuestion = { question: string | undefined; state?: ClientState } | { error: string };
+type ParsedQuestion = { question: string | undefined; state?: ClientState; previousQuestion?: string } | { error: string };
 
 /** A missing question means the default summary. An empty one is a mistake to tell the person about. */
 function parseQuestion(body: string): ParsedQuestion {
@@ -158,10 +165,12 @@ function parseQuestion(body: string): ParsedQuestion {
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { error: MESSAGES.unreadable };
 
-  const { question, state: rawState } = parsed as { question?: unknown; state?: unknown };
+  const { question, state: rawState, previousQuestion: rawPrevious } = parsed as { question?: unknown; state?: unknown; previousQuestion?: unknown };
+  if (rawPrevious !== undefined && rawPrevious !== null && (typeof rawPrevious !== "string" || rawPrevious.length > MAX_QUESTION_LENGTH)) return { error: MESSAGES.unreadable };
+  const previousQuestion = typeof rawPrevious === "string" && rawPrevious.trim() !== "" ? rawPrevious.trim() : undefined;
   const state = rawState === undefined ? undefined : parseClientState(rawState, DEMO_TODAY);
   if (state === null) return { error: MESSAGES.badState };
-  const withState = state ? { state } : {};
+  const withState = { ...(state ? { state } : {}), ...(previousQuestion ? { previousQuestion } : {}) };
   if (question === undefined || question === null) return { question: undefined, ...withState };
   if (typeof question !== "string") return { error: MESSAGES.unreadable };
 
@@ -181,7 +190,7 @@ export async function handleAsk(request: Request, createModel: () => AskModel | 
     if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400, headers });
     // Over the limit still gets an answer. It just doesn't spend a Gemini call.
     const model = allowModelCall(clientKey(request)) ? createModel() : null;
-    const answer = await answerQuestion(parsed.question, { model, ctx: contextFromState(parsed.state) });
+    const answer = await answerQuestion(parsed.question, { model, ctx: contextFromState(parsed.state), previousQuestion: parsed.previousQuestion });
     return Response.json(answer, { headers });
   } catch (error) {
     log("request failed", error);

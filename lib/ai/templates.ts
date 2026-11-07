@@ -1,7 +1,7 @@
 // Template sentences. Each one is built only from a FactSet, so it is correct by construction and needs no model.
 import type { AnswerFactSet } from "./answer-facts";
 import { CANT_TELL } from "./guard";
-import { billQuestion, spendQuestion } from "./intent";
+import { billQuestion, pauseQuestion, spendQuestion } from "./intent";
 
 const list = (values: string[]) => values.join("; ");
 
@@ -55,6 +55,8 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
       const current = value("current_balance");
       const due = value("due_date");
       const minimum = value("minimum_payment");
+      // A statement that's been paid off has nothing due, and "£0.00 is due" reads as if something is.
+      const settled = statement === "£0.00" ? `Your statement balance is £0.00, so nothing is due on this bill by ${due}.` : null;
       switch (billQuestion(question)) {
         case "current":
           return `Your current balance is ${current}.`;
@@ -63,12 +65,15 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
         case "balance":
           return `Your current balance is ${current}. Your statement balance is ${statement}, due on ${due}.`;
         case "pay":
+          if (settled) return settled;
           return `Your full statement balance, the amount on your latest bill, is ${statement}. The minimum payment is ${minimum}, and both are due by ${due}.`;
         case "last_payment":
           return `Your last payment was ${value("last_payment")?.replace(", on", " on")}.`;
         case "bill":
+          if (settled) return settled;
           return `Your bill, the statement balance, is ${statement}, due on ${due}.`;
         case "due":
+          if (settled) return settled;
           return `Your bill of ${statement} is due on ${due}. ${when}`;
       }
       break;
@@ -115,8 +120,38 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
       return `You have ${count} ${set.merchant} ${noun}${when}, totalling ${total?.value}${note}. The latest is ${latest.replace(" (purchase)", "")}.`;
     }
     case "minimum_payment":
+      if (value("minimum_payment") === "£0.00") return `Your minimum payment is £0.00, so nothing is due on this bill by ${value("due_date")}.`;
       return `Your minimum payment is ${value("minimum_payment")}, due on ${value("due_date")}.`;
+    case "category_spending": {
+      if (value("no_categories")) return `I can't see any spending ${set.facts[0].label.includes("last month") ? "last month" : "this month"}.`;
+      const when = set.facts[0].label.includes("last month") ? "last month" : "this month";
+      const past = when === "last month";
+      if (value("category_biggest")) return `Your biggest category ${when} ${past ? "was" : "is"} ${value("category_biggest")}.`;
+      if (value("category_smallest")) return `Your smallest spending category ${when} ${past ? "was" : "is"} ${value("category_smallest")}.`;
+      const rows = values("category_").filter((v) => /, £/.test(v));
+      const spent = (v: string) => {
+        const [name, amount] = v.split(/, (?=£|-£)/);
+        return `${amount} on ${name}`;
+      };
+      const difference = value("category_difference");
+      if (difference) return `You ${past ? "spent" : "have spent"} ${rows.map(spent).join(" and ")} ${when}, so ${difference.startsWith("£") ? `that is ${difference}` : difference}.`;
+      if (rows.length === 1) return `You ${past ? "spent" : "have spent"} ${spent(rows[0])} ${when}.`;
+      return `Your spending by category ${when}: ${list(rows)}.`;
+    }
+    case "payment_history": {
+      const remaining = value("statement_remaining");
+      const left = remaining === "£0.00" ? "Your statement balance is now £0.00." : `Your statement balance still to pay is ${remaining}.`;
+      if (value("no_payments")) return `I can't see any payments to your card. ${left}`;
+      const latest = value("payment_1") ?? "";
+      const [amount, rest] = [latest.match(/^£[\d,.]*\d/)?.[0], latest.replace(/^£[\d,.]*\d, /, "")];
+      const pending = rest.includes("(pending)");
+      return `Your latest payment was ${amount} ${rest.replace(/ \((?:pending|completed)\)$/, "")}, and it is ${pending ? "pending, so it hasn't cleared yet" : "completed"}. ${left}`;
+    }
     case "spend_pause": {
+      if (pauseQuestion(question) === "explain") {
+        const on = value("spend_pause_status") === "On";
+        return `When Spend Pause is on, it checks a purchase in the Dial demo shop before it goes through, and you choose Go ahead or Cancel it. It is ${on ? "on" : "off"} now, and it does not change your balance or past purchases, or stop purchases anywhere else.`;
+      }
       const status = `Spend Pause is ${value("spend_pause_status")?.toLowerCase()}.`;
       const threshold = value("check_over");
       const left = value("budget_left");

@@ -58,6 +58,10 @@ export function askIntentFor(intent: AnswerIntent, question: string): AskIntent 
     }
     case "spend_pause":
       return "general";
+    case "category_spending":
+      return "spending_insights";
+    case "payment_history":
+      return "payment_planning";
   }
 }
 
@@ -66,6 +70,7 @@ export function periodLabelFor(intent: AnswerIntent, period: MerchantPeriod, ctx
   const { thisMonth, lastMonth } = monthOverMonth(ctx.txns, ctx.today);
   const month = (from: string) => new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${from}T12:00:00Z`));
   if (intent === "spend_this_month") return month(thisMonth.from);
+  if (intent === "category_spending") return month(period === "last_month" ? lastMonth.from : thisMonth.from);
   if (intent === "spend_last_month") return month(lastMonth.from);
   if (intent === "top_items") return month(period === "last_month" ? lastMonth.from : thisMonth.from);
   if (intent !== "merchant_transactions" && intent !== "duplicates") return undefined;

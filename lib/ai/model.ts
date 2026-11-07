@@ -107,10 +107,22 @@ export function describeError(error: unknown): string {
   return "unexpected failure";
 }
 
+let warnedNoKey = false;
+
+/** The model this server is set up to use. Never includes the key itself. */
+export function modelStatus() {
+  return { gemini: process.env.GEMINI_API_KEY?.trim() ? "configured" : "not configured", model: process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL };
+}
+
 /** A model client, or null with no key: the endpoint then answers from the cache and templates. */
 export function createModel(): AskModel | null {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    // Without this, every answer quietly comes from templates and nothing says why.
+    if (!warnedNoKey) console.warn("[ask] GEMINI_API_KEY is not set, so Dial is answering from templates only");
+    warnedNoKey = true;
+    return null;
+  }
 
   // One attempt only: the SDK's default of 5 would run straight past the time limit.
   const client = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
