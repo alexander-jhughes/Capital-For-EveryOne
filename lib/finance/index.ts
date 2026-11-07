@@ -19,12 +19,15 @@ const sum = (ts: Transaction[]) => ts.reduce((s, t) => s + t.amount, 0);
 
 export const availableCredit = (a: Account): Pence => a.creditLimit - a.currentBalance;
 
+/** Whole days from today to the payment due date (0 = due today, negative = overdue). */
+export const daysUntilDue = (account: Account, today: ISODate) => daysBetween(today, account.paymentDueDate);
+
 export function billSummary(account: Account, today: ISODate) {
   return {
     statementBalance: account.statementBalance,
     minimumPayment: account.minimumPayment,
     paymentDueDate: account.paymentDueDate,
-    daysUntilDue: daysBetween(today, account.paymentDueDate),
+    daysUntilDue: daysUntilDue(account, today),
     currentBalance: account.currentBalance,
     creditLimit: account.creditLimit,
     availableCredit: availableCredit(account),
@@ -35,15 +38,21 @@ export function billSummary(account: Account, today: ISODate) {
 /** Net spending between two dates, inclusive. Refunds reduce the total. */
 export function spendingSummary(txns: Transaction[], from: ISODate, to: ISODate) {
   const inRange = txns.filter((t) => isSpending(t) && t.date >= from && t.date <= to);
-  const byCat = new Map<Category, Pence>();
-  for (const t of inRange) byCat.set(t.category, (byCat.get(t.category) ?? 0) + t.amount);
+  const refunds = inRange.filter((t) => t.amount < 0);
+  const byCat = new Map<Category, Transaction[]>();
+  for (const t of inRange) byCat.set(t.category, [...(byCat.get(t.category) ?? []), t]);
   return {
     from,
     to,
     total: sum(inRange),
     count: inRange.filter((t) => t.amount > 0).length,
-    refunds: -sum(inRange.filter((t) => t.amount < 0)),
-    byCategory: [...byCat].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total),
+    refunds: -sum(refunds),
+    /** Evidence: every transaction behind `total`. */
+    ids: inRange.map((t) => t.id),
+    refundIds: refunds.map((t) => t.id),
+    byCategory: [...byCat]
+      .map(([category, ts]) => ({ category, total: sum(ts), ids: ts.map((t) => t.id) }))
+      .sort((a, b) => b.total - a.total),
   };
 }
 
@@ -94,6 +103,48 @@ export function payoffEstimate(balance: Pence, apr: number, monthlyPayment: Penc
 
 export function monthToDateSpend(txns: Transaction[], today: ISODate): Pence {
   return spendingSummary(txns, `${today.slice(0, 8)}01`, today).total;
+}
+
+/**
+ * Recurring charges whose amount changed between consecutive charges.
+ * Recurring = category "Subscriptions" with 2+ charges at the same merchant (grocery/travel repeats are not prices).
+ */
+export function findPriceChanges(txns: Transaction[]) {
+  const byMerchant = new Map<string, Transaction[]>();
+  for (const t of txns) {
+    if (t.category !== "Subscriptions" || t.amount <= 0) continue;
+    byMerchant.set(t.merchant, [...(byMerchant.get(t.merchant) ?? []), t]);
+  }
+  const out: { merchant: string; before: Transaction; after: Transaction; change: Pence }[] = [];
+  for (const [merchant, charges] of byMerchant) {
+    charges.sort((a, b) => a.date.localeCompare(b.date));
+    for (let i = 1; i < charges.length; i++) {
+      const [before, after] = [charges[i - 1], charges[i]];
+      if (after.amount !== before.amount) out.push({ merchant, before, after, change: after.amount - before.amount });
+    }
+  }
+  return out.sort((a, b) => b.after.date.localeCompare(a.after.date));
+}
+
+/** This month to date vs the same days last month, plus last month in full. */
+export function monthOverMonth(txns: Transaction[], today: ISODate) {
+  const [y, m, d] = today.split("-").map(Number);
+  const prevY = m === 1 ? y - 1 : y;
+  const prevM = m === 1 ? 12 : m - 1;
+  const prevLastDay = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+  const prev = (day: number) => `${prevY}-${String(prevM).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+  const thisMonth = spendingSummary(txns, `${today.slice(0, 8)}01`, today);
+  const lastMonthSamePeriod = spendingSummary(txns, prev(1), prev(Math.min(d, prevLastDay)));
+  const lastMonth = spendingSummary(txns, prev(1), prev(prevLastDay));
+  return { thisMonth, lastMonthSamePeriod, lastMonth, difference: thisMonth.total - lastMonthSamePeriod.total };
+}
+
+/** Monthly budget vs spend so far this month. null when no budget is set. */
+export function budgetStatus(txns: Transaction[], settings: SpendPauseSettings, today: ISODate) {
+  if (settings.monthlyBudget === null) return null;
+  const spent = monthToDateSpend(txns, today);
+  return { budget: settings.monthlyBudget, spent, remaining: settings.monthlyBudget - spent };
 }
 
 /** Time is "HH:MM"; quiet hours may wrap midnight. */
