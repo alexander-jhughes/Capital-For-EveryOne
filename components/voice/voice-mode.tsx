@@ -51,6 +51,8 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
   const ref = useRef<HTMLDialogElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const recognition = useRef<Recognition | null>(null);
+  /** The person's own last question, sent as previousQuestion so the backend can resolve follow-ups. */
+  const lastQuestion = useRef<string | undefined>(undefined);
   const router = useRouter();
   const inputId = useId();
   const { account, transactions, settings, payments, spendPauseActivity } = useAccount();
@@ -209,7 +211,8 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
         case "question": {
           setPhase("thinking");
           setReply({ text: "Checking your account..." });
-          const outcome = await askDial(text, { state: liveState(transactions, settings) });
+          const outcome = await askDial(text, { state: liveState(transactions, settings), previousQuestion: lastQuestion.current });
+          lastQuestion.current = text;
           if (outcome.kind === "answer") return say({ text: outcome.response.answer, evidence: outcome.response.evidenceIds, template: outcome.experience.template });
           if (outcome.kind === "invalid") return say({ text: outcome.message });
           const intent = intentForQuestion(text);
