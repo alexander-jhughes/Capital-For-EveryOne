@@ -133,8 +133,17 @@ async function noKeyTests() {
   check("current balance", (await post({ question: "What's my current balance?" })).body.answer.includes("£1,069.89"));
   const narrow = await post({ question: "How much did I spend at Tesco this month?" });
   check("merchant question stays on that merchant", narrow.body.answer.includes("£98.71") && !narrow.body.answer.includes("£402.35"));
-  const unsupported = await post({ question: "How much did I spend on groceries?" });
+  const unsupported = await post({ question: "How much did I spend on petrol?" });
   check("unsupported question gets the fallback", unsupported.body.answer === "I can't tell that from your transactions." && unsupported.body.evidenceIds.length === 0);
+  const groceries = await post({ question: "What did I spend on groceries?" });
+  check("a category is answered with its own rows", groceries.body.answer.includes("£183.53") && groceries.body.evidenceIds.length === 6, groceries.body.answer);
+  const biggest = await post({ question: "What's my biggest spending category?" });
+  check("biggest category", biggest.body.answer.includes("Groceries") && biggest.body.answer.includes("£183.53"), biggest.body.answer);
+  const pause = await post({ question: "What happens if I activate Spend Pause?" });
+  check("Spend Pause is explained, with no transactions as evidence", pause.body.answer.includes("demo shop") && pause.body.evidenceIds.length === 0, pause.body.answer);
+  const followUp = await post({ question: "What about Argos?", previousQuestion: "What did I spend at Tesco?" });
+  check("a follow-up uses the previous question", followUp.body.answer.includes("£249.00"), followUp.body.answer);
+  check("a bad previousQuestion is a friendly 400", (await post({ question: "What about Argos?", previousQuestion: 7 })).status === 400);
   for (const [question, template, intent] of [
     ["How much do I owe?", "statement", "statement_balance"],
     ["How much have I spent this month?", "spending", "spending_insights"],
@@ -240,7 +249,7 @@ async function fakeApiTests() {
   for (const question of ["Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?"]) {
     check(`no model call: ${question}`, (await post({ question })).body.source === "cache");
   }
-  const narrow = await post({ question: "How much did I spend on groceries?" });
+  const narrow = await post({ question: "How much did I spend on petrol?" });
   check("unsupported question gets the fallback", narrow.body.answer.startsWith("I can't tell"));
   check("none of those called the model", modelCalls === 0, `${modelCalls} calls`);
 }
