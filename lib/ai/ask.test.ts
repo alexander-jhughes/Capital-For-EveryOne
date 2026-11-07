@@ -1,21 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FactSet, Intent } from "../types";
+import type { Intent, Transaction } from "../types";
 import { answerQuestion, handleAsk, MAX_QUESTION_LENGTH } from "./ask";
-import { answerFacts } from "./answer-facts";
+import { answerFacts, type AnswerFactSet } from "./answer-facts";
 import { DEMO_ANSWERS } from "./cache";
 import { buildFacts as stage2Facts, INTENTS, seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer } from "./guard";
-import { matchIntent, UNSUPPORTED } from "./intent";
+import { matchIntent, UNSUPPORTED, type AnswerIntent } from "./intent";
 import { createModel, describeError, type AskModel } from "./model";
 import { templateAnswer } from "./templates";
 
-const buildFacts = (intent: Intent, ctx: FactContext = seedContext()) => answerFacts(intent, ctx);
+const buildFacts = (intent: AnswerIntent, ctx: FactContext = seedContext(), question = "", merchant?: string) => answerFacts(intent, ctx, question, merchant);
 
 const TESCO = "Did I pay Tesco twice this month?";
 /** Not one of the fixed demo questions, so it reaches the model. */
 const CHARGED = "Was I charged twice for anything?";
 const GOOD_REPLY = "Tesco charged you £38.62 twice.";
-const NAMES = { merchants: [...new Set(seedContext().txns.map((t) => t.merchant))], categories: [...new Set(seedContext().txns.map((t) => t.category))] };
+const OWE =
+  "Your current balance is £1,069.89, which is everything on the card right now, and not all of it is due yet. Your latest bill, the statement balance, is £486.20, and the minimum payment on it is £25.00, by Friday 13 November.";
+const NEED_TO_PAY = "Your full statement balance, the amount on your latest bill, is £486.20. The minimum payment is £25.00, and both are due by Friday 13 November.";
+const BILL = "Your bill, the statement balance, is £486.20, due on Friday 13 November.";
+const NAMES = { merchants: [...new Set(seedContext().txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))], categories: [...new Set(seedContext().txns.map((t) => t.category))] };
 const duplicates = buildFacts("duplicates");
 const bill = buildFacts("days_until_due");
 
@@ -53,13 +57,15 @@ describe("matchIntent", () => {
   ])("%s", (question, intent) => expect(matchIntent(question, NAMES)).toBe(intent));
 
   it.each([
-    "How much did I spend at Tesco this month?",
-    "How much did I spend at Tesco?",
     "How much have I spent on groceries?",
-    "How much at Tesco?",
-    "What did Tesco cost me?",
-    "Tesco total?",
     "How much transport this month?",
+    "How much did I spend at Tesco yesterday?",
+    "What did I spend at Amazon in 2024?",
+    "What did I spend at Tesco Mobile?",
+    "Show me my Amazon Prime transactions.",
+    "Did I get my Currys refund?",
+    "Did I get a refund last week?",
+    "Compare my Amazon and Tesco refunds",
     "What did I spend in September?",
     "What did I spend in 2024?",
     "How much did I spend yesterday?",
@@ -194,7 +200,7 @@ describe("checkAnswer: a reply must state the answer, not just avoid inventing o
 describe("templates and cached answers pass the guard", () => {
   const purchaseFree = INTENTS.map((intent) => buildFacts(intent));
 
-  it.each(purchaseFree.map((set): [Intent, FactSet] => [set.intent, set]))("%s template", (_, set) => {
+  it.each(purchaseFree.map((set): [AnswerIntent, AnswerFactSet] => [set.intent, set]))("%s template", (_, set) => {
     expect(checkAnswer(templateAnswer(set), set)).toEqual({ ok: true });
   });
 
@@ -240,7 +246,7 @@ describe("answerQuestion", () => {
 
   it("never gives a narrow question the monthly total, and never asks the model", async () => {
     const model = fakeModel({ classify: vi.fn(async (): Promise<Intent | null> => "spend_this_month") });
-    const result = await answerQuestion("How much did I spend at Tesco this month?", { model });
+    const result = await answerQuestion("How much did I spend on groceries?", { model });
     expect(result).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
     expect(model.classify).not.toHaveBeenCalled();
     expect(model.phrase).not.toHaveBeenCalled();
@@ -256,12 +262,12 @@ describe("answerQuestion", () => {
   });
 
   it.each<[string, string]>([
-    ["How much do I need to pay?", "Your statement balance is £486.20, due on Friday 13 November. The minimum payment is £25.00."],
-    ["How much is my bill?", "Your statement balance is £486.20, due on Friday 13 November. The minimum payment is £25.00."],
-    ["What's my statement balance?", "Your statement balance is £486.20, due on Friday 13 November. The minimum payment is £25.00."],
+    ["How much do I need to pay?", NEED_TO_PAY],
+    ["How much is my bill?", BILL],
+    ["What's my statement balance?", BILL],
     ["What's my current balance?", "Your current balance is £1,069.89."],
-    ["How much do I owe?", "You owe £1,069.89 in total. Your statement balance of £486.20 is due on Friday 13 November."],
-    ["How much do I owe you?", "You owe £1,069.89 in total. Your statement balance of £486.20 is due on Friday 13 November."],
+    ["How much do I owe?", OWE],
+    ["How much do I owe you?", OWE],
     ["What's my balance?", "Your current balance is £1,069.89. Your statement balance is £486.20, due on Friday 13 November."],
     ["When do I need to pay?", "Your bill of £486.20 is due on Friday 13 November. That is in 5 days."],
   ])("%s", async (question, answer) => {
@@ -504,16 +510,32 @@ describe("the two balances", () => {
     ["Your bill is due on Friday 13 November.", "What's my current balance?", "no supporting fact"],
     ["It is due in 5 days.", "How much do I owe?", "no supporting fact"],
     ["It is due in 5 days.", "How much do I need to pay?", "no supporting fact"],
+    ["You owe £1,069.89 right now.", "How much do I owe?", "no supporting fact"],
+    ["Your current balance is £1,069.89 and your bill is £486.20.", "How much do I owe?", "no supporting fact"],
+    ["Your statement balance is £486.20.", "How much do I need to pay?", "no supporting fact"],
+    ["Your minimum payment is £25.00.", "How much do I need to pay?", "no supporting fact"],
+    ["Your current balance of £1,069.89 is due now, with a bill of £486.20 and a minimum payment of £25.00.", "How much do I owe?", "contradicts facts"],
+    ["Your minimum payment is £25.00.", "How much is my bill?", "no supporting fact"],
   ])("rejects %j for %j", (reply, question, reason) => {
     expect(checkAnswer(reply, bill, question)).toEqual({ ok: false, reason });
   });
 
   it.each<[string, string]>([
     ["Your current balance is £1,069.89.", "What's my current balance?"],
-    ["You owe £1,069.89, and your bill of £486.20 is due on Friday 13 November.", "How much do I owe?"],
-    ["Your statement balance is £486.20.", "How much do I need to pay?"],
+    ["Your current balance is £1,069.89, your bill is £486.20 and your minimum payment is £25.00.", "How much do I owe?"],
+    ["Your current balance is £1,069.89, but not all of it is due yet. Your bill is £486.20 and your minimum payment is £25.00.", "How much do I owe?"],
+    ["Your statement balance is £486.20 and your minimum payment is £25.00.", "How much do I need to pay?"],
+    ["Your bill is £486.20.", "How much is my bill?"],
     ["£1,069.89 is your current balance.", "What's my balance?"],
   ])("accepts %j for %j", (reply, question) => expect(checkAnswer(reply, bill, question)).toEqual({ ok: true }));
+
+  it("how much is owed never depends on the model's wording", async () => {
+    const model = fakeModel({ phrase: vi.fn(async () => "You owe £1,069.89 right now.") });
+    const result = await answerQuestion("How much do I owe?", { model });
+    expect(result).toEqual({ answer: OWE, evidenceIds: [], source: "template" });
+    expect(model.phrase).not.toHaveBeenCalled();
+    expect(result.answer).toContain("not all of it is due yet");
+  });
 
   it("a model reply naming the wrong balance is replaced", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -582,18 +604,235 @@ describe("natural variations of the demo questions", () => {
 });
 
 describe("a merchant question can't return another figure", () => {
-  it.each([
-    "How much did I spend at Tesco this month?",
-    "How much have I spent at Amazon?",
-    "How much was Trainline?",
-    "What did I pay Netflix last month?",
-    "Tesco spending",
-    "Total at Tesco in October?",
-    "How much do I owe Amazon?",
-  ])("%s", async (question) => {
-    const model = fakeModel({ classify: vi.fn(async (): Promise<Intent | null> => "spend_this_month") });
-    expect(await answerQuestion(question, { model })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+  it.each<[string, string, string[]]>([
+    ["How much did I spend at Tesco this month?", "You have 3 Tesco transactions this month, totalling £98.71. The latest is £38.62 on Friday 6 November.", ["t052", "t051", "t050"]],
+    ["How much have I spent at Amazon?", "You have 7 Amazon transactions, totalling £99.48, after refunds, counting pending items. The latest is £19.99 on Sunday 8 November (pending refund).", ["t062", "t054", "t061", "t036", "t028", "t018", "t009"]],
+    ["How much did I spend at Amazon last month?", "You have 4 Amazon transactions last month, totalling £53.49, after refunds. The latest is £14.99 on Thursday 29 October (refund).", ["t036", "t028", "t018", "t009"]],
+  ])("%s", async (question, answer, evidenceIds) => {
+    const model = fakeModel({ classify: vi.fn(async (): Promise<Intent | null> => "spend_this_month"), phrase: async () => null });
+    const result = await answerQuestion(question, { model });
+    expect(result).toEqual({ answer, evidenceIds, source: "template" });
+    expect(result.answer).not.toContain("£402.35");
     expect(model.classify).not.toHaveBeenCalled();
-    expect(model.phrase).not.toHaveBeenCalled();
+  });
+
+  it.each(["What did Tesco cost me?", "Tesco total?", "How much at Tesco?", "Tesco spending", "How much was Trainline?"])("%s is about that shop only", async (question) => {
+    const result = await answerQuestion(question, { model: null });
+    const byId = new Map(seedContext().txns.map((t) => [t.id, t]));
+    const shop = question.includes("Trainline") ? "Trainline" : "Tesco";
+    expect(result.evidenceIds.length).toBeGreaterThan(0);
+    expect(result.evidenceIds.every((id) => byId.get(id)?.merchant === shop)).toBe(true);
+    expect(result.answer).not.toContain("£402.35");
+  });
+});
+
+describe("refunds", () => {
+  const seed = seedContext();
+  const PENDING = "Your £19.99 Amazon refund for your purchase on Tuesday 3 November is pending, so it has not arrived yet.";
+  const COMPLETED = "Your £14.99 Amazon refund for your purchase on Wednesday 21 October arrived on Thursday 29 October.";
+  const refundsSet = (ctx = seed, merchant: string | undefined = "Amazon") => answerFacts("merchant_refunds", ctx, "", merchant);
+  const withTxns = (extra: Transaction[], ctx = seed): FactContext => ({ ...ctx, txns: [...ctx.txns, ...extra] });
+  const onlyPending = { ...seed, txns: seed.txns.filter((t) => t.id !== "t036") };
+  const onlyCompleted = { ...seed, txns: seed.txns.filter((t) => t.id !== "t062") };
+
+  it.each(["Did I get my Amazon refund?", "Has my Amazon refund arrived?", "Where is my Amazon refund?", "How much was my Amazon refund?", "Have I been refunded by Amazon?", "did i get my amazon refund"])(
+    "%s separates the pending refund from the completed one",
+    async (question) => {
+      expect(matchIntent(question, NAMES)).toBe("merchant_refunds");
+      const result = await answerQuestion(question, { model: null });
+      expect(result).toEqual({ answer: `${PENDING} ${COMPLETED}`, evidenceIds: ["t062", "t061", "t036", "t028"], source: "template" });
+    },
+  );
+
+  it("links each refund to the purchase it reverses", () => {
+    const set = refundsSet();
+    expect(set.facts.find((f) => f.key === "refund_pending_1")?.evidenceIds).toEqual(["t062", "t061"]);
+    expect(set.facts.find((f) => f.key === "refund_completed_1")?.evidenceIds).toEqual(["t036", "t028"]);
+    expect(set.evidence.map((row) => [row.id, row.status])).toEqual([["t062", "pending"], ["t061", "posted"], ["t036", "posted"], ["t028", "posted"]]);
+  });
+
+  it("only a pending refund", async () => {
+    const result = await answerQuestion("Did I get my Amazon refund?", { model: null, ctx: onlyPending });
+    expect(result).toEqual({ answer: PENDING, evidenceIds: ["t062", "t061"], source: "template" });
+  });
+
+  it("only a completed refund", async () => {
+    const result = await answerQuestion("Did I get my Amazon refund?", { model: null, ctx: onlyCompleted });
+    expect(result).toEqual({ answer: COMPLETED, evidenceIds: ["t036", "t028"], source: "template" });
+  });
+
+  it("no refund from a known shop says so, with no evidence", async () => {
+    const result = await answerQuestion("Did I get my Tesco refund?", { model: null });
+    expect(result).toEqual({ answer: "I can't see any refund from Tesco in your transactions.", evidenceIds: [], source: "template" });
+  });
+
+  it("a refund from an unknown shop is the fallback, not Amazon's", async () => {
+    expect(await answerQuestion("Did I get my Currys refund?", { model: fakeModel() })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+  });
+
+  it("a refund with no matching purchase still has its own evidence", () => {
+    const ctx = withTxns([{ id: "x1", date: "2026-11-07", merchant: "Greggs", amount: -123, category: "Eating out", status: "posted" }]);
+    const set = refundsSet(ctx, "Greggs");
+    expect(set.evidenceIds).toEqual(["x1"]);
+    expect(checkAnswer(templateAnswer(set), set)).toEqual({ ok: true });
+  });
+
+  it("two pending refunds from one shop are both reported", async () => {
+    const ctx = withTxns([{ id: "x2", date: "2026-11-07", merchant: "Amazon", amount: -4599, category: "Shopping", status: "pending" }]);
+    const result = await answerQuestion("Did I get my Amazon refund?", { model: null, ctx });
+    expect(result.answer).toContain("£19.99");
+    expect(result.answer).toContain("£45.99");
+    expect(result.answer).toContain("£14.99");
+    expect(result.evidenceIds).toEqual(["t062", "t061", "x2", "t054", "t036", "t028"]);
+  });
+
+  it("a general refund question covers every shop and never counts card payments", async () => {
+    const result = await answerQuestion("Have I had any refunds?", { model: null });
+    expect(result.evidenceIds).toEqual(["t062", "t061", "t036", "t028"]);
+    expect(result.evidenceIds).not.toContain("t022");
+  });
+
+  it.each<[string, string]>([
+    ["Your Amazon refund of £19.99 has arrived. Your £14.99 refund has arrived.", "contradicts facts"],
+    ["Yes, you received £19.99 from Amazon. You also received £14.99.", "contradicts facts"],
+    ["Your £19.99 refund is complete and your £14.99 refund is complete.", "contradicts facts"],
+    ["Your £19.99 refund is pending. Your £14.99 refund is pending.", "contradicts facts"],
+    ["Your £19.99 and £14.99 refunds are pending.", "contradicts facts"],
+    ["Your £19.99 refund is pending and has arrived. Your £14.99 refund has arrived.", "contradicts facts"],
+    ["Your £19.99 refund is sorted. Your £14.99 refund has arrived.", "contradicts facts"],
+    ["Your Amazon refund of £19.99 is pending.", "no supporting fact"],
+    ["Your Amazon refund of £14.99 has arrived.", "no supporting fact"],
+    ["Yes", "no supporting fact"],
+  ])("rejects %j", (reply, reason) => expect(checkAnswer(reply, refundsSet())).toEqual({ ok: false, reason }));
+
+  it.each(["Your £19.99 Amazon refund is pending. Your £14.99 refund has arrived.", "Your Amazon refund of £19.99 has not arrived yet. Your £14.99 refund arrived earlier."])("accepts %j", (reply) => {
+    expect(checkAnswer(reply, refundsSet())).toEqual({ ok: true });
+  });
+
+  it("a model reply saying pending money arrived is replaced", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await answerQuestion("Has my Amazon refund arrived?", { model: fakeModel({ phrase: async () => "Yes, your £19.99 refund has arrived. So has your £14.99 refund." }) });
+    expect(result).toEqual({ answer: `${PENDING} ${COMPLETED}`, evidenceIds: ["t062", "t061", "t036", "t028"], source: "template" });
+  });
+
+  it("a denial is required when there is no refund", () => {
+    const none = refundsSet(seed, "Tesco");
+    expect(checkAnswer("You have no refund from Tesco.", none).ok).toBe(true);
+    expect(checkAnswer("Yes, it has arrived.", none)).toEqual({ ok: false, reason: "contradicts facts" });
+  });
+});
+
+describe("merchant lookups", () => {
+  const seed = seedContext();
+  const ARGOS = "You spent £249.00 at Argos on Saturday 10 October.";
+
+  it.each(["What did I spend on Argos?", "How much was my Argos purchase?", "Show me my Argos transactions.", "When did I buy something from Argos?", "argos total", "What did I spend at ARGOS?", "How much did I spend at Argos in October?"])(
+    "%s finds the one Argos purchase",
+    async (question) => {
+      expect(matchIntent(question, NAMES)).toBe("merchant_transactions");
+      expect(await answerQuestion(question, { model: null })).toEqual({ answer: ARGOS, evidenceIds: ["t060"], source: "template" });
+    },
+  );
+
+  it("a month with nothing says so, with no evidence", async () => {
+    const result = await answerQuestion("How much did I spend at Argos this month?", { model: null });
+    expect(result).toEqual({ answer: "I can't see any Argos transactions this month.", evidenceIds: [], source: "template" });
+  });
+
+  it("several purchases at one shop are all evidence", async () => {
+    const second: Transaction = { id: "x3", date: "2026-11-02", merchant: "Argos", amount: 1000, category: "Shopping", status: "posted" };
+    const ctx = { ...seed, txns: [...seed.txns, second] };
+    const result = await answerQuestion("Show me my Argos transactions.", { model: null, ctx });
+    expect(result.evidenceIds).toEqual(["x3", "t060"]);
+    expect(result.answer).toBe("You have 2 Argos transactions, totalling £259.00. The latest is £10.00 on Monday 2 November.");
+  });
+
+  it("every transaction is evidence even when only the latest are listed", () => {
+    const set = answerFacts("merchant_transactions", seed, "", "TfL");
+    expect(set.evidenceIds.length).toBe(15);
+    expect(set.facts.filter((f) => f.key.startsWith("transaction_")).length).toBe(5);
+  });
+
+  it.each<[string, string]>([
+    ["What did I spend at Sainsburys?", "Sainsbury's"],
+    ["What did I spend at sainsbury's?", "Sainsbury's"],
+    ["What did I spend at Sainsbury?", "Sainsbury's"],
+    ["What did I spend at tfl?", "TfL"],
+    ["What did I spend at Tesco's?", "Tesco"],
+    ["What did I spend at Greggs?", "Greggs"],
+  ])("%s means %s", async (question, shop) => {
+    const result = await answerQuestion(question, { model: null });
+    const byId = new Map(seed.txns.map((t) => [t.id, t]));
+    expect(result.evidenceIds.length).toBeGreaterThan(0);
+    expect(result.evidenceIds.every((id) => byId.get(id)?.merchant === shop)).toBe(true);
+  });
+
+  it.each(["What did I spend at Argosy?", "What did I spend at Tescotastic?", "What did I spend at Tesco Mobile?", "Show me my Amazon Prime transactions.", "What did I spend at Currys?", "Show me Payment received"])(
+    "%s never matches a different shop",
+    async (question) => {
+      const model = fakeModel({ classify: async () => null });
+      expect(await answerQuestion(question, { model })).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "template" });
+    },
+  );
+
+  it("a real shop whose name contains another is told apart", async () => {
+    const mobile: Transaction = { id: "x4", date: "2026-11-02", merchant: "Tesco Mobile", amount: 1500, category: "Shopping", status: "posted" };
+    const ctx = { ...seed, txns: [...seed.txns, mobile] };
+    expect((await answerQuestion("What did I spend at Tesco Mobile?", { model: null, ctx })).evidenceIds).toEqual(["x4"]);
+    expect((await answerQuestion("What did I spend at Tesco?", { model: null, ctx })).evidenceIds).not.toContain("x4");
+  });
+
+  it.each<[string, string]>([
+    ["You spent £19.99 at Argos.", "amount not in facts"],
+    ["You spent £249.00 at Argos on Sunday 11 October.", "number not in facts"],
+    ["You spent £249.00 at Currys.", "name not in facts"],
+    ["You spent £249.00.", "no supporting fact"],
+    ["You spent nothing at Argos.", "contradicts facts"],
+    ["Evidence is t999, at Argos, £249.00.", "number not in facts"],
+  ])("rejects %j", (reply, reason) => {
+    expect(checkAnswer(reply, answerFacts("merchant_transactions", seed, "", "Argos"))).toEqual({ ok: false, reason });
+  });
+
+  it("a reply about one row of a multi-row shop isn't enough", () => {
+    expect(checkAnswer("You spent £14.99 at Amazon.", answerFacts("merchant_transactions", seed, "", "Amazon")).ok).toBe(false);
+  });
+
+  it("a partial list with no total is rejected, and refunds can't pass as purchases", () => {
+    const set = answerFacts("merchant_transactions", seed, "", "Amazon");
+    const partial = "Your Amazon transactions are £45.99 on Friday 6 November and £19.99 on Tuesday 3 November.";
+    expect(checkAnswer(partial, set)).toEqual({ ok: false, reason: "contradicts facts" });
+    expect(checkAnswer("Your Amazon purchases were £45.99 on Friday 6 November.", set)).toEqual({ ok: false, reason: "no supporting fact" });
+    expect(checkAnswer("You have 7 Amazon transactions, totalling £99.48, after refunds.", set)).toEqual({ ok: true });
+    expect(checkAnswer("Your latest Amazon refund is £19.99, and your total is £99.48.", set)).toEqual({ ok: true });
+  });
+
+  it("a date is enough only when the question is when", () => {
+    const set = answerFacts("merchant_transactions", seed, "", "Argos");
+    expect(checkAnswer("You bought from Argos on Saturday 10 October.", set, "When did I buy something from Argos?")).toEqual({ ok: true });
+    expect(checkAnswer("You bought from Argos on Saturday 10 October.", set, "What did I spend on Argos?")).toEqual({ ok: false, reason: "no supporting fact" });
+  });
+});
+
+describe("reliability on the new questions", () => {
+  const down = async () => Promise.reject(new Error("boom"));
+
+  it.each([
+    ["Did I get my Amazon refund?", "£19.99", ["t062", "t061", "t036", "t028"]],
+    ["What did I spend on Argos?", "£249.00", ["t060"]],
+    ["How much do I owe?", "£1,069.89", []],
+    ["How much do I need to pay?", "£25.00", []],
+  ])("%s keeps its figure and evidence when Gemini is down", async (question, figure, evidenceIds) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await answerQuestion(question, { model: fakeModel({ phrase: down }) });
+    expect(result.source).toBe("template");
+    expect(result.answer).toContain(figure);
+    expect(result.evidenceIds).toEqual(evidenceIds);
+  });
+
+  it("evidence always comes from real transactions", async () => {
+    const ids = new Set(seedContext().txns.map((t) => t.id));
+    for (const question of ["Did I get my Amazon refund?", "What did I spend on Argos?", "Show me my Amazon transactions.", "Did Tesco charge me twice?", "What subscriptions increased?"]) {
+      for (const id of (await answerQuestion(question, { model: null })).evidenceIds) expect(ids.has(id)).toBe(true);
+    }
   });
 });

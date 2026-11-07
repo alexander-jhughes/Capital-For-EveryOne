@@ -1,6 +1,7 @@
 // The only file that talks to the Gemini API. Server-side only. Gemini classifies and phrases; it never calculates.
 import { ApiError, GoogleGenAI, ThinkingLevel, type GenerateContentResponse } from "@google/genai";
-import type { FactSet, Intent } from "../types";
+import type { Intent } from "../types";
+import type { AnswerFactSet } from "./answer-facts";
 import { INTENTS } from "./facts";
 import { CANT_TELL } from "./guard";
 
@@ -11,7 +12,7 @@ const PHRASE_MAX_TOKENS = 2048;
 /** What ask.ts needs from a model. Each call may throw; ask.ts turns that into a template answer. */
 export interface AskModel {
   classify(question: string, timeoutMs: number): Promise<Intent | null>;
-  phrase(question: string, facts: FactSet, timeoutMs: number): Promise<string | null>;
+  phrase(question: string, facts: AnswerFactSet, timeoutMs: number): Promise<string | null>;
 }
 
 const CLASSIFY_SYSTEM = `You sort questions about a credit card account into one category.
@@ -35,7 +36,9 @@ Rules:
 - Copy every amount, date and shop name exactly as it appears in the facts. Never calculate, add up, round or estimate anything.
 - Never mention a shop, purchase, refund, amount or date that is not in the facts, and never guess about the person's finances.
 - If the facts do not answer the question, reply with exactly: ${CANT_TELL}
-- The statement balance is the bill due now. The current balance is everything owed right now. Never swap them, and use "you owe" only for the current balance.
+- The current balance is everything on the card right now, and not all of it is due yet. The statement balance is the amount on the latest bill. The minimum payment is the smallest payment required. Never swap them or say the current balance is due.
+- If asked how much is owed, give all three of those amounts and say what each one means. If asked how much to pay, give both the statement balance and the minimum payment.
+- A pending refund has not arrived yet, and you must say so. Only a completed refund has arrived. If there is more than one refund, mention each one with its status.
 - Say what the facts show. Never give financial advice or tell the person what to do.
 - Never say or suggest that you have done something, such as making a payment. You can only read the account.
 - Be kind and neutral. Never judge or shame anyone about their spending.
