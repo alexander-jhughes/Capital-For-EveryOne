@@ -38,7 +38,7 @@ const ask = async (body?: string, model: AskModel | null = null) => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("matchIntent", () => {
-  it.each<[string, Intent]>([
+  it.each<[string, AnswerIntent]>([
     [TESCO, "duplicates"],
     ["What did I spend this month?", "spend_this_month"],
     ["Has any subscription gone up?", "price_changes"],
@@ -54,11 +54,16 @@ describe("matchIntent", () => {
     ["Has Netflix gone up?", "price_changes"],
     ["Did Netflix go up?", "price_changes"],
     ["Was I charged twice at Tesco?", "duplicates"],
+    ["How much have I spent on groceries?", "category_spending"],
+    ["How much transport this month?", "category_spending"],
+    ["How much do I spend on subscriptions?", "category_spending"],
+    ["Is my bill paid?", "payment_history"],
+    ["Have I paid my bill?", "payment_history"],
   ])("%s", (question, intent) => expect(matchIntent(question, NAMES)).toBe(intent));
 
   it.each([
-    "How much have I spent on groceries?",
-    "How much transport this month?",
+    "How much have I spent on petrol?",
+    "How much did I spend on groceries yesterday?",
     "How much did I spend at Tesco yesterday?",
     "What did I spend at Amazon in 2024?",
     "What did I spend at Tesco Mobile?",
@@ -74,11 +79,8 @@ describe("matchIntent", () => {
     "How much have I spent in the past week?",
     "What did I spend since Monday?",
     "What's my available balance?",
-    "Is my bill paid?",
-    "Have I paid my bill?",
     "What was my biggest purchase at Amazon?",
     "How much do I owe Tesco?",
-    "How much do I spend on subscriptions?",
     "Should I pay my bill early?",
     "Can I afford a holiday?",
     "What's my balance transfer fee?",
@@ -246,7 +248,7 @@ describe("answerQuestion", () => {
 
   it("never gives a narrow question the monthly total, and never asks the model", async () => {
     const model = fakeModel({ classify: vi.fn(async (): Promise<ModelInterpretation | null> => ({ intent: "spend_this_month", confidence: "high" })) });
-    const result = await answerQuestion("How much did I spend on groceries?", { model });
+    const result = await answerQuestion("How much did I spend on petrol?", { model });
     expect(result).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "template" });
     expect(model.classify).not.toHaveBeenCalled();
     expect(model.phrase).not.toHaveBeenCalled();
@@ -296,8 +298,13 @@ describe("answerQuestion", () => {
     expect(result.source).toBe("template");
   });
 
-  it("shows no evidence when the model says the facts don't cover it", async () => {
+  it("a model that says the facts don't cover it, when they do, gives way to the template", async () => {
     const result = await answerQuestion(CHARGED, { model: fakeModel({ phrase: async () => "I can’t tell that from your transactions." }) });
+    expect(result).toMatchObject({ answer: templateAnswer(duplicates), evidenceIds: duplicates.evidenceIds, source: "template" });
+  });
+
+  it("shows no evidence when the model says it can't tell a question the rules didn't place", async () => {
+    const result = await answerQuestion("What is my credit score?", { model: fakeModel({ classify: async () => ({ intent: "spend_this_month", confidence: "medium" }), phrase: async () => CANT_TELL }) });
     expect(result).toMatchObject({ answer: CANT_TELL, evidenceIds: [], source: "model" });
   });
 

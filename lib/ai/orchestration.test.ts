@@ -5,7 +5,7 @@ import { answerQuestion, handleAsk } from "./ask";
 import { ASK_INTENTS, parseExperience, selectExperience, TEMPLATE_FOR_INTENT, TEMPLATES } from "./experience";
 import { INTENTS, seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer } from "./guard";
-import { matchIntent, UNSUPPORTED } from "./intent";
+import { matchIntent } from "./intent";
 import { askIntentFor, CLARIFY_GENERAL, interpretQuestion } from "./interpreter";
 import { parseInterpretation, type AskModel, type ModelInterpretation } from "./model";
 import { checkEvidence, validateResponse } from "./validator";
@@ -147,7 +147,7 @@ describe("Agent 1: interpreter", () => {
     expect(matchIntent("Show me my subscriptions", names)).toBe("subscription_list");
     expect(matchIntent("What subscriptions increased?", names)).toBe("price_changes");
     expect(matchIntent("Has any subscription gone up?", names)).toBe("price_changes");
-    expect(matchIntent("How much do I spend on subscriptions?", names)).toBe(UNSUPPORTED);
+    expect(matchIntent("How much do I spend on subscriptions?", names)).toBe("category_spending");
   });
 });
 
@@ -263,8 +263,15 @@ describe("Agent 3: finance validator", () => {
   });
 
   it("a model reply of I can't tell opens no specialist screen", async () => {
+    const model = fakeModel({ classify: async () => ({ intent: "days_until_due", confidence: "medium" }), phrase: async () => CANT_TELL });
+    const result = await answerQuestion("What is my credit score?", { model });
+    expect(result).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "model", experience: { template: "general", intent: "general", confidence: "medium" } });
+  });
+
+  it("a model that gives up on a bill question gives way to the template", async () => {
     const result = await answerQuestion("How much is my bill?", { model: fakeModel({ phrase: async () => CANT_TELL }) });
-    expect(result).toEqual({ answer: CANT_TELL, evidenceIds: [], source: "model", experience: { template: "general", intent: "general", confidence: "high" } });
+    expect(result.source).toBe("template");
+    expect(result.answer).toContain("£486.20");
   });
 
   it("a bad model reply is replaced, and the evidence stays real", async () => {

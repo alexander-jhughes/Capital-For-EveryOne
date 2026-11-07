@@ -147,8 +147,15 @@ describe("reading a reply", () => {
 
 describe("routing to the right question", () => {
   it.each<[string, AnswerIntent]>([
-    ["What's my biggest category?", "spend_this_month"],
-    ["What was my biggest category last month?", "spend_last_month"],
+    ["What's my biggest category?", "category_spending"],
+    ["What was my biggest category last month?", "category_spending"],
+    ["What's my biggest spending category?", "category_spending"],
+    ["Which category did I spend the least on?", "category_spending"],
+    ["What's my grocery spend?", "category_spending"],
+    ["Did I spend more on groceries or eating out?", "category_spending"],
+    ["Did my payment go through?", "payment_history"],
+    ["Has my payment been recorded?", "payment_history"],
+    ["How much did I just pay?", "payment_history"],
     ["What was my biggest purchase in October?", "top_items"],
     ["Did I spend more than last month?", "spend_this_month"],
     ["How does this month compare to last month?", "spend_this_month"],
@@ -159,7 +166,6 @@ describe("routing to the right question", () => {
 
   it.each([
     "How much did I spend in Lidl?",
-    "What's my grocery spend?",
     "What's my food spend this month?",
     "What was my Uber spend?",
     "What was my least expensive purchase?",
@@ -283,16 +289,29 @@ describe("API protection", () => {
     const phrase = vi.fn(async () => "Tesco charged you £38.62 twice.");
     const create = () => ({ classify: async () => null, phrase });
     const ask = () => handleAsk(new Request("http://test/api/ask", { method: "POST", body: JSON.stringify({ question: "Was I charged twice?" }), headers: { "x-forwarded-for": "9.9.9.9" } }), create);
-    for (let i = 0; i < 20; i += 1) expect((await (await ask()).json()).source).toBe("model");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (let i = 0; i < 60; i += 1) expect((await (await ask()).json()).source).toBe("model");
     const blocked = await ask();
     expect(blocked.status).toBe(200);
     expect(await blocked.json()).toMatchObject({ source: "template", evidenceIds: ["t051", "t052"] });
-    expect(phrase).toHaveBeenCalledTimes(20);
+    expect(phrase).toHaveBeenCalledTimes(60);
+    expect(warn.mock.calls.flat().join(" ")).toContain("Gemini call limit reached");
+    vi.restoreAllMocks();
+  });
+
+  it("the limit can be set for long test runs", () => {
+    resetRateLimit();
+    vi.stubEnv("ASK_MODEL_CALLS_PER_MINUTE", "2");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect([allowModelCall("c", 1), allowModelCall("c", 2), allowModelCall("c", 3)]).toEqual([true, true, false]);
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("the window moves on, and visitors are separate", () => {
     resetRateLimit();
-    for (let i = 0; i < 20; i += 1) allowModelCall("a", 1000);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (let i = 0; i < 60; i += 1) allowModelCall("a", 1000);
     expect(allowModelCall("a", 1001)).toBe(false);
     expect(allowModelCall("b", 1001)).toBe(true);
     expect(allowModelCall("a", 62_000)).toBe(true);
