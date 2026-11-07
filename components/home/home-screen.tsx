@@ -77,6 +77,43 @@ function ProofChip({ ids, label }: { ids: string[]; label?: string }) {
 
 function Bill({ d, simple }: { d: HomeData; simple: boolean }) {
   const { account } = d;
+  const paid = account.statementBalance === 0;
+  const payLabel = account.currentBalance > 0 ? "Make a payment" : null;
+  if (paid && simple)
+    return (
+      <section aria-labelledby="w-bill" className="flex flex-col gap-(--space)">
+        <div>
+          <h2 id="w-bill" className="text-lg font-semibold text-muted-foreground">
+            Your bill
+          </h2>
+          <p className="mt-1 text-xl font-bold">Your bill is paid.</p>
+          <p className="mt-2 text-muted-foreground">You owe {formatPence(account.currentBalance)} in total.</p>
+        </div>
+        {payLabel && (
+          <Link href="/account/pay" className="elevated flex min-h-(--target-min) items-center justify-center rounded-xl bg-primary px-6 text-lg font-bold text-primary-foreground">
+            {payLabel}
+          </Link>
+        )}
+      </section>
+    );
+  if (paid)
+    return (
+      <section aria-labelledby="w-bill" className={`${card} flex flex-col gap-3`}>
+        <h2 id="w-bill" className="flex items-center gap-2 text-base font-bold text-muted-foreground">
+          <CalendarClock aria-hidden className="size-[1.1em]" />
+          Your bill
+        </h2>
+        <p className="text-xl font-bold leading-none tracking-tight">
+          <Money pence={0} />
+        </p>
+        <p className="font-bold">Your bill is paid. Nothing is due.</p>
+        {payLabel && (
+          <Link href="/account/pay" className="mt-auto flex min-h-(--target-min) items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground">
+            {payLabel}
+          </Link>
+        )}
+      </section>
+    );
   if (simple)
     return (
       <section aria-labelledby="w-bill" className="flex flex-col gap-(--space)">
