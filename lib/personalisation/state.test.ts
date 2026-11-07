@@ -166,3 +166,22 @@ describe("features", () => {
     expect(explicitFingerprint(a)).not.toBe(explicitFingerprint(c));
   });
 });
+
+describe("blocked browser storage", () => {
+  it("loadState, saveState and clearState never throw when touching localStorage throws", () => {
+    const g = globalThis as { window?: unknown };
+    const had = "window" in g;
+    const prev = g.window;
+    const blocked = {};
+    Object.defineProperty(blocked, "localStorage", { get() { throw new Error("blocked"); } });
+    g.window = blocked;
+    try {
+      expect(loadState()).toEqual(INITIAL_STATE);
+      expect(saveState(INITIAL_STATE)).toBe(false);
+      expect(() => clearState()).not.toThrow();
+    } finally {
+      if (had) g.window = prev;
+      else delete g.window;
+    }
+  });
+});
