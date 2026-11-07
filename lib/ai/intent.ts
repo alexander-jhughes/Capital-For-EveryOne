@@ -21,33 +21,51 @@ const OUT_OF_SCOPE =
   /\b(should i|shall i|ought i|do you recommend|recommend|advice|advise|is it worth|worth it|good idea|best way|can i afford|can i spend|balance transfer|available|bill paid|paid (?:my|the) bill)\b/;
 
 /** A spending question about one shop, category or period: the facts only hold whole-month totals. */
-const NARROW_PHRASE = /\b(?:at|on|from|for)\s+(?!this\b|last\b|the\b|my\b|me\b|total\b|november\b|october\b)[a-z0-9]/;
+const NARROW_PHRASE = /\b(?:at|on|in|from|for)\s+(?!this\b|last\b|the\b|my\b|me\b|total\b|november\b|october\b)[a-z0-9]/;
+/** "my grocery spend" or "food spending": a word that narrows what spending means. */
+const NARROW_SPEND_NOUN =
+  /\b(?!(?:my|i|ive|did|the|total|monthly|this|to|of|you|we|and|much|have|what|do|can|will|overall|card|month|in|on|at|for|so|far|how|ever|usually|been|am|was|whats|whole)\b)[a-z]+ (?:spend|spending)\b(?! pause)/;
+/** Which shop or purchase was smallest or largest: the facts rank purchases, not shops or anything from the bottom. */
+const UNRANKED = /\bleast\b(?! (?:i|you) (?:can|must|have to|need to|should))|\b(?:spend|spent|shop|shopped)\b.*\bmost\b|\bmost\b.*\b(?:shop|store|merchant)\b|\b(?:smallest|cheapest|lowest)\b/;
 const OTHER_PERIOD =
   /\b(?:19|20)\d{2}\b|\b(?:january|february|march|april|june|july|august|september|december|in may|monday|tuesday|wednesday|thursday|friday|saturday|sunday|past|since|days?|weeks?|weekend|years?|yesterday|today|average)\b/;
 const SPEND_WORD = /\b(?:spend|spent|spending|cost|costs)\b(?! pause)/;
 
 // First match wins, so the specific intents sit above the general spending ones.
+const COMPARES_MONTHS = /\b(compare[ds]?|comparison|versus|vs|more than|less than|than last month)\b/;
+
 const RULES: Array<[Intent, RegExp]> = [
   ["spend_pause", /\b(spend pause|pause|budget|quiet hours)\b/],
   ["duplicates", /\b(twice|double|doubled|duplicates?|charged two|paid two|two charges|same charge)\b/],
   ["price_changes", /\b(subscriptions?|go up|gone up|went up|price|prices|price rise|more expensive)\b/],
   ["minimum_payment", /\b(minimum|least)\b/],
+  ["spend_this_month", COMPARES_MONTHS],
   ["days_until_due", /\b(bill|due|deadline|statement|owe|owed|owing|balance)\b|\bwhen\b.*\bpay\b|\b(need|have) to pay\b/],
+  ["spend_last_month", /\bcategor(?:y|ies)\b.*\b(last month|previous month|october)\b/],
+  ["spend_this_month", /\bcategor(?:y|ies)\b/],
   ["top_items", /\b(biggest|largest|top|most expensive)\b/],
   ["spend_last_month", /\b(last month|previous month|october)\b/],
   ["spend_this_month", /\b(spend|spent|spending|this month|so far)\b/],
 ];
 
 /** Which money a bill question means. These are different amounts, so the answer has to say the right one. */
-export type BillQuestion = "current" | "owed" | "pay" | "bill" | "balance" | "due";
+export type BillQuestion = "current" | "owed" | "pay" | "bill" | "balance" | "last_payment" | "due";
 
 export function billQuestion(question: string): BillQuestion {
   const q = simplify(question);
   if (/\b(current|total|whole|full) balance\b|\bbalance (right )?now\b/.test(q)) return "current";
   if (/\b(owe|owed|owing)\b/.test(q)) return "owed";
-  if (/\bhow much\b.*\bpay\b/.test(q)) return "pay";
+  if (/\blast (?:pay|paid|payment)\b|\bpaid last\b/.test(q)) return "last_payment";
+  if (/\bhow much\b.*\bpay\b|\bwhat\b.*\b(?:need|have) to pay\b/.test(q)) return "pay";
   if (/\bstatement\b|\bhow much\b.*\bbill\b/.test(q)) return "bill";
   return /\bbalance\b/.test(q) ? "balance" : "due";
+}
+
+/** What a spending question wants from the month's facts. */
+export function spendQuestion(question: string): "category" | "compare" | "total" {
+  const q = simplify(question);
+  if (/\bcategor(?:y|ies)\b/.test(q)) return "category";
+  return COMPARES_MONTHS.test(q) ? "compare" : "total";
 }
 
 const SPENDING_INTENTS = new Set<Intent>(["spend_this_month", "spend_last_month", "top_items"]);
@@ -62,9 +80,22 @@ const mentions = (question: string, names: string[]) => names.some((name) => nam
 /** Words that turn a shop's name into a different business, so "Tesco Mobile" is never read as Tesco. */
 const OTHER_BUSINESS = " (?:mobile|bank|insurance|prime|music|express|extra|business|photo|money|card)\\b";
 const REFUND_WORDS = /\b(refunds?|refunded|money back|reimbursed)\b/;
-/** "my Currys refund": a refund from a shop that isn't in the transactions. */
-const NAMED_REFUND = /\b(?:my|the)\s+([a-z0-9]+)\s+refund\b|\brefunds?\s+(?:from|for)\s+([a-z0-9]+)/;
-const NOT_A_SHOP = new Set(["the", "a", "an", "any", "my", "this", "that", "last", "latest", "recent", "pending", "next"]);
+/** "my Currys refund" or "did Currys refund me": a refund from a shop that isn't in the transactions. */
+const NAMED_REFUNDS = [
+  /\b(?:my|the|a|any|an)\s+([a-z0-9]+)\s+refund\b/,
+  /\brefunds?\s+(?:from|for|by)\s+([a-z0-9]+)/,
+  /\brefunded\s+by\s+([a-z0-9]+)/,
+  /\bmoney back\s+(?:from|for)\s+([a-z0-9]+)/,
+  /\b(?:did|has|have|will|would|can)\s+([a-z0-9]+)\s+refund/,
+];
+const NOT_A_SHOP = new Set(["the", "a", "an", "any", "my", "me", "i", "you", "they", "we", "it", "this", "that", "last", "latest", "recent", "pending", "next", "other"]);
+/** How a question names a shop it was charged by. Lidl isn't in the data, so nothing else would notice it. */
+const NAMED_CHARGES = [
+  /\b(?:by|from|at|with)\s+([a-z][\w'-]*)/i,
+  /\b(?:did|was|has|have|were|is)\s+([a-z][\w'-]*)\s+(?:charged?|billed?|took|take|taken|gone|go|went|up)\b/i,
+  /\bpa(?:y|id)\s+([a-z][\w'-]*)\s+(?:twice|double)\b/i,
+];
+const NOT_A_NAME = new Set([...NOT_A_SHOP, "mistake", "accident", "all", "anything", "anyone", "something", "them", "us", "being", "been", "subscription", "subscriptions", "any", "twice", "price", "prices", "netflix's"]);
 
 /** The known shops a question names, leaving out any that are really another business. */
 const shopsIn = (q: string, merchants: string[]) =>
@@ -89,8 +120,9 @@ export function merchantPeriod(question: string): MerchantPeriod {
  */
 export function namedMerchants(question: string, merchants: string[]): string[] {
   const known = merchants.filter((merchant) => mentions(simplify(question), [merchant]));
-  const unknown = question.match(/\b(?:by|from|at|with)\s+([A-Z][\w'-]*)/)?.[1];
-  return unknown ? [...known, unknown] : known;
+  if (known.length > 0) return known;
+  const unknown = NAMED_CHARGES.map((pattern) => question.match(pattern)?.[1]).find((name) => name && !NOT_A_NAME.has(name.toLowerCase()));
+  return unknown ? [unknown] : [];
 }
 
 /**
@@ -100,16 +132,15 @@ export function namedMerchants(question: string, merchants: string[]): string[] 
  */
 export function matchIntent(question: string, names: KnownNames = { merchants: [], categories: [] }): IntentMatch {
   const q = simplify(question);
-  if (OUT_OF_SCOPE.test(q)) return UNSUPPORTED;
+  if (OUT_OF_SCOPE.test(q) || UNRANKED.test(q)) return UNSUPPORTED;
 
   const shops = shopsIn(q, names.merchants);
   const anotherBusiness = names.merchants.some((name) => nameRegExp(name, OTHER_BUSINESS).test(q));
   if (anotherBusiness && shops.length === 0) return UNSUPPORTED;
 
   if (REFUND_WORDS.test(q)) {
-    const named = q.match(NAMED_REFUND);
-    const shop = named?.[1] ?? named?.[2];
-    const unknownShop = shop !== undefined && !NOT_A_SHOP.has(shop) && shops.length === 0;
+    const shop = NAMED_REFUNDS.map((pattern) => q.match(pattern)?.[1]).find((name) => name && !NOT_A_SHOP.has(name));
+    const unknownShop = shop !== undefined && shops.length === 0;
     return shops.length > 1 || unknownShop || OTHER_PERIOD.test(q) ? UNSUPPORTED : "merchant_refunds";
   }
 
@@ -119,7 +150,7 @@ export function matchIntent(question: string, names: KnownNames = { merchants: [
   }
 
   const aboutSpending = intent === null || SPENDING_INTENTS.has(intent) || SPEND_WORD.test(q);
-  const narrow = NARROW_PHRASE.test(q) || OTHER_PERIOD.test(q) || mentions(q, [...names.merchants, ...names.categories]);
+  const narrow = NARROW_PHRASE.test(q) || NARROW_SPEND_NOUN.test(q) || OTHER_PERIOD.test(q) || mentions(q, [...names.merchants, ...names.categories]);
   if (aboutSpending && narrow) return UNSUPPORTED;
   if (intent && !MERCHANT_INTENTS.has(intent) && mentions(q, names.merchants)) return UNSUPPORTED;
   return intent;

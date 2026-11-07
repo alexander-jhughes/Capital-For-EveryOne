@@ -1,6 +1,6 @@
 // Facts about one shop: its transactions and its refunds. Stage 3 only, built on the finance layer.
 // flagTransactions decides what is a refund or pending, and totalByMerchant and monthOverMonth do the sums and dates.
-import { flagTransactions, monthOverMonth, totalByMerchant } from "../finance";
+import { biggestItems, flagTransactions, monthOverMonth, totalByMerchant } from "../finance";
 import { formatLongDate, formatPence } from "../format";
 import type { Fact, Transaction } from "../types";
 import type { FactContext } from "./facts";
@@ -39,6 +39,14 @@ export function refundFacts(ctx: FactContext, merchant?: string): Fact[] {
   const pending = refunds.filter((t) => flags.get(t.id)?.pending);
   const completed = refunds.filter((t) => !flags.get(t.id)?.pending);
   return [...pending.map((t, i) => describe(t, true, i)), ...completed.map((t, i) => describe(t, false, i))];
+}
+
+/** The month's biggest purchases, for months other than the current one that Stage 2's facts cover. */
+export function topItemFacts(ctx: FactContext): Fact[] {
+  const { lastMonth } = monthOverMonth(ctx.txns, ctx.today);
+  const inMonth = ctx.txns.filter((t) => t.date >= lastMonth.from && t.date <= lastMonth.to);
+  const ordinal = ["Biggest", "Second biggest", "Third biggest"];
+  return biggestItems(inMonth, 3).map((t, i) => fact(`top_item_${i + 1}`, `${ordinal[i]} purchase last month`, `${t.merchant}, ${formatPence(t.amount)}, on ${formatLongDate(t.date)}`, [t.id]));
 }
 
 /** One shop's total and transactions, for all the data or a single month. */
