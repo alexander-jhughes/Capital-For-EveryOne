@@ -7,6 +7,7 @@ import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@
 import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { liveState } from "@/lib/assistant/live-state";
+import { usePersonalisation } from "@/lib/personalisation/provider";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
 import { VoiceMode } from "../voice/voice-mode";
@@ -32,6 +33,8 @@ const secondary = `${button} hairline bg-card`;
 /** Ask Dial: one bottom sheet for the whole app. `openAsk(question)` opens it and asks straight away. */
 export function AskDialProvider({ children }: { children: React.ReactNode }) {
   const { account, transactions, settings } = useAccount();
+  // Only used to count "opened Voice Mode" for optional display suggestions. No personalisation data goes to /api/ask.
+  const { noteVoiceOpened } = usePersonalisation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -148,6 +151,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
     answer.status === "answered" ? answer.text : answer.status === "offline" ? answer.facts.map((f) => `${f.label}: ${f.value}.`).join(" ") : "";
 
   const openVoice = () => {
+    noteVoiceOpened(); // a count only, and only with suggestions turned on; nothing said is recorded
     dialogRef.current?.close();
     setVoiceOpen(true);
   };
