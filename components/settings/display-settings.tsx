@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpToLine, Check, RotateCcw, Save, Star, Undo2 } from "lucide-react";
+import Link from "next/link";
 import { useId, useState } from "react";
 import { useAskDial } from "@/components/assistant/ask-dial";
 import { useAnnounce } from "@/components/live-region";
@@ -118,6 +119,29 @@ export function DisplaySettings() {
         <Segmented legend="Spacing" value={prefs.spacing} options={[{ value: "standard", label: "Standard" }, { value: "roomy", label: "More space" }]} onChange={set("spacing")} />
         <Segmented legend="Buttons" hint="Bigger buttons are easier to press." value={prefs.targets} options={[{ value: "standard", label: "Standard" }, { value: "large", label: "Bigger" }]} onChange={set("targets")} />
         <Segmented legend="Animation" value={prefs.motion} options={[{ value: "system", label: "Match my device" }, { value: "reduced", label: "Turn off" }]} onChange={set("motion")} />
+      </section>
+
+      <section aria-labelledby="s-assist" className="elevated flex flex-col gap-6 rounded-xl bg-card p-(--space)">
+        <h2 id="s-assist" className="text-lg font-bold">
+          Dial
+        </h2>
+        <Segmented
+          legend="How Dial explains things"
+          hint="Step by step adds numbered steps to Dial's money cards."
+          value={prefs.explanations}
+          options={[{ value: "standard", label: "Standard" }, { value: "stepByStep", label: "Step by step" }]}
+          onChange={set("explanations")}
+        />
+        <Segmented
+          legend="Talking or tapping first"
+          hint="Talking first makes the Dial button open Voice Mode straight away."
+          value={prefs.voiceFirst ? "voice" : "touch"}
+          options={[{ value: "touch", label: "Tapping first" }, { value: "voice", label: "Talking first" }]}
+          onChange={(v) => change([{ type: "voiceFirst", value: v === "voice" }])}
+        />
+        <Link href="/account/personalise" className={`${pill} self-start bg-accent text-accent-foreground`}>
+          Get a suggested style
+        </Link>
       </section>
 
       <section aria-labelledby="s-layout" className="elevated flex flex-col gap-4 rounded-xl bg-card p-(--space)">

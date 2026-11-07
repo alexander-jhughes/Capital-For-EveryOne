@@ -2,6 +2,7 @@
 // and falls back to the deterministic facts layer when the backend can't answer. Never writes answers itself.
 import { buildFacts, type FactContext } from "../ai/facts";
 import type { AskResponse, Intent } from "../types";
+import { parseExperience, type Experience } from "./experience";
 
 /** The demo questions from docs/BRIEF.md. The intent is only used for the offline fallback. */
 export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
@@ -13,7 +14,7 @@ export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
 
 export type AskOutcome =
   /** The backend answered. */
-  | { kind: "answer"; response: AskResponse }
+  | { kind: "answer"; response: AskResponse; experience: Experience }
   /** The backend rejected the question (HTTP 400); `message` is its friendly text. */
   | { kind: "invalid"; message: string }
   /** No usable answer: network error, timeout, HTTP 5xx/404, or a malformed body. */
@@ -51,7 +52,9 @@ export async function askDial(
     }
     if (!res.ok) return { kind: "unavailable" };
     const response = parseAskResponse(body);
-    return response ? { kind: "answer", response } : { kind: "unavailable" };
+    // `experience` is optional and validated separately: a bad one never costs the answer itself.
+    const experience = parseExperience((body as { experience?: unknown } | null)?.experience);
+    return response ? { kind: "answer", response, experience } : { kind: "unavailable" };
   } catch {
     return { kind: "unavailable" };
   } finally {
