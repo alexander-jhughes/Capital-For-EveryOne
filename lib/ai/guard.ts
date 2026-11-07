@@ -1,5 +1,5 @@
 // Output guard. Any reply that fails here is thrown away and the template sentence is used instead.
-import type { FactSet } from "../types";
+import type { AnswerFactSet } from "./answer-facts";
 import { billQuestion } from "./intent";
 
 export const MAX_SENTENCES = 2;
@@ -35,7 +35,7 @@ const LOWER = /\b(down|less|lower|fewer|cheaper|decreas\w*|dropped|drop|fell|fal
 
 /** Capitalised words that are not names. Any other capitalised word must be in the facts, so a shop can't be invented. */
 const ORDINARY_WORDS = new Set(
-  `a an and at both but by dial each for from i i'm in it it's looks no none not nothing on one over pause right since so spend
+  `a across after an and at both but by dial each earlier for from here i i'm in it it's latest looks most no none not nothing on one over pause right since so spend
   that that's the there these they this those today two you you're you've your yes`.split(/\s+/),
 );
 
@@ -63,7 +63,7 @@ const fullDates = (text: string) => text.match(new RegExp(`\\b(${WEEKDAYS})(?: t
 const expandRanges = (text: string) =>
   text.replace(new RegExp(`\\b(\\d{1,2}) to (\\d{1,2}) (${MONTHS})\\b`, "g"), "$1 $3 to $2 $3");
 
-const factText = (facts: FactSet) => facts.facts.map((f) => `${f.label}: ${f.value}`).join("\n");
+const factText = (facts: AnswerFactSet) => facts.facts.map((f) => `${f.label}: ${f.value}`).join("\n");
 
 /** Lowers every month and day name so the name check skips them. */
 const normaliseProperDates = (text: string) =>
@@ -81,6 +81,37 @@ function factForTerm(term: string): string {
   const t = term.toLowerCase();
   if (t.startsWith("minimum")) return "minimum_payment";
   return t === "bill" || t === "statement balance" ? "statement_balance" : "current_balance";
+}
+
+const NOT_ARRIVED = /\b(pending|not (?:yet )?(?:arrived|been|reached|come|completed)|has(?:n't| not) (?:yet )?(?:arrived|come|reached|completed)|yet to|on its way|still processing|processing|waiting)\b/i;
+const ARRIVED = /\b(arrived|received|got|completed|came through|gone through|paid back|back in your account|in your account)\b/i;
+const sentences = (text: string) => text.split(/(?<=[.!?])\s+/);
+
+/** Checks each refund is stated with its true status. A pending refund must never be said to have arrived. */
+function refundProblem(reply: string, facts: AnswerFactSet): string | null {
+  const amountOf = (value: string) => value.match(/^£[\d,.]*\d/)?.[0].replace(/,/g, "") ?? "";
+  const refunds = facts.facts.filter((f) => f.key.startsWith("refund_"));
+  const stated = amounts(reply);
+  if (refunds.some((f) => !stated.includes(amountOf(f.value)))) return "no supporting fact";
+
+  const pending = refunds.filter((f) => f.key.startsWith("refund_pending_")).map((f) => amountOf(f.value));
+  const completed = refunds.filter((f) => f.key.startsWith("refund_completed_")).map((f) => amountOf(f.value));
+  for (const sentence of sentences(reply)) {
+    const here = amounts(sentence);
+    const mentionsPending = here.some((a) => pending.includes(a) && !completed.includes(a));
+    const mentionsCompleted = here.some((a) => completed.includes(a) && !pending.includes(a));
+    if (mentionsPending && !NOT_ARRIVED.test(sentence)) return "contradicts facts";
+    if (mentionsPending && ARRIVED.test(sentence.replace(/\b(?:has|have)?(?:n't| not)\s+(?:yet\s+)?\w+/gi, ""))) return "contradicts facts";
+    if (mentionsCompleted && !mentionsPending && NOT_ARRIVED.test(sentence)) return "contradicts facts";
+    if (mentionsPending && mentionsCompleted) return "contradicts facts";
+  }
+  return null;
+}
+
+/** True when a reply says the whole current balance has to be paid now. */
+function saysCurrentBalanceIsDue(reply: string, current: string | undefined): boolean {
+  if (!current) return false;
+  return new RegExp(`${escapeRegExp(current)}[^,.;]{0,25}\\b(?:is due|due now|must be paid|to pay now|now due)\\b`, "i").test(reply);
 }
 
 /** True when a reply puts one balance's name on another's amount, as in "Your current balance is £486.20". */
@@ -111,7 +142,7 @@ function inWrongPeriod(reply: string, amount: string, period: string): boolean {
  * by default. This proves it actually states the answer: it has to carry the fact that settles the question, and
  * must not deny or reverse it.
  */
-function groundingProblem(reply: string, facts: FactSet, question: string): string | null {
+function groundingProblem(reply: string, facts: AnswerFactSet, question: string): string | null {
   const value = (key: string) => facts.facts.find((f) => f.key === key)?.value;
   const values = (prefix: string) => facts.facts.filter((f) => f.key.startsWith(prefix)).map((f) => f.value);
   const stated = amounts(reply);
@@ -125,9 +156,24 @@ function groundingProblem(reply: string, facts: FactSet, question: string): stri
   if (HIGHER.test(valuesText) && !LOWER.test(valuesText) && LOWER.test(reply)) return contradicted;
   if (LOWER.test(valuesText) && !HIGHER.test(valuesText) && HIGHER.test(reply)) return contradicted;
 
-  if (mixesBalances(reply, value)) return contradicted;
+  if (mixesBalances(reply, value) || saysCurrentBalanceIsDue(reply, value("current_balance"))) return contradicted;
 
   switch (facts.intent) {
+    case "merchant_refunds":
+      if (value("no_refunds")) return DENIAL.test(reply) ? null : contradicted;
+      return refundProblem(reply, facts);
+    case "merchant_transactions": {
+      if (value("no_transactions")) return DENIAL.test(reply) ? null : contradicted;
+      if (DENIAL.test(reply)) return contradicted;
+      if (!facts.merchant || !named(facts.merchant)) return unsupported;
+      const rows = facts.facts.filter((f) => f.key.startsWith("transaction_"));
+      const refundAmounts = rows.filter((f) => f.value.includes("refund)")).map((f) => f.value.match(/^£[\d,.]*\d/)?.[0]);
+      if (!/\brefund/i.test(reply) && refundAmounts.some(has)) return contradicted;
+      // A date answers "when". Anything else needs the total, or a partial list could pass for the whole picture.
+      const dates = rows.map((f) => f.value.match(/\d{1,2} [A-Z][a-z]+/)?.[0].toLowerCase());
+      const datesAnswer = /\bwhen\b/i.test(question) && dates.some((d) => d && replyDates.includes(d));
+      return has(value("merchant_total")) || datesAnswer ? null : unsupported;
+    }
     case "duplicates": {
       if (value("no_duplicates")) return DENIAL.test(reply) ? null : contradicted;
       if (DENIAL.test(reply)) return contradicted;
@@ -164,10 +210,13 @@ function groundingProblem(reply: string, facts: FactSet, question: string): stri
       return has(biggest) ? null : unsupported;
     }
     case "days_until_due": {
-      if (DENIAL.test(reply)) return contradicted;
+      // "Not all of it is due yet" is the safeguard on the current balance, not a denial.
+      if (DENIAL.test(reply.replace(/\bnot all\b/gi, ""))) return contradicted;
       const asked = billQuestion(question);
-      if (asked === "current" || asked === "owed" || asked === "balance") return has(value("current_balance")) ? null : unsupported;
-      if (asked === "statement") return has(value("statement_balance")) ? null : unsupported;
+      if (asked === "owed") return [value("current_balance"), value("statement_balance"), value("minimum_payment")].every(has) ? null : unsupported;
+      if (asked === "pay") return has(value("statement_balance")) && has(value("minimum_payment")) ? null : unsupported;
+      if (asked === "current" || asked === "balance") return has(value("current_balance")) ? null : unsupported;
+      if (asked === "bill") return has(value("statement_balance")) ? null : unsupported;
       const due = value("due_date")?.toLowerCase() ?? "";
       const left = value("days_until_due")?.toLowerCase().replace("overdue by ", "") ?? "";
       const dueDay = due.replace(/^\w+ /, "");
@@ -188,7 +237,7 @@ function groundingProblem(reply: string, facts: FactSet, question: string): stri
 }
 
 /** Checks one reply against one fact set. Every amount and date must appear in the facts, exactly. */
-export function checkAnswer(answer: string, facts: FactSet, question = ""): GuardResult {
+export function checkAnswer(answer: string, facts: AnswerFactSet, question = ""): GuardResult {
   const reply = clean(answer).trim();
   if (reply === "") return fail("empty");
   if (/[\r\n]/.test(reply)) return fail("more than one line");

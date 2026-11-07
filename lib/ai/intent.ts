@@ -5,7 +5,10 @@ const simplify = (text: string) => text.toLowerCase().replace(/[’']/g, "");
 
 /** The facts can't answer this. It gets "I can't tell" directly and never reaches the model. */
 export const UNSUPPORTED = "unsupported";
-export type IntentMatch = Intent | typeof UNSUPPORTED | null;
+/** Stage 2's intents plus two about one shop. Kept here so the shared Intent type doesn't change. */
+export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds";
+export type IntentMatch = AnswerIntent | typeof UNSUPPORTED | null;
+export type MerchantPeriod = "all" | "this_month" | "last_month";
 
 /** Words in the data that make a question narrower than the whole-month facts. */
 export interface KnownNames {
@@ -36,13 +39,14 @@ const RULES: Array<[Intent, RegExp]> = [
 ];
 
 /** Which money a bill question means. These are different amounts, so the answer has to say the right one. */
-export type BillQuestion = "current" | "owed" | "statement" | "balance" | "due";
+export type BillQuestion = "current" | "owed" | "pay" | "bill" | "balance" | "due";
 
 export function billQuestion(question: string): BillQuestion {
   const q = simplify(question);
   if (/\b(current|total|whole|full) balance\b|\bbalance (right )?now\b/.test(q)) return "current";
   if (/\b(owe|owed|owing)\b/.test(q)) return "owed";
-  if (/\bstatement\b|\bhow much\b.*\b(pay|bill)\b/.test(q)) return "statement";
+  if (/\bhow much\b.*\bpay\b/.test(q)) return "pay";
+  if (/\bstatement\b|\bhow much\b.*\bbill\b/.test(q)) return "bill";
   return /\bbalance\b/.test(q) ? "balance" : "due";
 }
 
@@ -51,8 +55,33 @@ const SPENDING_INTENTS = new Set<Intent>(["spend_this_month", "spend_last_month"
 const MERCHANT_INTENTS = new Set<Intent>(["duplicates", "price_changes"]);
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
-const mentions = (question: string, names: string[]) =>
-  names.some((name) => new RegExp(`\\b${escapeRegExp(simplify(name))}\\b`).test(question));
+/** Matches "Sainsburys" and "Sainsbury's" for Sainsbury's, and "Tesco's" for Tesco, but never "Argosy" for Argos. */
+const nameRegExp = (name: string, after = "") => new RegExp(`\\b${escapeRegExp(simplify(name).replace(/s$/, ""))}s?\\b${after}`);
+const mentions = (question: string, names: string[]) => names.some((name) => nameRegExp(name).test(question));
+
+/** Words that turn a shop's name into a different business, so "Tesco Mobile" is never read as Tesco. */
+const OTHER_BUSINESS = " (?:mobile|bank|insurance|prime|music|express|extra|business|photo|money|card)\\b";
+const REFUND_WORDS = /\b(refunds?|refunded|money back|reimbursed)\b/;
+/** "my Currys refund": a refund from a shop that isn't in the transactions. */
+const NAMED_REFUND = /\b(?:my|the)\s+([a-z0-9]+)\s+refund\b|\brefunds?\s+(?:from|for)\s+([a-z0-9]+)/;
+const NOT_A_SHOP = new Set(["the", "a", "an", "any", "my", "this", "that", "last", "latest", "recent", "pending", "next"]);
+
+/** The known shops a question names, leaving out any that are really another business. */
+const shopsIn = (q: string, merchants: string[]) =>
+  merchants.filter((name) => mentions(q, [name]) && !nameRegExp(name, OTHER_BUSINESS).test(q));
+
+/** The one shop a question is about, or undefined if it names none or several. */
+export function merchantSubject(question: string, merchants: string[]): string | undefined {
+  const shops = shopsIn(simplify(question), merchants);
+  return shops.length === 1 ? shops[0] : undefined;
+}
+
+/** Which month a shop question means. Other periods never reach this: matchIntent sends them to UNSUPPORTED. */
+export function merchantPeriod(question: string): MerchantPeriod {
+  const q = simplify(question);
+  if (/\b(this month|november|so far)\b/.test(q)) return "this_month";
+  return /\b(last month|previous month|october)\b/.test(q) ? "last_month" : "all";
+}
 
 /**
  * The shops a question names, including one that isn't in the transactions ("charged twice by Lidl").
@@ -73,7 +102,22 @@ export function matchIntent(question: string, names: KnownNames = { merchants: [
   const q = simplify(question);
   if (OUT_OF_SCOPE.test(q)) return UNSUPPORTED;
 
+  const shops = shopsIn(q, names.merchants);
+  const anotherBusiness = names.merchants.some((name) => nameRegExp(name, OTHER_BUSINESS).test(q));
+  if (anotherBusiness && shops.length === 0) return UNSUPPORTED;
+
+  if (REFUND_WORDS.test(q)) {
+    const named = q.match(NAMED_REFUND);
+    const shop = named?.[1] ?? named?.[2];
+    const unknownShop = shop !== undefined && !NOT_A_SHOP.has(shop) && shops.length === 0;
+    return shops.length > 1 || unknownShop || OTHER_PERIOD.test(q) ? UNSUPPORTED : "merchant_refunds";
+  }
+
   const intent = RULES.find(([, pattern]) => pattern.test(q))?.[0] ?? null;
+  if (shops.length === 1 && (intent === null || intent === "spend_this_month" || intent === "spend_last_month")) {
+    return OTHER_PERIOD.test(q) ? UNSUPPORTED : "merchant_transactions";
+  }
+
   const aboutSpending = intent === null || SPENDING_INTENTS.has(intent) || SPEND_WORD.test(q);
   const narrow = NARROW_PHRASE.test(q) || OTHER_PERIOD.test(q) || mentions(q, [...names.merchants, ...names.categories]);
   if (aboutSpending && narrow) return UNSUPPORTED;

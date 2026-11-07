@@ -1,10 +1,10 @@
 // The assistant flow: question -> intent -> facts -> phrasing -> guard. Facts and evidence never come from the model.
-import type { AskResponse, FactSet, Intent } from "../types";
+import type { AskResponse } from "../types";
 import { cachedAnswer } from "./cache";
-import { answerFacts } from "./answer-facts";
+import { answerFacts, type AnswerFactSet } from "./answer-facts";
 import { seedContext, type FactContext } from "./facts";
 import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
-import { matchIntent, namedMerchants, UNSUPPORTED } from "./intent";
+import { billQuestion, matchIntent, merchantSubject, namedMerchants, UNSUPPORTED, type AnswerIntent } from "./intent";
 import { describeError, type AskModel } from "./model";
 import { templateAnswer } from "./templates";
 
@@ -32,14 +32,14 @@ const log = (step: string, error: unknown) => console.warn(`[ask] ${step}: ${des
 
 const unanswered = (): AskResponse => ({ answer: CANT_TELL, evidenceIds: [], source: "template" });
 
-const fromTemplate = (facts: FactSet, question: string): AskResponse => ({
+const fromTemplate = (facts: AnswerFactSet, question: string): AskResponse => ({
   answer: templateAnswer(facts, question),
   evidenceIds: facts.evidenceIds,
   source: "template",
 });
 
 /** The fixed wording for a demo question, unless the facts no longer support it. */
-function fromCache(question: string, facts: FactSet): AskResponse | null {
+function fromCache(question: string, facts: AnswerFactSet): AskResponse | null {
   const cached = cachedAnswer(question);
   if (cached?.intent !== facts.intent || !checkAnswer(cached.answer, facts, question).ok) return null;
   return { answer: cached.answer, evidenceIds: facts.evidenceIds, source: "cache" };
@@ -53,13 +53,13 @@ export async function answerQuestion(question: string | undefined, options: AskO
   const remaining = () => deadline - Date.now();
 
   const names = {
-    merchants: [...new Set(ctx.txns.map((t) => t.merchant))],
+    merchants: [...new Set(ctx.txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))],
     categories: [...new Set(ctx.txns.map((t) => t.category))],
   };
   const match = matchIntent(asked, names);
   if (match === UNSUPPORTED) return unanswered();
 
-  let intent: Intent | null = match;
+  let intent: AnswerIntent | null = match;
   if (!intent && model) {
     try {
       intent = await model.classify(asked, remaining());
@@ -69,16 +69,19 @@ export async function answerQuestion(question: string | undefined, options: AskO
   }
   if (!intent) return unanswered();
 
-  const facts = answerFacts(intent, ctx);
+  const facts = answerFacts(intent, ctx, asked, merchantSubject(asked, names.merchants));
   // "Was Lidl charged twice?" must not be answered with the Tesco finding.
   const named = namedMerchants(asked, names.merchants);
   const factsText = facts.facts.map((f) => f.value).join(" ");
-  if (named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) return unanswered();
+  const aboutOneShop = intent === "merchant_transactions" || intent === "merchant_refunds";
+  if (!aboutOneShop && named.length > 0 && !named.some((merchant) => factsText.includes(merchant))) return unanswered();
 
   // Demo questions skip the model on purpose, so the live demo says the same thing every time.
   const cached = fromCache(asked, facts);
   if (cached) return cached;
-  if (!model || remaining() < MIN_CALL_MS) return fromTemplate(facts, asked);
+  // "How much do I owe?" is the easiest answer to get dangerously wrong, so its wording is never left to the model.
+  const owed = intent === "days_until_due" && billQuestion(asked) === "owed";
+  if (owed || !model || remaining() < MIN_CALL_MS) return fromTemplate(facts, asked);
 
   let reply: string | null;
   try {

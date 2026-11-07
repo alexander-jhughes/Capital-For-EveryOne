@@ -13,7 +13,8 @@ const CHARGED = "Was I charged twice for anything?";
 type Mode =
   | "ok" | "stall" | "reset" | "invalid-key" | "forbidden" | "quota" | "server-error" | "unavailable" | "html"
   | "not-json" | "bad-json-reply" | "wrong-shape" | "empty" | "no-candidates" | "safety" | "cut-off"
-  | "invented-amount" | "advice" | "contradiction" | "wrong-balance" | "invented-evidence";
+  | "invented-amount" | "advice" | "contradiction" | "wrong-balance" | "invented-evidence" | "wrong-currency"
+  | "pending-arrived" | "vague-owe";
 
 let mode: Mode = "ok";
 let modelCalls = 0;
@@ -50,6 +51,9 @@ const fakeApi = http.createServer((request, response) => {
       case "no-candidates": return send(200, JSON.stringify({ promptFeedback: { blockReason: "SAFETY" } }));
       case "safety": return send(200, reply(null, "SAFETY"));
       case "cut-off": return send(200, reply(null, "MAX_TOKENS"));
+      case "wrong-currency": return send(200, answer("Tesco charged you £38.62 twice, which is $38.62."));
+      case "pending-arrived": return send(200, answer("Your £19.99 refund has arrived. Your £14.99 refund has arrived."));
+      case "vague-owe": return send(200, answer("You owe £1,069.89 right now."));
       case "invented-amount": return send(200, answer("Tesco charged you £999.99 twice."));
       case "advice": return send(200, answer("Tesco charged you £38.62 twice, so you should complain."));
       case "contradiction": return send(200, answer("No, you were not charged twice."));
@@ -113,9 +117,20 @@ async function noKeyTests() {
   check("November spending has no October evidence", spend.body.evidenceIds.length === 20);
   check("no question gives the summary", (await post({})).body.answer.includes("£402.35"));
   check("current balance", (await post({ question: "What's my current balance?" })).body.answer.includes("£1,069.89"));
-  check("need to pay is the statement balance", (await post({ question: "How much do I need to pay?" })).body.answer.startsWith("Your statement balance is £486.20"));
   const narrow = await post({ question: "How much did I spend at Tesco this month?" });
-  check("merchant question gets the fallback", narrow.body.answer === "I can't tell that from your transactions." && narrow.body.evidenceIds.length === 0);
+  check("merchant question stays on that merchant", narrow.body.answer.includes("£98.71") && !narrow.body.answer.includes("£402.35"));
+  const unsupported = await post({ question: "How much did I spend on groceries?" });
+  check("unsupported question gets the fallback", unsupported.body.answer === "I can't tell that from your transactions." && unsupported.body.evidenceIds.length === 0);
+  const refund = await post({ question: "Did I get my Amazon refund?" });
+  check("pending and completed refunds are separated", refund.body.answer.includes("£19.99 Amazon refund") && refund.body.answer.includes("not arrived yet") && refund.body.answer.includes("£14.99"));
+  check("refund evidence is the refunds and their purchases", refund.body.evidenceIds.join() === "t062,t061,t036,t028");
+  const argos = await post({ question: "What did I spend on Argos?" });
+  check("Argos purchase with its evidence", argos.body.answer === "You spent £249.00 at Argos on Saturday 10 October." && argos.body.evidenceIds.join() === "t060");
+  const owe = await post({ question: "How much do I owe?" });
+  check("owe separates all three amounts", ["£1,069.89", "£486.20", "£25.00"].every((a) => owe.body.answer.includes(a)) && owe.body.evidenceIds.length === 0);
+  const pay = await post({ question: "How much do I need to pay?" });
+  check("need to pay gives statement and minimum", ["£486.20", "£25.00"].every((a) => pay.body.answer.includes(a)) && !pay.body.answer.includes("£1,069.89"));
+  check("minimum payment", (await post({ question: "What's my minimum payment?" })).body.answer.includes("£25.00"));
   check("empty question is a friendly 400", (await post({ question: "  " })).status === 400);
   check("long question is a friendly 400", (await post({ question: "a".repeat(301) })).status === 400);
   check("bad JSON is a friendly 400", (await post("nope")).status === 400);
@@ -127,7 +142,7 @@ async function fakeApiTests() {
 
   const failuresToTest: Mode[] = [
     "invalid-key", "forbidden", "quota", "server-error", "unavailable", "html", "reset", "not-json", "bad-json-reply",
-    "wrong-shape", "empty", "no-candidates", "safety", "cut-off", "invented-amount", "advice", "contradiction",
+    "wrong-shape", "empty", "no-candidates", "safety", "cut-off", "invented-amount", "wrong-currency", "advice", "contradiction",
   ];
   for (const failure of failuresToTest) {
     mode = failure;
@@ -149,6 +164,14 @@ async function fakeApiTests() {
   const balance = await post({ question: "What's my current balance?" });
   check("reply naming the wrong balance is replaced", balance.body.answer === "Your current balance is £1,069.89." && balance.body.source === "template", JSON.stringify(balance.body));
 
+  mode = "pending-arrived";
+  const arrived = await post({ question: "Has my Amazon refund arrived?" });
+  check("reply saying pending money arrived is replaced", arrived.body.source === "template" && arrived.body.answer.includes("not arrived yet") && arrived.body.evidenceIds.join() === "t062,t061,t036,t028", JSON.stringify(arrived.body));
+
+  mode = "vague-owe";
+  const vague = await post({ question: "How much do I owe?" });
+  check("vague owe reply is replaced", vague.body.source === "template" && vague.body.answer.includes("£486.20") && vague.body.answer.includes("£25.00"), JSON.stringify(vague.body));
+
   mode = "ok";
   const good = await post({ question: CHARGED });
   check("valid reply is used", good.body.source === "model" && isAskResponse(good.body), JSON.stringify(good.body));
@@ -158,8 +181,8 @@ async function fakeApiTests() {
   for (const question of ["Did I pay Tesco twice this month?", "What did I spend this month?", "Has any subscription gone up?", "When is my bill due?"]) {
     check(`no model call: ${question}`, (await post({ question })).body.source === "cache");
   }
-  const narrow = await post({ question: "How much did I spend at Tesco this month?" });
-  check("narrow question gets the fallback", narrow.body.answer.startsWith("I can't tell"));
+  const narrow = await post({ question: "How much did I spend on groceries?" });
+  check("unsupported question gets the fallback", narrow.body.answer.startsWith("I can't tell"));
   check("none of those called the model", modelCalls === 0, `${modelCalls} calls`);
 }
 

@@ -1,5 +1,5 @@
 // Template sentences. Each one is built only from a FactSet, so it is correct by construction and needs no model.
-import type { FactSet } from "../types";
+import type { AnswerFactSet } from "./answer-facts";
 import { CANT_TELL } from "./guard";
 import { billQuestion } from "./intent";
 
@@ -9,7 +9,7 @@ const list = (values: string[]) => values.join("; ");
  * The plain answer for a fact set: at most two sentences, using only the fact values. The question only picks which
  * bill facts to say: the statement balance is what's due now, and the current balance is everything owed.
  */
-export function templateAnswer(set: FactSet, question = ""): string {
+export function templateAnswer(set: AnswerFactSet, question = ""): string {
   const value = (key: string) => set.facts.find((f) => f.key === key)?.value;
   const values = (prefix: string) => set.facts.filter((f) => f.key.startsWith(prefix)).map((f) => f.value);
 
@@ -44,19 +44,53 @@ export function templateAnswer(set: FactSet, question = ""): string {
       const statement = value("statement_balance");
       const current = value("current_balance");
       const due = value("due_date");
+      const minimum = value("minimum_payment");
       switch (billQuestion(question)) {
         case "current":
           return `Your current balance is ${current}.`;
         case "owed":
-          return `You owe ${current} in total. Your statement balance of ${statement} is due on ${due}.`;
+          return `Your current balance is ${current}, which is everything on the card right now, and not all of it is due yet. Your latest bill, the statement balance, is ${statement}, and the minimum payment on it is ${minimum}, by ${due}.`;
         case "balance":
           return `Your current balance is ${current}. Your statement balance is ${statement}, due on ${due}.`;
-        case "statement":
-          return `Your statement balance is ${statement}, due on ${due}. The minimum payment is ${value("minimum_payment")}.`;
+        case "pay":
+          return `Your full statement balance, the amount on your latest bill, is ${statement}. The minimum payment is ${minimum}, and both are due by ${due}.`;
+        case "bill":
+          return `Your bill, the statement balance, is ${statement}, due on ${due}.`;
         case "due":
           return `Your bill of ${statement} is due on ${due}. ${when}`;
       }
       break;
+    }
+    case "merchant_refunds": {
+      if (value("no_refunds")) return `I can't see any refund${set.merchant ? ` from ${set.merchant}` : ""} in your transactions.`;
+      const describe = (prefix: string) =>
+        list(
+          set.facts
+            .filter((f) => f.key.startsWith(prefix))
+            .map((f) => {
+              const [, amount, date, purchase] = f.value.match(/^(£[\d,.]*\d), on (.+?)(?:, for your £[\d,.]*\d purchase on (.+))?$/) ?? [];
+              const shop = f.label.replace(/^(?:Pending|Completed) /, "").replace(/ refund.*$/, "");
+              const reversed = purchase ? ` for your purchase on ${purchase}` : "";
+              return { text: `${amount} ${shop} refund${reversed}`, date };
+            })
+            .map(({ text, date }) => (prefix === "refund_completed_" ? `${text} arrived on ${date}` : text)),
+        );
+      const waiting = describe("refund_pending_");
+      const arrived = describe("refund_completed_");
+      return [waiting && `Your ${waiting} is pending, so it has not arrived yet.`, arrived && `Your ${arrived}.`].filter(Boolean).join(" ");
+    }
+    case "merchant_transactions": {
+      const period = /(?:this|last) month/.exec(set.facts[0].label)?.[0];
+      const when = period ? ` ${period}` : "";
+      if (value("no_transactions")) return `I can't see any ${set.merchant} transactions${when}.`;
+      const total = set.facts.find((f) => f.key === "merchant_total");
+      const count = Number(value("merchant_transactions"));
+      const latest = value("transaction_1") ?? "";
+      const onDate = latest.replace(/^£[\d,.]*\d on /, "").replace(/ \(.*\)$/, "");
+      if (count === 1 && latest.endsWith("(purchase)")) return `You spent ${total?.value} at ${set.merchant} on ${onDate}.`;
+      const note = total?.label.match(/, (?:after refunds|counting pending items).*$/)?.[0] ?? "";
+      const noun = count === 1 ? "transaction" : "transactions";
+      return `You have ${count} ${set.merchant} ${noun}${when}, totalling ${total?.value}${note}. The latest is ${latest.replace(" (purchase)", "")}.`;
     }
     case "minimum_payment":
       return `Your minimum payment is ${value("minimum_payment")}, due on ${value("due_date")}.`;
