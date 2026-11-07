@@ -1,4 +1,5 @@
 // The assistant flow: question -> intent -> facts -> phrasing -> guard. Facts and evidence never come from the model.
+import { DEMO_TODAY } from "../demo-clock";
 import type { AskResponse } from "../types";
 import { cachedAnswer } from "./cache";
 import { answerFacts, type AnswerFactSet } from "./answer-facts";
@@ -7,13 +8,15 @@ import { CANT_TELL, checkAnswer, isCantTell } from "./guard";
 import { selectExperience, type OrchestratedResponse } from "./experience";
 import { billQuestion, namedMerchants } from "./intent";
 import { interpretQuestion, periodLabelFor } from "./interpreter";
+import { contextFromState, parseClientState, type ClientState } from "./live-state";
 import { describeError, type AskModel } from "./model";
 import { allowModelCall, clientKey } from "./rate-limit";
 import { templateAnswer } from "./templates";
 import { validateResponse } from "./validator";
 
 export const MAX_QUESTION_LENGTH = 300;
-const MAX_BODY_BYTES = 4096;
+/** Room for a question and the most events the live state allows. */
+const MAX_BODY_BYTES = 16_384;
 const TIMEOUT_MS = 4000;
 /** Below this a model call can't finish, so go straight to the fallback. */
 const MIN_CALL_MS = 250;
@@ -23,6 +26,7 @@ const MESSAGES = {
   empty: "Please type a question first.",
   tooLong: `Please keep your question to ${MAX_QUESTION_LENGTH} characters or fewer.`,
   unreadable: "Sorry, I couldn't read that. Please try asking again.",
+  badState: "Sorry, I couldn't check your latest account details. Please try again.",
   failed: "Sorry, something went wrong. Please try again.",
 };
 
@@ -140,7 +144,7 @@ async function readBody(request: Request): Promise<string | null> {
   }
 }
 
-type ParsedQuestion = { question: string | undefined } | { error: string };
+type ParsedQuestion = { question: string | undefined; state?: ClientState } | { error: string };
 
 /** A missing question means the default summary. An empty one is a mistake to tell the person about. */
 function parseQuestion(body: string): ParsedQuestion {
@@ -154,14 +158,17 @@ function parseQuestion(body: string): ParsedQuestion {
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { error: MESSAGES.unreadable };
 
-  const { question } = parsed as { question?: unknown };
-  if (question === undefined || question === null) return { question: undefined };
+  const { question, state: rawState } = parsed as { question?: unknown; state?: unknown };
+  const state = rawState === undefined ? undefined : parseClientState(rawState, DEMO_TODAY);
+  if (state === null) return { error: MESSAGES.badState };
+  const withState = state ? { state } : {};
+  if (question === undefined || question === null) return { question: undefined, ...withState };
   if (typeof question !== "string") return { error: MESSAGES.unreadable };
 
   const trimmed = question.trim();
   if (trimmed === "") return { error: MESSAGES.empty };
   if (trimmed.length > MAX_QUESTION_LENGTH) return { error: MESSAGES.tooLong };
-  return { question: trimmed };
+  return { question: trimmed, ...withState };
 }
 
 /** The POST /api/ask handler, apart from choosing the model. Every failure is a friendly JSON message. */
@@ -174,7 +181,7 @@ export async function handleAsk(request: Request, createModel: () => AskModel | 
     if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400, headers });
     // Over the limit still gets an answer. It just doesn't spend a Gemini call.
     const model = allowModelCall(clientKey(request)) ? createModel() : null;
-    const answer = await answerQuestion(parsed.question, { model });
+    const answer = await answerQuestion(parsed.question, { model, ctx: contextFromState(parsed.state) });
     return Response.json(answer, { headers });
   } catch (error) {
     log("request failed", error);
