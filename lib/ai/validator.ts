@@ -10,7 +10,8 @@ const pass: ValidationResult = { ok: true };
 const fail = (reason: string): ValidationResult => ({ ok: false, reason });
 
 /** A fact saying nothing was found has no transactions behind it, and that's correct. */
-const foundNothing = (facts: AnswerFactSet) => facts.facts.length === 0 || facts.facts.some((f) => f.key.startsWith("no_"));
+const foundNothing = (facts: AnswerFactSet) =>
+  facts.facts.length === 0 || facts.facts.some((f) => f.key.startsWith("no_") || ((f.key === "month_to_date_total" || f.key === "last_month_total") && f.value === "£0.00"));
 const ACCOUNT_LEVEL = new Set<AnswerFactSet["intent"]>(["days_until_due", "minimum_payment", "spend_pause"]);
 
 /** Evidence must be real transactions, and exactly the ones behind the facts. */

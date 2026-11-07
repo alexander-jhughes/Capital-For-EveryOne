@@ -19,7 +19,7 @@ const OWE =
   "Your current balance is £1,069.89, which is everything on the card right now, and not all of it is due yet. Your latest bill, the statement balance, is £486.20, and the minimum payment on it is £25.00, by Friday 13 November.";
 const NEED_TO_PAY = "Your full statement balance, the amount on your latest bill, is £486.20. The minimum payment is £25.00, and both are due by Friday 13 November.";
 const BILL = "Your bill, the statement balance, is £486.20, due on Friday 13 November.";
-const NAMES = { merchants: [...new Set(seedContext().txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))], categories: [...new Set(seedContext().txns.map((t) => t.category))] };
+const NAMES = { ids: seedContext().txns.map((t) => t.id), merchants: [...new Set(seedContext().txns.filter((t) => t.category !== "Payments").map((t) => t.merchant))], categories: [...new Set(seedContext().txns.map((t) => t.category))] };
 const duplicates = buildFacts("duplicates");
 const bill = buildFacts("days_until_due");
 

@@ -75,13 +75,16 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
     }
     case "subscription_list": {
       if (value("no_subscriptions")) return "I can't see any subscriptions in your transactions.";
-      return `You are paying for these subscriptions: ${list(values("subscription_"))}.`;
+      const active = values("subscription_");
+      const lapsed = values("lapsed_subscription_");
+      const paying = active.length > 0 ? `You are paying for these subscriptions: ${list(active)}.` : "I can't see any subscription with a recent charge.";
+      return lapsed.length > 0 ? `${paying} These have stopped being charged: ${list(lapsed)}.` : paying;
     }
     case "transaction_lookup":
       return value("no_transaction") ? "I can't find a transaction with that reference." : `That transaction is ${value("transaction")}.`;
     case "merchant_refunds": {
       if (value("no_refunds")) return `I can't see any refund${set.merchant ? ` from ${set.merchant}` : ""} in your transactions.`;
-      const describe = (prefix: string) =>
+      const describe = (prefix: string, status = "") =>
         list(
           set.facts
             .filter((f) => f.key.startsWith(prefix))
@@ -91,11 +94,12 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
               const reversed = purchase ? ` for your purchase on ${purchase}` : "";
               return { text: `${amount} ${shop} refund${reversed}`, date };
             })
-            .map(({ text, date }) => (prefix === "refund_completed_" ? `${text} arrived on ${date}` : text)),
+            .map(({ text, date }) => `Your ${text}${prefix === "refund_completed_" ? ` arrived on ${date}` : status}`),
         );
-      const waiting = describe("refund_pending_");
+      const waiting = describe("refund_pending_", " is pending");
       const arrived = describe("refund_completed_");
-      return [waiting && `Your ${waiting} is pending, so it has not arrived yet.`, arrived && `Your ${arrived}.`].filter(Boolean).join(" ");
+      const several = set.facts.filter((f) => f.key.startsWith("refund_pending_")).length > 1;
+      return [waiting && `${waiting}, so ${several ? "they have" : "it has"} not arrived yet.`, arrived && `${arrived}.`].filter(Boolean).join(" ");
     }
     case "merchant_transactions": {
       const period = /(?:this|last) month/.exec(set.facts[0].label)?.[0];

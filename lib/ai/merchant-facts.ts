@@ -1,7 +1,7 @@
 // Facts about one shop: its transactions and its refunds. Stage 3 only, built on the finance layer.
 // flagTransactions decides what is a refund or pending, and totalByMerchant and monthOverMonth do the sums and dates.
 import { biggestItems, flagTransactions, monthOverMonth, totalByMerchant } from "../finance";
-import { formatLongDate, formatPence } from "../format";
+import { daysBetween, formatLongDate, formatPence } from "../format";
 import type { Fact, Transaction } from "../types";
 import type { FactContext } from "./facts";
 import type { MerchantPeriod } from "./intent";
@@ -76,12 +76,24 @@ export function merchantFacts(ctx: FactContext, merchant: string, period: Mercha
   ];
 }
 
-/** What's being paid for regularly: the latest charge at each subscription, newest first. */
+/** A monthly charge more than this many days old hasn't come round again, so it may have stopped. */
+const STILL_ACTIVE_DAYS = 35;
+
+/**
+ * What's being paid for regularly. The data has no "cancelled" status, so a subscription with no recent charge is
+ * reported as exactly that, and never as an ongoing payment.
+ */
 export function subscriptionFacts(ctx: FactContext): Fact[] {
   const charges = ctx.txns.filter((t) => t.category === "Subscriptions" && t.amount > 0).sort(newestFirst);
   const latest = [...new Map(charges.reverse().map((t) => [t.merchant, t])).values()].sort(newestFirst);
   if (latest.length === 0) return [fact("no_subscriptions", "Subscriptions", "None found")];
-  return latest.map((t, i) => fact(`subscription_${i + 1}`, "Subscription", `${t.merchant}, ${formatPence(t.amount)}, last charged on ${formatLongDate(t.date)}`, [t.id]));
+  const isActive = (t: Transaction) => daysBetween(t.date, ctx.today) <= STILL_ACTIVE_DAYS;
+  return [
+    ...latest.filter(isActive).map((t, i) => fact(`subscription_${i + 1}`, "Subscription", `${t.merchant}, ${formatPence(t.amount)}, last charged on ${formatLongDate(t.date)}`, [t.id])),
+    ...latest
+      .filter((t) => !isActive(t))
+      .map((t, i) => fact(`lapsed_subscription_${i + 1}`, "Subscription with no recent charge", `${t.merchant}, ${formatPence(t.amount)}, no charge since ${formatLongDate(t.date)}`, [t.id])),
+  ];
 }
 
 /** One transaction by its reference, with its true status. */
