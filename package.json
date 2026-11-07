@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:browser": "npm exec --yes --package=playwright-core@1 --package=axe-core@4 -- node scripts/test-spend-pause-browser.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
