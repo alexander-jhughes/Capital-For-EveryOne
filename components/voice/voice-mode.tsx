@@ -147,7 +147,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
 
       switch (r.kind) {
         case "ui":
-          startPreview(r.actions);
+          startPreview(r.actions, { source: "voice" });
           setOffer({ kind: "ui", actions: r.actions });
           setDocked(true);
           return say({ text: `Here's a preview. I can ${describeActions(r.actions)}. Do you want to keep it?` });

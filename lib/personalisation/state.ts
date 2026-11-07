@@ -22,9 +22,11 @@ export interface PersonalisationState {
   rejected: Partial<Record<TargetId, { count: number; fingerprint: string }>>;
   /** Per suggestion: the explicit settings when it was last dismissed without an answer. */
   ignored: Partial<Record<TargetId, string>>;
+  /** Per suggestion kept from Dial: the explicit settings at that moment. If the setting is later undone, it counts as a no. */
+  accepted: Partial<Record<TargetId, string>>;
 }
 
-export const INITIAL_STATE: PersonalisationState = { version: 1, consent: "unset", signals: {}, rejected: {}, ignored: {} };
+export const INITIAL_STATE: PersonalisationState = { version: 1, consent: "unset", signals: {}, rejected: {}, ignored: {}, accepted: {} };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isTarget = (k: string): k is TargetId => (TARGET_IDS as readonly string[]).includes(k);
@@ -53,7 +55,12 @@ export function sanitizeState(input: unknown): PersonalisationState {
   if (isObj(input.ignored))
     for (const [k, v] of Object.entries(input.ignored)) if (isTarget(k) && typeof v === "string" && v.length <= MAX_FINGERPRINT) ignored[k] = v;
 
-  return { version: 1, consent, signals, rejected, ignored };
+  // Older stored state has no `accepted`: treated as empty.
+  const accepted: PersonalisationState["accepted"] = {};
+  if (isObj(input.accepted))
+    for (const [k, v] of Object.entries(input.accepted)) if (isTarget(k) && typeof v === "string" && v.length <= MAX_FINGERPRINT) accepted[k] = v;
+
+  return { version: 1, consent, signals, rejected, ignored, accepted };
 }
 
 /** Yes turns personalisation on. No (or turning it off) also deletes everything it had learned. */
@@ -73,14 +80,17 @@ export function recordOutcome(state: PersonalisationState, target: TargetId, out
   if (state.consent !== "granted" || !isTarget(target)) return state;
   const rejected = { ...state.rejected };
   const ignored = { ...state.ignored };
+  const accepted = { ...state.accepted };
   if (outcome === "accepted") {
     delete rejected[target];
     delete ignored[target];
+    accepted[target] = fingerprint;
   } else if (outcome === "rejected") {
     rejected[target] = { count: Math.min((rejected[target]?.count ?? 0) + 1, REJECTION_LIMIT), fingerprint };
     delete ignored[target];
+    delete accepted[target];
   } else ignored[target] = fingerprint;
-  return { ...state, rejected, ignored };
+  return { ...state, rejected, ignored, accepted };
 }
 
 /** "Reset personalisation": forgets every count and answer, keeps the person's on/off choice. */
@@ -90,9 +100,9 @@ export function resetPersonalisation(state: PersonalisationState): Personalisati
 
 /**
  * Which signal (if any) an explicit display change counts as. Pass the person's text size before the change.
- * Accepting one of Dial's own suggestions should NOT be counted (call recordOutcome instead), so the model
- * doesn't learn from itself. Switching to Detailed view counts as "moreDetail"; opening Voice Mode as "voiceSessions";
- * undo as "undoneChanges": record those directly with recordSignal.
+ * Only changes kept from Settings or Voice Mode are counted (see controller.ts). Dial's own suggestions, "Make it yours"
+ * styles and view switches are never counted. Opening Voice Mode counts as "voiceSessions"; undoing a counted change
+ * as "undoneChanges".
  */
 export function signalForAction(action: unknown, before?: { textSize?: number }): SignalId | null {
   if (!isObj(action)) return null;

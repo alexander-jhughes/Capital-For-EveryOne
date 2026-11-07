@@ -126,7 +126,7 @@ describe("storage", () => {
       ignored: { voiceFirst: "a", other: "b", calmLayout: 4 },
       extra: "dropped",
     });
-    expect(s).toEqual({ version: 1, consent: "granted", signals: { textLarger: SIGNAL_CAP }, rejected: { largerText: { count: REJECTION_LIMIT, fingerprint: "x" } }, ignored: { voiceFirst: "a" } });
+    expect(s).toEqual({ version: 1, consent: "granted", signals: { textLarger: SIGNAL_CAP }, rejected: { largerText: { count: REJECTION_LIMIT, fingerprint: "x" } }, ignored: { voiceFirst: "a" }, accepted: {} });
     expect(sanitizeState({ version: 2, consent: "granted" })).toEqual(INITIAL_STATE);
     expect(sanitizeState({ version: 1, consent: "declined", signals: { textLarger: 3 } })).toEqual({ ...INITIAL_STATE, consent: "declined" });
   });

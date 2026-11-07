@@ -16,6 +16,7 @@ import {
 } from "@/lib/finance";
 import { formatDate, formatLongDate, formatMonth, formatPence, formatShortDate } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences/provider";
+import { MlSuggestion } from "../personalise/ml-suggestion";
 import { DEFAULT_PREFS, visibleWidgets, WIDGET_LABELS, type WidgetId } from "@/lib/preferences/schema";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
@@ -418,6 +419,7 @@ export function HomeScreen() {
           </div>
         </section>
       )}
+      <MlSuggestion />
       {personalised && (
         <p className="rounded-lg bg-accent px-(--space) py-2 text-sm text-accent-foreground">
           This home screen uses your layout.{" "}
