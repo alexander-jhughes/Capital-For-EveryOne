@@ -1,15 +1,15 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { SEED_ACCOUNT, SEED_TRANSACTIONS } from "@/lib/data/seed";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { INITIAL_SPEND_PAUSE } from "@/lib/demo-config";
 import { evaluatePurchase } from "@/lib/finance";
-import { accountAfterPayments, paymentTransaction, recordPayment, type PaymentResult } from "@/lib/payments/rules";
+import { recordPayment, type PaymentResult } from "@/lib/payments/rules";
 import { paymentStore, readPayments, writePayments } from "@/lib/payments/storage";
-import { initialSpendPauseState, purchasesTotal, spendPauseReducer, type PauseOutcome, type PauseRecord, type SpendPauseActivity } from "@/lib/spend-pause/state";
+import { initialSpendPauseState, spendPauseReducer, type PauseOutcome, type PauseRecord, type SpendPauseActivity } from "@/lib/spend-pause/state";
 import { browserStore, readActivity, readSession, readSettings, writeActivity, writeSession, writeSettings } from "@/lib/spend-pause/storage";
 import { toClientState, type ClientState } from "@/lib/assistant/client-state";
+import { accountWithPurchases, deriveAccount } from "@/lib/state/derive-account";
 import type { Account, PauseDecision, Payment, PendingPurchase, Pence, SpendPauseSettings, Transaction } from "@/lib/types";
 
 interface AccountState {
@@ -42,9 +42,6 @@ interface AccountState {
 }
 
 const AccountContext = createContext<AccountState | null>(null);
-
-// evaluatePurchase promises this balance before the person decides, so an approved purchase has to deliver it.
-const accountWithPurchases = (purchases: Transaction[]): Account => ({ ...SEED_ACCOUNT, currentBalance: SEED_ACCOUNT.currentBalance + purchasesTotal(purchases) });
 
 /** The one account every screen reads. Worked out from the seed and what has happened since; never stored as figures. */
 export function AccountProvider({ children }: { children: React.ReactNode }) {
@@ -82,8 +79,7 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
   }, [pause, ready]);
 
   const base = useMemo(() => accountWithPurchases(pause.purchases), [pause.purchases]);
-  const account = useMemo(() => accountAfterPayments(base, payments), [base, payments]);
-  const transactions = useMemo(() => [...SEED_TRANSACTIONS, ...pause.purchases, ...payments.map(paymentTransaction)], [pause.purchases, payments]);
+  const { account, transactions } = useMemo(() => deriveAccount(pause.purchases, payments), [pause.purchases, payments]);
 
   const updatePayments = useCallback((next: Payment[]) => {
     latestPayments.current = next;

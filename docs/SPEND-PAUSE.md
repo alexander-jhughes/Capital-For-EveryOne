@@ -30,7 +30,7 @@ Everything lives in `useAccount()` in `lib/state/account-context.tsx`, following
 | `spendPauseActivity` | When it was last turned on and off. Kept apart from `SpendPauseSettings`, which is frozen |
 | `dialState` | Events since the seed, for `POST /api/ask`. See "Live state for Dial" |
 
-State rules are pure and tested in `lib/spend-pause/state.ts`. Seed data is never edited. `account.currentBalance` is the seed balance plus approved purchases, because the check states the balance after the purchase and has to be true.
+State rules are pure and tested in `lib/spend-pause/state.ts`. Seed data is never edited. `lib/state/derive-account.ts` works out the one account from the seed, approved purchases and payments (see `docs/PAY.md`), because the check states the balance after the purchase and has to be true.
 
 **Starting state:** off, from `INITIAL_SPEND_PAUSE`, as the brief says. `RESET_SPEND_PAUSE` is unchanged: it's what a demo reset may start with, and the seed context and backend tests use it.
 
@@ -67,6 +67,7 @@ For "Can I turn it off?", say yes, and offer the proposal. For "Help me avoid un
 ```bash
 npm test                              # logic: state, validation, storage, Dial actions
 npm run build && npm run test:browser # real Chrome: both modes, keyboard, zoom, axe
+npm run test:stage6                   # real Chrome, needs a build: Pay and Spend Pause together
 ```
 
 `test:browser` needs Chrome installed. It adds no project dependency.
