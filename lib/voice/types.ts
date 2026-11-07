@@ -53,6 +53,12 @@ export interface Utterance {
   /** The text to submit. The visible transcript always equals this when it is delivered. */
   text: string;
   corrected: boolean;
+  /**
+   * When a self-correction cut the utterance ("How much on food? Actually, compare it with last month"), the words
+   * it replaced ("How much on food?"). The caller sends them as `previousQuestion`, so the backend can resolve a
+   * correction that is only a fragment ("groceries specifically", "compare it with last month") against them.
+   */
+  replaces?: string;
   /** "voice" when it ended by itself; "edited" when the person changed the transcript before sending. */
   origin: "voice" | "edited";
 }
