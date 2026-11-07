@@ -12,9 +12,10 @@ const t = (date: string, merchant: string, amount: number, category: Category, s
   status,
 });
 
-// Six weeks to the demo day (Sun 8 Nov 2026). November net spend is exactly £402.35,
-// about 80% of the £500 demo budget, so a £120 purchase crosses it.
-// Deliberate duplicate: Tesco £38.62 on 5 and 6 Nov.
+// Six weeks to the demo day (Sun 8 Nov 2026), ordered by date except the Stage 2 additions at the end.
+// November net spend is exactly £402.35, about 80% of the £500 demo budget, so a £120 purchase crosses it.
+// Planted for the assistant: Tesco £38.62 twice (5 and 6 Nov), Netflix £10.99 -> £12.99, Argos £249 one-off,
+// and a pending Amazon refund.
 export const SEED_TRANSACTIONS: Transaction[] = [
   t("2026-09-28", "Tesco", 5218, "Groceries"),
   t("2026-09-28", "TfL", 290, "Transport"),
@@ -63,7 +64,7 @@ export const SEED_TRANSACTIONS: Transaction[] = [
   t("2026-11-02", "TfL", 290, "Transport"),
   t("2026-11-03", "Greggs", 435, "Eating out"),
   t("2026-11-03", "TfL", 580, "Transport"),
-  t("2026-11-04", "Netflix", 1099, "Subscriptions"),
+  t("2026-11-04", "Netflix", 1299, "Subscriptions"), // price rise from £10.99
   t("2026-11-04", "Deliveroo", 2785, "Eating out"),
   t("2026-11-04", "Tesco", 2147, "Groceries"),
   t("2026-11-05", "Tesco", 3862, "Groceries"),
@@ -72,9 +73,13 @@ export const SEED_TRANSACTIONS: Transaction[] = [
   t("2026-11-06", "Amazon", 4599, "Shopping"),
   t("2026-11-07", "Greggs", 385, "Eating out"),
   t("2026-11-07", "Deliveroo", 3120, "Eating out"),
-  t("2026-11-07", "Sainsbury's", 4467, "Groceries"),
+  t("2026-11-07", "Sainsbury's", 4267, "Groceries"), // -£2.00 offsets the Netflix rise
   t("2026-11-08", "TfL", 290, "Transport", "pending"),
   t("2026-11-08", "Sainsbury's", 1875, "Groceries", "pending"),
+  // Stage 2 additions, appended so earlier IDs (t001-t059) stay stable.
+  t("2026-10-10", "Argos", 24900, "Shopping"), // one-off, before the statement date
+  t("2026-11-03", "Amazon", 1999, "Shopping"), // returned item ...
+  t("2026-11-08", "Amazon", -1999, "Shopping", "pending"), // ... refund pending; nets to zero in November
 ];
 
 const STATEMENT_BALANCE = 48620;

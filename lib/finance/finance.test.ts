@@ -54,7 +54,7 @@ describe("spending", () => {
     const [a, b, c] = biggestItems(txns, 3);
     expect(a.amount).toBeGreaterThanOrEqual(b.amount);
     expect(b.amount).toBeGreaterThanOrEqual(c.amount);
-    expect(a.merchant).toBe("Trainline");
+    expect(a.merchant).toBe("Argos");
   });
   it("totals by merchant case-insensitively", () => {
     const amazon = totalByMerchant(txns, "amazon");

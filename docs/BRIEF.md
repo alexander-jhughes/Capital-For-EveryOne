@@ -6,8 +6,9 @@ We are building **Dial**, a hackathon prototype for Capital One's WHACK challeng
 
 ## Status
 
-- Phase 1 (foundation) and Stage 1b (v2 alignment: Dial shell, cookie-only mode, Base UI) are on the branch `feat/phase-1-foundation`. They have **not** yet been merged into `main`.
-- `main` currently holds only the Next.js scaffold (Base UI) and `.env.example`.
+- Phase 1 (foundation) and Stage 1b (v2 alignment: Dial shell, cookie-only mode, Base UI) are merged into `main` (PR #1).
+- Stage 2 (seed additions, `findPriceChanges` / `monthOverMonth` / `daysUntilDue` / `budgetStatus`, `lib/ai/facts.ts`, contract types) is merged into `main` (PR #2).
+- Next: Stage 3 (Alexander) builds on `buildFacts(intent, ctx)` from `lib/ai/facts.ts` and the `Intent`, `Fact`, `FactSet`, `EvidenceRow` and `AskResponse` types in `lib/types.ts`. `AskResponse.evidenceIds` must be copied from `FactSet.evidenceIds`.
 
 ## Team split
 
