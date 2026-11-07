@@ -14,7 +14,7 @@ type Mode =
   | "ok" | "stall" | "reset" | "invalid-key" | "forbidden" | "quota" | "server-error" | "unavailable" | "html"
   | "not-json" | "bad-json-reply" | "wrong-shape" | "empty" | "no-candidates" | "safety" | "cut-off"
   | "invented-amount" | "advice" | "contradiction" | "wrong-balance" | "invented-evidence" | "wrong-currency"
-  | "pending-arrived" | "vague-owe";
+  | "pending-arrived" | "vague-owe" | "low-confidence" | "bad-category" | "markup";
 
 let mode: Mode = "ok";
 let modelCalls = 0;
@@ -59,7 +59,10 @@ const fakeApi = http.createServer((request, response) => {
       case "contradiction": return send(200, answer("No, you were not charged twice."));
       case "wrong-balance": return send(200, answer("Your current balance is £486.20."));
       case "invented-evidence": return send(200, answer("Tesco charged you £38.62 twice.", { evidenceIds: ["t999"] }));
-      case "ok": return send(200, isClassify ? reply(JSON.stringify({ category: "spend_this_month" })) : answer("Tesco charged you £38.62 twice."));
+      case "low-confidence": return send(200, reply(JSON.stringify({ category: "duplicates", confidence: "low" })));
+      case "bad-category": return send(200, reply(JSON.stringify({ category: "drop_tables", confidence: "high", template: "<script>" })));
+      case "markup": return send(200, answer("<b>Tesco</b> charged you £38.62 twice."));
+      case "ok": return send(200, isClassify ? reply(JSON.stringify({ category: "spend_this_month", confidence: "high" })) : answer("Tesco charged you £38.62 twice."));
     }
   });
 });
@@ -106,7 +109,7 @@ async function withApp(env: Record<string, string>, run: () => Promise<void>) {
 }
 
 const isAskResponse = (body: Record<string, unknown>) =>
-  Object.keys(body).sort().join() === "answer,evidenceIds,source" && typeof body.answer === "string" && Array.isArray(body.evidenceIds);
+  Object.keys(body).sort().join() === "answer,evidenceIds,experience,source" && typeof body.answer === "string" && Array.isArray(body.evidenceIds);
 
 async function noKeyTests() {
   console.log("\nNo API key");
@@ -121,6 +124,20 @@ async function noKeyTests() {
   check("merchant question stays on that merchant", narrow.body.answer.includes("£98.71") && !narrow.body.answer.includes("£402.35"));
   const unsupported = await post({ question: "How much did I spend on groceries?" });
   check("unsupported question gets the fallback", unsupported.body.answer === "I can't tell that from your transactions." && unsupported.body.evidenceIds.length === 0);
+  for (const [question, template, intent] of [
+    ["How much do I owe?", "statement", "statement_balance"],
+    ["How much have I spent this month?", "spending", "spending_insights"],
+    ["What subscriptions am I paying for?", "subscriptions", "subscription_query"],
+    ["Have I been charged twice by Tesco?", "transaction", "transaction_investigation"],
+    ["Where is my Amazon refund?", "transaction", "transaction_investigation"],
+    ["When is my next payment due?", "payment", "payment_planning"],
+    ["How much did I spend at Argos?", "spending", "spending_insights"],
+    ["How much is it?", "general", "general"],
+    ["What is my credit score?", "general", "general"],
+  ]) {
+    const { body } = await post({ question });
+    check(`experience: ${question}`, body.experience?.template === template && body.experience?.intent === intent, JSON.stringify(body.experience));
+  }
   const refund = await post({ question: "Did I get my Amazon refund?" });
   check("pending and completed refunds are separated", refund.body.answer.includes("£19.99 Amazon refund") && refund.body.answer.includes("not arrived yet") && refund.body.answer.includes("£14.99"));
   check("refund evidence is the refunds and their purchases", refund.body.evidenceIds.join() === "t062,t061,t036,t028");
@@ -142,13 +159,21 @@ async function fakeApiTests() {
 
   const failuresToTest: Mode[] = [
     "invalid-key", "forbidden", "quota", "server-error", "unavailable", "html", "reset", "not-json", "bad-json-reply",
-    "wrong-shape", "empty", "no-candidates", "safety", "cut-off", "invented-amount", "wrong-currency", "advice", "contradiction",
+    "wrong-shape", "empty", "no-candidates", "safety", "cut-off", "invented-amount", "wrong-currency", "advice", "contradiction", "markup",
   ];
   for (const failure of failuresToTest) {
     mode = failure;
     const { status, body } = await post({ question: CHARGED });
     check(`${failure}: template answer, right evidence`, status === 200 && body.source === "template" && body.answer === template && body.evidenceIds.join() === "t051,t052", JSON.stringify(body));
   }
+
+  mode = "low-confidence";
+  const unsure = await post({ question: "Am I square with you lot?" });
+  check("low confidence asks instead of guessing", unsure.body.experience.confidence === "low" && unsure.body.answer.includes("Would you like to know") && unsure.body.evidenceIds.length === 0, JSON.stringify(unsure.body));
+
+  mode = "bad-category";
+  const invalid = await post({ question: "Am I square with you lot?" });
+  check("an invalid category gets the general fallback", invalid.body.experience.template === "general" && invalid.body.answer.startsWith("I can't tell"), JSON.stringify(invalid.body));
 
   mode = "invented-evidence";
   const invented = await post({ question: CHARGED });
