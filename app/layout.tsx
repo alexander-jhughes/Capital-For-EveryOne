@@ -3,6 +3,7 @@ import { Atkinson_Hyperlegible } from "next/font/google";
 import { cookies } from "next/headers";
 import { AnnouncerProvider } from "@/components/live-region";
 import { MODE_KEY } from "@/lib/demo-config";
+import { AccountProvider } from "@/lib/state/account-context";
 import { ModeProvider } from "@/lib/state/mode-context";
 import type { Mode } from "@/lib/types";
 import "./globals.css";
@@ -24,7 +25,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en-GB" data-mode={mode} className={atkinson.variable}>
       <body className="antialiased sm:bg-secondary">
         <AnnouncerProvider>
-          <ModeProvider initialMode={mode}>{children}</ModeProvider>
+          <ModeProvider initialMode={mode}>
+            <AccountProvider>{children}</AccountProvider>
+          </ModeProvider>
         </AnnouncerProvider>
       </body>
     </html>
