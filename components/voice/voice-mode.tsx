@@ -253,43 +253,6 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
             </p>
           )}
 
-          {/* Above the words, so the controls stay in the same place while words arrive. */}
-          {showPauseControls && (
-            <div className="flex flex-wrap gap-2">
-              {/* One button for Pause and Resume, so keyboard focus stays on it when it changes. */}
-              <button type="button" onClick={paused ? mic.resume : mic.pause} className={outline}>
-                {paused ? <Mic aria-hidden className="size-[1.1em]" /> : <Pause aria-hidden className="size-[1.1em]" />}
-                {paused ? "Resume" : "Pause"}
-              </button>
-              {paused && live && (
-                <button type="button" onClick={mic.stop} className={outline} aria-label="Send what you said">
-                  <Send aria-hidden className="size-[1.1em]" />
-                  Send
-                </button>
-              )}
-              {paused && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (live) setTyped(live.text);
-                      mic.cancel();
-                      inputRef.current?.focus();
-                    }}
-                    className={outline}
-                  >
-                    <Pencil aria-hidden className="size-[1.1em]" />
-                    Edit
-                  </button>
-                  <button type="button" onClick={mic.cancel} className={outline}>
-                    <X aria-hidden className="size-[1.1em]" />
-                    Cancel
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
           {/* Live transcript: interim words are shown lighter and never sent on their own. */}
           {live ? (
             <p className="self-end rounded-2xl rounded-br-md bg-[#004977] px-4 py-2 text-lg font-semibold leading-snug" aria-live="off">
@@ -354,6 +317,43 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
 
         {/* Composer: always visible, type or talk */}
         <div className="flex flex-col gap-2 border-t border-white/10 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          {/* In the footer, not the conversation, so they stay on screen at any panel height and text size. */}
+          {showPauseControls && (
+            <div className="flex flex-wrap gap-2">
+              {/* One button for Pause and Resume, so keyboard focus stays on it when it changes. */}
+              <button type="button" onClick={paused ? mic.resume : mic.pause} className={outline}>
+                {paused ? <Mic aria-hidden className="size-[1.1em]" /> : <Pause aria-hidden className="size-[1.1em]" />}
+                {paused ? "Resume" : "Pause"}
+              </button>
+              {paused && live && (
+                <button type="button" onClick={mic.stop} className={outline} aria-label="Send what you said">
+                  <Send aria-hidden className="size-[1.1em]" />
+                  Send
+                </button>
+              )}
+              {paused && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (live) setTyped(live.text);
+                      mic.cancel();
+                      inputRef.current?.focus();
+                    }}
+                    className={outline}
+                  >
+                    <Pencil aria-hidden className="size-[1.1em]" />
+                    Edit
+                  </button>
+                  <button type="button" onClick={mic.cancel} className={outline}>
+                    <X aria-hidden className="size-[1.1em]" />
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();

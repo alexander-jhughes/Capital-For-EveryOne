@@ -120,8 +120,9 @@ export function VoiceDiagnostics({
   return (
     <details open={shown} onToggle={(e) => setShown((e.target as HTMLDetailsElement).open)} className={`rounded-xl ${voice ? "bg-[#1c2640]" : "bg-accent text-accent-foreground"}`}>
       <summary className={`flex min-h-(--target-min) cursor-pointer items-center px-3 text-sm font-bold ${muted}`}>Voice not working? See why</summary>
+      {/* A <dl> may only hold term and description groups, so "Checking..." sits outside it. */}
+      {rows.length === 0 && <p className={`px-3 pb-3 text-sm ${muted}`}>Checking...</p>}
       <dl className="flex flex-col gap-1.5 px-3 pb-3 text-sm">
-        {rows.length === 0 && <p className={muted}>Checking...</p>}
         {rows.map((r) => (
           <div key={r.label} className="flex flex-wrap gap-x-2">
             <dt className={`shrink-0 ${muted}`}>{r.label}:</dt>
