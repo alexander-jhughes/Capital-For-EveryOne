@@ -31,7 +31,7 @@ import {
   type SpendCategory,
   type TxnSummary,
 } from "./entities";
-import { findPlace, OPENABLE, PAY_NOTE, PLACES, ROUTE_INFO, ROUTE_WORDS, SECTION_INFO, validateStep } from "./registry";
+import { findPlace, LEARN_CUE, LEARN_NOTE, LEARN_TOPICS, OPENABLE, PAY_NOTE, PLACES, ROUTE_INFO, ROUTE_WORDS, SECTION_INFO, SECTION_PLACES, validateStep } from "./registry";
 import { segment } from "./segment";
 import type { ControlCommand, DialContext, DialPlan, DialRoute, DialStep, DialSubject, GoalSpec, HomeSection, MonthKey, PlanEnv, SpendingFilters, VisualRequest, WhatIfScenario } from "./types";
 
@@ -65,9 +65,17 @@ interface Said {
   unavailable: MonthKey[];
   /** "the last three months" or "September to November". */
   span: boolean;
+  /**
+   * "Compared with last month", "up on last month", "more than last month": the only month named is the relative
+   * "last month", and it is what this month is measured against, not the month being asked about.
+   */
+  lastAsBaseline: boolean;
   question: boolean;
   amount: AmountMatch | null;
 }
+
+/** A comparison word right before "last month" makes it the baseline: "compare to last month", "vs last month". */
+const LAST_AS_BASELINE = /\b(?:to|with|than|against|versus|vs|from|since|over|on)\s+(?:the\s+)?(?:last|previous)\s+month\b/;
 
 function read(text: string, env: PlanEnvWithTransactions): Said {
   const cats = findCategories(text);
@@ -83,6 +91,11 @@ function read(text: string, env: PlanEnvWithTransactions): Said {
     months: months.months,
     unavailable: months.unavailable,
     span: months.lastN,
+    lastAsBaseline:
+      months.matches.length === 1 &&
+      months.matches[0].kind === "last" &&
+      !/before last/i.test(months.matches[0].text) &&
+      LAST_AS_BASELINE.test(lowerSame(text)),
     question: isQuestionText(text),
     amount: findAmount(text),
   };
@@ -131,7 +144,7 @@ const ANAPHORA = / (that|it|this|those|these|them) /;
 const SHOW = /^ (?:(?:please|ok|okay|now|so) )*(?:can you |could you )?(?:please )?(?:show|see|view|display|let me see|i want to see|i'd like to see|give me|pull up|open|take me to|go to) /;
 const SPEND = / (spend|spent|spending|money|costs?|outgoings|expenses?) /;
 const COMPARE =
-  / (compare|comparison|compared|comparing|versus|vs|against|changed?|changing|difference|different|gone up|gone down|went up|went down|go up|go down|going up|going down|rising|falling|more than|less than|higher|lower|increased?|decreased?|up or down) /;
+  / (compare|comparison|compared|comparing|versus|vs|against|changed?|changing|difference|different|gone up|gone down|went up|went down|go up|go down|going up|going down|rising|falling|more than|less than|higher|lower|increased?|decreased?|up or down) |(?: (?:more|less) (?:[a-z']+ ){1,4}than )/;
 const TREND = / (over time|month by month|each month|every month|per month|monthly|trend|history|over the (last|past)|across) /;
 const BREAKDOWN =
   / (where (does|did|do) (most of |all of |all )?my money (go|going)|where('s| is| has) (all )?my money (going|gone|been going)|where my money (goes|went)|what (do|did|am) i (spend|spent|spending) (the )?most on|what am i spending (my money )?on|what do i spend my money on|biggest (spending )?categor(y|ies)|by category|categor(y|ies)|breakdown|break down|split of my spending) /;
@@ -242,6 +255,42 @@ function displayTurn(said: Said, ir: Interpretation, ctx: DialContext): Turn | n
   const simplify = has(s, / (simplify|simpler|declutter|less cluttered) /) && ir.kind === "ui" && ir.actions.some((a) => a.type === "density" && a.value === "calm");
   if (simplify && ctx.mode === "complex") return modeTurn("simple");
   return null;
+}
+
+/** Asking to learn, not asking about the account. Only one of these hub words, or a named topic, opens the Learning Lab. */
+const LEARN_HUB = / (teach me|learn about|learn more about|i want to learn|learning lab|lesson|lessons|explainer|explainers|tutorial|course) /;
+
+/**
+ * "Teach me about minimum payments", "open the utilisation lesson", "how does interest work", "take me to the quiz".
+ * Topics are only matched with a learning cue, so "show me my statement" still opens the bill and "what's my APR"
+ * is still a question about the account. A topic the Learning Lab doesn't have opens its hub and says what it covers.
+ */
+function learnTurn(said: Said, ir: Interpretation, env: PlanEnv): Turn | null {
+  const { s } = said;
+  if (ir.kind === "ui" || !has(s, LEARN_CUE)) return null;
+  const topic = LEARN_TOPICS.find((t) => t.re.test(s));
+  if (topic) return navTurn(topic.to, { say: topic.say }, env);
+  if (!has(s, LEARN_HUB)) return null;
+  const named = has(s, / (learning lab|learn lab|credit learning lab|lessons) /);
+  return navTurn("/account/learn", named ? {} : { say: LEARN_NOTE }, env);
+}
+
+/** "What's coming up?" asks for the section, not for a figure. */
+const COMING_UP_QUESTION = /^ (?:so |and |ok |okay )?what(?:'s| is| are)? (?:my )?(?:payments? |bills? |charges? )?(?:coming up|due soon) /;
+
+/**
+ * "Show me my progress", "show my upcoming payments", "open my spending categories": focus that section on Home.
+ * Only when the request is just the section: anything naming a month, category, shop or amount is a chart or a
+ * filter, handled by the rules after this one ("show my grocery spending in October" still draws a chart).
+ */
+function sectionTurn(said: Said, env: PlanEnv, strong: boolean): Turn | null {
+  const { s } = said;
+  const place = SECTION_PLACES.find((p) => p.re.test(s));
+  if (!place) return null;
+  const bare = s.trim().split(" ").every((w) => SECTION_WORDS.has(w));
+  const asked = strong || has(s, WEAK_NAV) || has(s, COMING_UP_QUESTION) || bare;
+  if (!asked || said.months.length || said.categories.length || said.food || said.merchants.length || said.amount) return null;
+  return navTurn(place.to, { focus: place.focus }, env);
 }
 
 function goalTurn(said: Said, env: PlanEnv): Turn | null {
@@ -371,7 +420,10 @@ function visualsTurn(said: Said, env: PlanEnv): Turn | null {
   if (has(s, BUDGET) && has(s, BUDGET_LEFT)) return visualTurn([{ kind: "budget_progress" }], env);
   if (has(s, COMPARE) && (said.span || (months?.length ?? 0) >= 3)) return visualTurn(each({ kind: "monthly_trend", ...(months ? { months } : {}) }), env, food);
   if (has(s, COMPARE)) {
-    const pair = comparisonMonths(months ?? [current(env)], env);
+    // "How do my groceries compare to last month?" is this month so far against last month, not last month against
+    // the month before. Months are worked out from today, so this holds in any month and across a year boundary.
+    const asked = said.lastAsBaseline ? [current(env), addMonths(current(env), -1)] : (months ?? [current(env)]);
+    const pair = comparisonMonths(asked, env);
     if (!pair) return unsupported(`I only have spending from ${rangeLabel(env)}, so there's nothing to compare that with.`, "Nothing to compare");
     return visualTurn(each({ kind: "month_comparison", months: pair }), env, food);
   }
@@ -588,8 +640,15 @@ function placeTurn(said: Said, env: PlanEnvWithTransactions, strong: boolean): T
 const KNOWN_LIST_WORDS = new Set(["recent", "latest", "last", "biggest", "largest", "card", "other", "pending", "past", "previous", "monthly", "new", "old", "own", "online", "refunded", "november", "october", "september"]);
 
 const BARE_FILLER = ["my", "the", "our", "please", "page", "screen", "section", "tab", "information", "info", "details", "dial", "now"];
-/** Every word used in a place name, so "my credit limit" or "accessibility preferences" reads as just a name. */
-const PLACE_WORDS = new Set([...BARE_FILLER, ...PLACES.flatMap((p) => p.re.source.match(/[a-z']+/g) ?? [])]);
+const wordsOf = (places: { re: RegExp }[]) => places.flatMap((p) => p.re.source.match(/[a-z']+/g) ?? []);
+/**
+ * Every word used in a place name, so "my credit limit" or "accessibility preferences" reads as just a name. The Home
+ * section names are kept out: their phrasing ("what is coming up", "progress on my goals") would otherwise make
+ * everyday words like "is" and "on" count as place words, and "Is Spend Pause on?" would read as a bare place.
+ */
+const PLACE_WORDS = new Set([...BARE_FILLER, ...wordsOf(PLACES.filter((p) => !SECTION_PLACES.includes(p)))]);
+/** The same idea for the Home section names alone, used only by sectionTurn. */
+const SECTION_WORDS = new Set([...BARE_FILLER, ...wordsOf(SECTION_PLACES)]);
 
 /** Just the name of a place ("credit information", "my savings goal", "budgets"), with nothing else asked. */
 function isBarePlace(s: string): boolean {
@@ -628,7 +687,11 @@ function classify(text: string, env: PlanEnvWithTransactions): Turn {
   const display = displayTurn(said, ir, ctx);
   if (display) return display;
 
+  const learn = learnTurn(said, ir, env);
+  if (learn) return learn;
   const strong = has(s, STRONG_NAV);
+  const section = sectionTurn(said, env, strong);
+  if (section) return section;
   if (strong) {
     const nav = placeTurn(said, env, true);
     if (nav) return nav;
