@@ -4,7 +4,7 @@ import type { Intent } from "../types";
 import type { AnswerFactSet } from "./answer-facts";
 import { CONFIDENCE_LEVELS, type Confidence } from "./experience";
 import { INTENTS } from "./facts";
-import { DEFAULT_MODEL, modelChain, withModelFallback } from "./model-chain";
+import { modelChain, withModelFallback } from "./model-chain";
 import { CANT_TELL } from "./guard";
 
 const CLASSIFY_MAX_TOKENS = 1024;
