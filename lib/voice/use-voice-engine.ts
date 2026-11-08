@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getRecognition } from "../assistant/speech";
-import { createVoiceEngine, detectBackend } from "./engine";
+import { createVoiceEngine } from "./engine";
 import type { ListenMode, RecognitionBackend, TranscriptSnapshot, Utterance, VoiceEngine, VoiceError, VoiceState } from "./types";
 
 const LANG = "en-GB";
@@ -60,18 +60,16 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   // Feature-detect after mount so the server render and the first client render agree.
   useEffect(() => setSupported(!!getRecognition(window)), []);
 
-  // Which backend would be used. Asking never opens the microphone. Changing consent drops the old engine, so a
-  // cloud session can't carry on after the person switches it off.
+  // Changing consent drops the old engine, so a cloud session can't carry on after the person switches it off.
+  // The backend is only worked out when the person taps the microphone (the engine does it in start() and reports it
+  // through onState). It is deliberately not probed on mount: SpeechRecognition.available() can crash some browsers
+  // (it did in headless Chromium), and it would run on every page load just to fill in a label.
   const { allowCloud } = opts;
   useEffect(() => {
-    let live = true;
     disposeEngine();
     settle();
     setSnapshot(null);
-    void detectBackend(window, LANG, allowCloud).then((b) => live && setBackend(b));
-    return () => {
-      live = false;
-    };
+    setBackend("none");
   }, [allowCloud, disposeEngine, settle]);
 
   useEffect(() => disposeEngine, [disposeEngine]);

@@ -164,7 +164,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       let usedModel = false;
       const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
       const corrected = !!opts.replaces || splitCorrection(input) !== null;
-      const working: DialTurn = { id, input, understood: planned.understood, corrected, status: "working", items: [], local: planned.local };
+      const working: DialTurn = { id, input, understood: gaveUp ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;

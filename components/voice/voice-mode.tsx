@@ -280,7 +280,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
           </form>
         )}
 
-        <div className="mt-auto flex flex-col gap-3">
+        <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col gap-3 bg-[#0e1626] px-4 pb-1 pt-2 shadow-[0_-8px_12px_-8px_#0e1626]">
           <div className="flex items-center justify-between gap-2">
             <button type="button" onClick={() => setTyping((t) => !t)} aria-pressed={typing} className={`${btn} border border-[#aab4c8] px-4`}>
               <Keyboard aria-hidden className="size-[1.1em]" />
