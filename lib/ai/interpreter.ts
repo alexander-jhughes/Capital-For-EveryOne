@@ -1,5 +1,5 @@
 // Agent 1: works out what a question is asking. Rules go first, so most questions need no model call.
-// Gemini only picks a label from a fixed list here. It never writes text the user sees.
+// Groq only picks a label from a fixed list here. It never writes text the user sees.
 import { monthOverMonth } from "../finance";
 import type { Confidence, AskIntent } from "./experience";
 import type { FactContext } from "./facts";

@@ -29,7 +29,7 @@ type AiStatus = "checking" | "on" | "off";
 
 /**
  * Dial: one panel for typing and talking. It is a non-modal dialog, so the page behind stays visible and usable.
- * Typed text and speech go through the same Dial session (rules first, Gemini when needed, the same validation).
+ * Typed text and speech go through the same Dial session (rules first, Groq when needed, the same validation).
  * Replies are read aloud only when the question was spoken. Listening starts only from the microphone button.
  */
 export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: () => void; request: { text: string; id: number } | null }) {
@@ -120,13 +120,13 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
     void handle(request.text);
   }, [open, request, handle]);
 
-  // Whether Gemini is set up on the server, shown in the header. Never shows the key.
+  // Whether Groq is set up on the server, shown in the header. Never shows the key.
   useEffect(() => {
     if (!open) return;
     let live = true;
     fetch("/api/ask", { cache: "no-store" })
       .then((r) => r.json())
-      .then((s: { gemini?: string }) => live && setAi(s.gemini === "configured" ? "on" : "off"))
+      .then((s: { groq?: string }) => live && setAi(s.groq === "configured" ? "on" : "off"))
       .catch(() => live && setAi("off"));
     return () => {
       live = false;
@@ -201,10 +201,10 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
             Dial
             <span
               className={`ml-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold ${ai === "on" ? "bg-[#14402a] text-[#86e0a6]" : "bg-[#27314a] text-[#aab4c8]"}`}
-              title={ai === "on" ? "Gemini is set up on the server" : "GEMINI_API_KEY isn't set on the server, so answers come from the account checks only"}
+              title={ai === "on" ? "Groq is set up on the server" : "GROQ_API_KEY isn't set on the server, so answers come from the account checks only"}
             >
               <span aria-hidden className={`size-1.5 rounded-full ${ai === "on" ? "bg-[#86e0a6]" : "bg-[#aab4c8]"}`} />
-              <span className="max-[479px]:sr-only">{ai === "checking" ? "Checking AI" : ai === "on" ? "Gemini on" : "Gemini off"}</span>
+              <span className="max-[479px]:sr-only">{ai === "checking" ? "Checking AI" : ai === "on" ? "Groq on" : "Groq off"}</span>
             </span>
           </h2>
           <div className="flex shrink-0 gap-1.5">

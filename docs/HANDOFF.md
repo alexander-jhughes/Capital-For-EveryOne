@@ -9,7 +9,7 @@ A credit card app prototype for Capital One's "Make Credit Accessible" challenge
 Detailed). **Dial** is the assistant: you type or talk to it, it answers questions about the account, takes you to
 screens, shows charts, runs what-if sums, and changes how the app looks.
 
-The rule everything follows: **figures come from deterministic code. Gemini only understands requests and words
+The rule everything follows: **figures come from deterministic code. Groq only understands requests and words
 answers. It never calculates, and every figure it writes is checked against the account.**
 
 ## Run it
@@ -25,13 +25,13 @@ npm run build && npm start     # http://localhost:3000, use Chrome
 `.env.local`:
 
 ```
-GEMINI_API_KEY=your-key
-GEMINI_MODEL=gemini-3.5-flash-lite
+GROQ_API_KEY=your-key
+GROQ_MODEL=llama-3.3-70b-versatile
 # optional, tried when the main model is rate limited (each model has its own quota):
-# GEMINI_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-3-flash-preview
+# GROQ_FALLBACK_MODELS=openai/gpt-oss-20b,llama-3.1-8b-instant
 ```
 
-Without a key the app still works (fixed answers from the account figures, no Gemini).
+Without a key the app still works (fixed answers from the account figures, no Groq).
 
 Checks: `npm test` (about 7,000 unit tests), `npm run typecheck`, `npm run lint`. Browser scripts are in `scripts/`.
 Delete any `.claude/worktrees` folder if you have one, or the test runner picks up duplicate tests.
@@ -43,8 +43,8 @@ Delete any `.claude/worktrees` folder if you have one, or the test runner picks 
 | Money logic (deterministic) | `lib/finance`, `lib/insights`, `lib/payments`, `lib/spend-pause`, `lib/types.ts` (frozen shapes) |
 | Account API and sessions | `app/api/account`, `payments`, `spend-pause`, `purchases`, `goals`; logic in `lib/server/*` (`docs/BACKEND.md`) |
 | Demo data | `lib/data/seed.ts`, fixed demo date 8 Nov 2026 in `lib/demo-clock.ts` |
-| Gemini answers (`POST /api/ask`) | `lib/ai/*` (Alex's backend): intent, facts, wording, guard, templates |
-| Gemini commands (`POST /api/dial`) | `lib/ai/command-model.ts`, `command-handler.ts` |
+| Groq answers (`POST /api/ask`) | `lib/ai/*` (Alex's backend): intent, facts, wording, guard, templates |
+| Groq commands (`POST /api/dial`) | `lib/ai/command-model.ts`, `command-handler.ts` |
 | Model fallback and rate limits | `lib/ai/model-chain.ts`, `lib/ai/rate-limit.ts` |
 | Request planning (rules first) | `lib/dial/plan.ts`, `entities.ts`, `segment.ts`, `registry.ts` (the allowed actions and routes) |
 | Running steps safely | `lib/dial/runner.ts`, `components/dial/session.tsx` |
@@ -64,11 +64,11 @@ typed text or speech
   -> plan()            on the device, deterministic (lib/dial/plan.ts)
   -> steps             only from the allowed list in lib/dial/types.ts, each checked by validateStep()
   -> runStep()         trusted app code: navigate, preview a display change, show a chart, run a what-if
-  -> money questions   POST /api/ask  -> facts from lib/finance -> Gemini words it -> guard checks every figure
-  -> requests the rules can't read   POST /api/dial -> Gemini picks from the allowed actions -> validated again
+  -> money questions   POST /api/ask  -> facts from lib/finance -> Groq words it -> guard checks every figure
+  -> requests the rules can't read   POST /api/dial -> Groq picks from the allowed actions -> validated again
 ```
 
-Display changes and goals are previewed and need "Keep it". Gemini cannot pay, change Spend Pause or open any
+Display changes and goals are previewed and need "Keep it". Groq cannot pay, change Spend Pause or open any
 screen that isn't in the registry.
 
 ## Split of work
@@ -79,12 +79,12 @@ Start here (all of this works today, it needs hardening and polish):
 
 1. **Test the voice on a real microphone.** It has only been tested with a fake speech recogniser. Check Chrome's
    permission prompt, live words, pauses, "actually..." corrections, and talking over Dial to interrupt.
-2. **Tune Gemini.** Prompts are in `lib/ai/model.ts` (answers) and `lib/ai/command-model.ts` (commands). Add more
+2. **Tune Groq.** Prompts are in `lib/ai/model.ts` (answers) and `lib/ai/command-model.ts` (commands). Add more
    question types (they must come from verified facts: add them in `lib/ai/answer-facts.ts`, `intent.ts`,
-   `templates.ts`, `claims.ts`, and a test for each). Only 8 of 10 test questions are worded by Gemini today, the
+   `templates.ts`, `claims.ts`, and a test for each). Only 8 of 10 test questions are worded by Groq today, the
    other two are refused on purpose (advice and off-topic).
-3. **The key has a low request limit.** Under rapid use Gemini returns 429 and the app falls back to fixed wording.
-   Fallback models are in place, the reply says when Gemini is busy. A quota or billing increase fixes it properly.
+3. **The key has a low request limit.** Under rapid use Groq returns 429 and the app falls back to fixed wording.
+   Fallback models are in place, the reply says when Groq is busy. A quota or billing increase fixes it properly.
 4. **UI polish.** Capital One look is in `app/globals.css` (navy `#004977`, red `#d03027`). Check every screen at
    100%, 150%, 200% text, on a phone, in dark mode and high contrast. Known bug: on `/account/settings` the Home
    widget checkboxes show widgets as ticked that Simple view hides (`components/settings/display-settings.tsx`).
@@ -110,7 +110,7 @@ seed plus those events on the server (`lib/server`, `app/api/*`). Read `docs/BAC
    on synthetic data, runs on the device and is off until the person consents. It never sees money, questions or
    answers. Evaluation is in `docs/ml-personalisation/EVALUATION.md`. Retrain with `scripts/personalisation/train.ts`.
    Anything learned must still be shown as a preview that the person keeps or rejects.
-5. **Backend tests.** `npm run test:http` runs the API against a fake Gemini server with no key. Add database and
+5. **Backend tests.** `npm run test:http` runs the API against a fake Groq server with no key. Add database and
    auth tests next to it.
 
 ## The contract between the two halves
@@ -124,7 +124,7 @@ Keep these stable so you can work in parallel:
 
 ## Rules that must not break
 
-- Figures are never produced by Gemini. Every amount and date in an answer is checked (`lib/ai/guard.ts`, `claims.ts`).
+- Figures are never produced by Groq. Every amount and date in an answer is checked (`lib/ai/guard.ts`, `claims.ts`).
 - Dial never makes a payment or turns Spend Pause off. It explains and links to the screen where the person confirms.
 - Voice: the browser's speech service is used only after the person chooses it (a notice says speech goes to the
   browser maker). Dial never records audio. Typing always works.
@@ -134,6 +134,6 @@ Keep these stable so you can work in parallel:
 ## Known limits
 
 - Voice and the microphone are untested on a real device.
-- Gemini rate limits on the current key (see above).
+- Groq rate limits on the current key (see above).
 - Demo data only: 28 Sep to 8 Nov 2026. September has 3 days and November 8, so partial months are labelled.
 - Rules for understanding requests are English only.

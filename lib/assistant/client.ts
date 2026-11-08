@@ -16,7 +16,7 @@ export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
 
 export type AskOutcome =
   /** The backend answered. `resolvedQuestion` is what the backend understood (send it back as previousQuestion). */
-  | { kind: "answer"; response: AskResponse; experience: Experience; resolvedQuestion?: string; followUps: string[]; /** Gemini was out of quota, so this is the verified account wording. */ modelBusy?: boolean }
+  | { kind: "answer"; response: AskResponse; experience: Experience; resolvedQuestion?: string; followUps: string[]; /** Groq was out of quota, so this is the verified account wording. */ modelBusy?: boolean }
   /** The caller cancelled the request (a newer question replaced it). Show nothing for it. */
   | { kind: "cancelled" }
   /** The backend rejected the question (HTTP 400); `message` is its friendly text. */

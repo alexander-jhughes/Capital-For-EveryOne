@@ -1,4 +1,4 @@
-// Browser side of POST /api/dial. Asks Gemini to read a request the on-device rules couldn't, and returns only steps
+// Browser side of POST /api/dial. Asks Groq to read a request the on-device rules couldn't, and returns only steps
 // that pass the same validateStep() as everything else Dial runs. Never throws; null means "no usable answer".
 import type { TextSize } from "../preferences/schema";
 import { validateStep } from "../dial/registry";
@@ -22,7 +22,7 @@ export const clearCommandCache = () => {
   inFlight.clear();
 };
 
-export async function askGeminiForSteps(
+export async function askModelForSteps(
   text: string,
   screen: CommandScreen,
   { fetchImpl = fetch, timeoutMs = 6000, signal }: { fetchImpl?: typeof fetch; timeoutMs?: number; signal?: AbortSignal } = {},

@@ -11,7 +11,7 @@ insights or personalisation code.
 |---|---|---|
 | Finance (`lib/finance`, `lib/state/derive-account.ts`) | Balances, totals, payments, Spend Pause checks | Guess, round for effect, or read display settings |
 | Financial intelligence (`lib/insights`) | Evidence-backed observations: changes, trends, recurring and unusual charges, budget, obligations | Say why someone spent, predict credit eligibility, accuse fraud |
-| Gemini orchestration (`lib/ai`, `POST /api/ask`) | Understanding the question, choosing facts, wording the answer, follow-ups | Calculate, pick evidence, choose a screen, or see personalisation data |
+| Groq orchestration (`lib/ai`, `POST /api/ask`) | Understanding the question, choosing facts, wording the answer, follow-ups | Calculate, pick evidence, choose a screen, or see personalisation data |
 | Voice engine (`lib/voice`) | Turning speech into one finished question at a time | Answer, act, or touch money |
 | ML personalisation (`lib/personalisation`) | Suggesting display settings, after consent, on the device | See money, questions or answers; change anything without "Keep it" |
 | Frontend (`components`, `app`) | Showing the same verified facts in the person's chosen way | Change a figure because of a display setting |
@@ -25,8 +25,8 @@ speech ─────┘   (same for both) ├► local answers    Pay and Spen
    ▲                            └► askDial()        POST /api/ask {question, state, previousQuestion, style}
    │                                  │
 lib/voice engine                      ▼
- interim text shown live        lib/ai: resolve follow-up ─► interpret intent (rules first, Gemini only to classify)
- one utterance per question        ─► facts from lib/finance + lib/insights ─► Gemini words it ─► validator
+ interim text shown live        lib/ai: resolve follow-up ─► interpret intent (rules first, Groq only to classify)
+ one utterance per question        ─► facts from lib/finance + lib/insights ─► Groq words it ─► validator
  corrections merged                ─► {answer, evidenceIds, source, experience{template,intent,insights}, resolvedQuestion, followUps}
  echo filtered, stale dropped                        │
                                                      ▼
@@ -58,14 +58,14 @@ links to the screen where the person confirms it.
    as an interruption, push-to-talk and continuous listening, and restart with back-off.
 3. **One voice engine** for Voice Mode and the Ask sheet, so voice and text are equivalent: a spoken question goes
    through exactly the same pipeline, facts and validator as a typed one.
-4. **Insights are deterministic and shared.** The server uses them as facts for Gemini. The browser re-derives the
+4. **Insights are deterministic and shared.** The server uses them as facts for Groq. The browser re-derives the
    same insight by id, so a card and its explanation can't disagree.
 5. **Answer style is the person's explicit setting** (`dialStyle()`), sent as one word. Nothing learned by the ML
    model is ever sent to `/api/ask`.
 6. **Follow-ups:** the backend returns `resolvedQuestion`, and the browser sends that back as the next
    `previousQuestion`. So "What about groceries?" then "Has that gone up?" keeps the subject. Whole conversations are
    never sent.
-7. **Sources are labelled.** Answers say whether Gemini worded them or they came straight from the account checks.
+7. **Sources are labelled.** Answers say whether Groq worded them or they came straight from the account checks.
 
 ## Ownership
 

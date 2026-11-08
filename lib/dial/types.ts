@@ -4,11 +4,11 @@
 //
 //   text or Utterance ─► correct() ─► segment() ─► plan() ─► DialStep[] ─► runner (trusted app code) ─► UI
 //                                                     │
-//                                                     └─► "ask" steps only ─► askDial() ─► /api/ask (Gemini)
+//                                                     └─► "ask" steps only ─► askDial() ─► /api/ask (Groq)
 //
 // plan() is pure and deterministic. It never calls the network, never touches money and never returns code.
 // Every step it returns is a member of DialStep and passes validateStep() before the runner executes it.
-// Gemini never sees this contract and never chooses a step: it only words answers to "ask" steps on the server.
+// Groq never sees this contract and never chooses a step: it only words answers to "ask" steps on the server.
 import type { Category, ISODate, Mode, Pence } from "../types";
 import type { UiAction } from "../preferences/schema";
 
@@ -220,7 +220,7 @@ export type DialStep =
   | { type: "goal"; op: "list" }
   /** Answered on the device from live state (Pay, Spend Pause). Links to the screen that confirms any change. */
   | { type: "local"; text: string; link?: { label: string; href: string } }
-  /** Needs the backend. The only step that may cause a Gemini call. */
+  /** Needs the backend. The only step that may cause a Groq call. */
   | { type: "ask"; question: string; previousQuestion?: string }
   /** Dial didn't understand or can't do it. Says so plainly; never guesses. */
   | { type: "unsupported"; say: string };

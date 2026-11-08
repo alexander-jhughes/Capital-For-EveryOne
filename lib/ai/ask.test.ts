@@ -409,9 +409,9 @@ describe("the API key", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("no key means no model", () => {
-    vi.stubEnv("GEMINI_API_KEY", "");
+    vi.stubEnv("GROQ_API_KEY", "");
     expect(createModel()).toBeNull();
-    vi.stubEnv("GEMINI_API_KEY", "   ");
+    vi.stubEnv("GROQ_API_KEY", "   ");
     expect(createModel()).toBeNull();
   });
 
@@ -425,18 +425,19 @@ describe("the API key", () => {
   });
 });
 
-describe("the Gemini request", () => {
+describe("the Groq request", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
-  const replyWith = (text: string | undefined, finishReason = "STOP", status = 200) => {
-    const body = status === 200 ? { candidates: [{ finishReason, content: { role: "model", parts: text === undefined ? [] : [{ text }] } }] } : { error: { code: status, message: "failed", status: "FAILED" } };
+  const replyWith = (text: string | undefined, finishReason = "stop", status = 200) => {
+    const body = status === 200 ? { choices: [{ index: 0, finish_reason: finishReason, message: { role: "assistant", content: text ?? null } }] } : { error: { message: "failed", type: "error" } };
     const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => Response.json(body, { status }));
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("GEMINI_API_KEY", "test-key");
-    vi.stubEnv("GEMINI_MODEL", "");
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubEnv("GROQ_MODEL", "");
+    vi.stubEnv("GROQ_BASE_URL", "");
     return fetchMock;
   };
   const answer = (text: string) => JSON.stringify({ answer: text });
@@ -449,19 +450,21 @@ describe("the Gemini request", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [url, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(String(init.body));
-    expect(url).toContain("gemini-3.5-flash-lite:generateContent");
-    expect(body.generationConfig.responseMimeType).toBe("application/json");
-    const sent = JSON.stringify(body.contents);
+    expect(url).toBe("https://api.groq.com/openai/v1/chat/completions");
+    expect(body.model).toBe("llama-3.3-70b-versatile");
+    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer test-key");
+    const sent = JSON.stringify(body.messages);
     expect(sent).toContain("£38.62");
     expect(sent).not.toContain("t051");
     expect(sent).not.toContain("£899");
   });
 
-  it("uses GEMINI_MODEL when set", async () => {
+  it("uses GROQ_MODEL when set", async () => {
     const fetchMock = replyWith(answer(GOOD_REPLY));
-    vi.stubEnv("GEMINI_MODEL", "gemini-test");
+    vi.stubEnv("GROQ_MODEL", "groq-test");
     await phrase();
-    expect(fetchMock.mock.calls[0][0]).toContain("gemini-test:generateContent");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).model).toBe("groq-test");
   });
 
   it("reads the classification from the structured reply", async () => {
@@ -477,21 +480,21 @@ describe("the Gemini request", () => {
   });
 
   it.each<[string, string | undefined, string]>([
-    ["cut off", answer(GOOD_REPLY), "MAX_TOKENS"],
-    ["blocked for safety", answer(GOOD_REPLY), "SAFETY"],
-    ["not JSON", "this is not json", "STOP"],
-    ["truncated JSON", '{"answer": "Tesco', "STOP"],
-    ["the wrong shape", JSON.stringify({ reply: GOOD_REPLY }), "STOP"],
-    ["a non-string answer", JSON.stringify({ answer: 38.62 }), "STOP"],
-    ["JSON null", "null", "STOP"],
-    ["empty", undefined, "STOP"],
+    ["cut off", answer(GOOD_REPLY), "length"],
+    ["blocked by the content filter", answer(GOOD_REPLY), "content_filter"],
+    ["not JSON", "this is not json", "stop"],
+    ["truncated JSON", '{"answer": "Tesco', "stop"],
+    ["the wrong shape", JSON.stringify({ reply: GOOD_REPLY }), "stop"],
+    ["a non-string answer", JSON.stringify({ answer: 38.62 }), "stop"],
+    ["JSON null", "null", "stop"],
+    ["empty", undefined, "stop"],
   ])("a reply that is %s counts as no answer", async (_, text, finishReason) => {
     replyWith(text, finishReason);
     expect(await phrase()).toBeNull();
   });
 
   it.each([[400], [403], [429], [500], [503]])("HTTP %i raises an error safe to log", async (status) => {
-    replyWith(undefined, "STOP", status);
+    replyWith(undefined, "stop", status);
     await expect(phrase()).rejects.toSatisfy((error: unknown) => describeError(error) === `API status ${status}`);
   });
 
@@ -505,6 +508,28 @@ describe("the Gemini request", () => {
     replyWith(JSON.stringify({ answer: GOOD_REPLY, evidenceIds: ["t999"] }));
     const result = await answerQuestion(CHARGED, { model: createModel() });
     expect(result).toMatchObject({ answer: GOOD_REPLY, evidenceIds: ["t051", "t052"], source: "model" });
+  });
+
+  it("a rate-limited main model moves on to the backup over real requests", async () => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubEnv("GROQ_MODEL", "");
+    vi.stubEnv("GROQ_BASE_URL", "");
+    vi.stubEnv("GROQ_FALLBACK_MODELS", "backup-model");
+    const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async (_, init) =>
+      JSON.parse(String(init.body)).model === "backup-model"
+        ? Response.json({ choices: [{ finish_reason: "stop", message: { content: answer(GOOD_REPLY) } }] })
+        : Response.json({ error: { type: "rate_limit_exceeded" } }, { status: 429 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await phrase()).toBe(GOOD_REPLY);
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init.body)).model)).toEqual(["llama-3.3-70b-versatile", "backup-model"]);
+  });
+
+  it("a bad key (Groq's 401) is not retried on the backups", async () => {
+    const fetchMock = replyWith(undefined, "stop", 401);
+    vi.stubEnv("GROQ_FALLBACK_MODELS", "backup-model");
+    await expect(phrase()).rejects.toSatisfy((error: unknown) => describeError(error) === "API status 401");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
 
@@ -830,7 +855,7 @@ describe("reliability on the new questions", () => {
     ["What did I spend on Argos?", "£249.00", ["t060"]],
     ["How much do I owe?", "£1,069.89", []],
     ["How much do I need to pay?", "£25.00", []],
-  ])("%s keeps its figure and evidence when Gemini is down", async (question, figure, evidenceIds) => {
+  ])("%s keeps its figure and evidence when Groq is down", async (question, figure, evidenceIds) => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const result = await answerQuestion(question, { model: fakeModel({ phrase: down }) });
     expect(result.source).toBe("template");

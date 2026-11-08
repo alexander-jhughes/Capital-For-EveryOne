@@ -20,9 +20,9 @@ The app works fully without an API key. To add AI-phrased answers, see below.
 
 ## Ask Dial backend
 
-`POST /api/ask` takes `{ "question": "..." }` and returns `{ answer, evidenceIds, source }`. Google Gemini is the only AI provider, and it runs on the server only.
+`POST /api/ask` takes `{ "question": "..." }` and returns `{ answer, evidenceIds, source }`. The AI runs on [Groq](https://console.groq.com)'s free tier (Llama 3.3 70B by default, OpenAI-compatible API), on the server only.
 
-The finance layer works out every figure. Gemini only turns the verified facts into a sentence. Every reply is checked on the server before it is used, and evidence IDs always come from the facts.
+The finance layer works out every figure. Groq only turns the verified facts into a sentence. Every reply is checked on the server before it is used, and evidence IDs always come from the facts.
 
 ### What it can answer
 
@@ -32,25 +32,25 @@ The finance layer works out every figure. Gemini only turns the verified facts i
 - **Each figure is checked against what it belongs to.** Every amount in a reply has to match the shop, date, meaning and status of its fact, not just appear somewhere in the data (`lib/ai/claims.ts`).
 - **Balances:** the current balance, statement balance and minimum payment are kept separate. "How much do I owe?" always uses a fixed template built from the facts, so that it explains all three.
 
-### Set up Gemini
+### Set up Groq
 
-1. Create a key at [Google AI Studio](https://aistudio.google.com/apikey).
+1. Create a free key at [console.groq.com/keys](https://console.groq.com/keys). No card is needed.
 2. Run `cp .env.example .env.local`.
-3. Set `GEMINI_API_KEY` in `.env.local`. This file is ignored by Git, so never commit it, and never give the variable a `NEXT_PUBLIC_` prefix.
-4. Optionally set `GEMINI_MODEL`. The default is `gemini-3.5-flash-lite`.
+3. Set `GROQ_API_KEY` in `.env.local`. This file is ignored by Git, so never commit it, and never give the variable a `NEXT_PUBLIC_` prefix.
+4. Optionally set `GROQ_MODEL`. The default is `llama-3.3-70b-versatile`, with `openai/gpt-oss-20b` and `llama-3.1-8b-instant` as backups when one is rate limited.
 
 ### Test it
 
 ```bash
 npm run lint
 npm run typecheck
-npm test                                # unit tests, mocked Gemini
-npm run build && npm run test:http      # production build against a fake Gemini API, no key or network needed
+npm test                                # unit tests, mocked Groq
+npm run build && npm run test:http      # production build against a fake Groq API, no key or network needed
 npm run dev                             # then, in a second terminal:
 npm run test:ask                        # 10 questions against the running server; real API calls if a key is set
 ```
 
-### When Gemini is unavailable
+### When Groq is unavailable
 
 | Situation | What happens |
 |---|---|
@@ -59,7 +59,7 @@ npm run test:ask                        # 10 questions against the running serve
 | Malformed, empty or blocked reply | Template sentence |
 | Reply with a figure, date or name not in the facts, the wrong balance, or advice | Rejected, then a template sentence |
 | "How much do I owe?" | Always a template sentence built from the facts, with no API call |
-| More than 20 Gemini calls a minute from one visitor | Template sentence, with no error |
+| More than 20 Groq calls a minute from one visitor | Template sentence, with no error |
 | A question the facts can't answer | "I can't tell that from your transactions." with no evidence |
 
 The figures and evidence stay the same in every case. Only the wording changes.

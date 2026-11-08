@@ -218,7 +218,7 @@ export async function handleAsk(request: Request, createModel: () => AskModel | 
     const session = await sessionFor(request, store);
     const parsed = parseQuestion(body, session !== null);
     if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400, headers });
-    // Over the limit still gets an answer. It just doesn't spend a Gemini call.
+    // Over the limit still gets an answer. It just doesn't spend a Groq call.
     const model = allowModelCall(clientKey(request)) ? createModel() : null;
     const ctx = session ? contextFromSession(session) : contextFromState(parsed.state);
     const answer = await answerQuestion(parsed.question, { model, ctx, previousQuestion: parsed.previousQuestion });

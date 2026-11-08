@@ -8,7 +8,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { askDial, intentForQuestion, offlineFacts } from "@/lib/assistant/client";
-import { askGeminiForSteps } from "@/lib/assistant/command-client";
+import { askModelForSteps } from "@/lib/assistant/command-client";
 import { liveState } from "@/lib/assistant/live-state";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
@@ -66,7 +66,7 @@ interface SessionApi {
 const SessionContext = createContext<SessionApi | null>(null);
 
 const HELP =
-  "I'm Dial, the assistant for this card. I use Gemini to understand you, but every figure comes from your account, checked on this device. You can ask about your money, like where does most of my money go, or compare October with September. You can say take me to spending or show my groceries for October. You can change how the app looks, like make everything bigger or use fewer numbers. You can ask what if I spend 100 pounds less next month, or set a goal. Say undo, stop, or exit at any time.";
+  "I'm Dial, the assistant for this card. I use Groq to understand you, but every figure comes from your account, checked on this device. You can ask about your money, like where does most of my money go, or compare October with September. You can say take me to spending or show my groceries for October. You can change how the app looks, like make everything bigger or use fewer numbers. You can ask what if I spend 100 pounds less next month, or set a goal. Say undo, stop, or exit at any time.";
 
 const sameUrl = (href: string) => `${window.location.pathname}${window.location.search}` === href;
 
@@ -158,7 +158,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         },
       );
       context.current = planned.context;
-      // The on-device rules come first. Gemini is only asked when they found nothing they could do with the request,
+      // The on-device rules come first. Groq is only asked when they found nothing they could do with the request,
       // so common commands never cost a call. Its answer is a list of steps that pass the same validation as ours.
       let steps = planned.steps;
       let usedModel = false;
@@ -168,9 +168,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
-        const fromModel = await askGeminiForSteps(input, { route, mode: L.mode, textSize: L.prefsApi.prefs.textSize }, { signal: controller.signal });
+        const fromModel = await askModelForSteps(input, { route, mode: L.mode, textSize: L.prefsApi.prefs.textSize }, { signal: controller.signal });
         if (id !== turnId.current) return null; // a newer turn replaced this one
-        if (fromModel === "busy") steps = [{ type: "unsupported", say: "Gemini is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
+        if (fromModel === "busy") steps = [{ type: "unsupported", say: "Groq is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
         else if (fromModel && fromModel.length > 0) {
           steps = fromModel;
           usedModel = true;

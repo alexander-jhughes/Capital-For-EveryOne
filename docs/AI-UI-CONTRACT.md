@@ -12,7 +12,7 @@
 }
 ```
 
-`GET /api/ask` returns `{ gemini: "configured" | "not configured", model: string }`, so you can see whether answers can come from Gemini. It never includes the key.
+`GET /api/ask` returns `{ ai: "groq", groq: "configured" | "not configured", model: string }`, so you can see whether answers can come from Groq. It never includes the key.
 
 ### Follow-ups
 
@@ -160,11 +160,11 @@ PR #9 reads `experience` in `lib/assistant/experience.ts`, with the same six tem
 
 ## How a question is answered
 
-1. **Agent 1, interpreter (`lib/ai/interpreter.ts`):** rules first. Gemini only picks a label from a fixed list, and only if the rules can't tell. Vague or low-confidence questions get a clarification.
+1. **Agent 1, interpreter (`lib/ai/interpreter.ts`):** rules first. Groq only picks a label from a fixed list, and only if the rules can't tell. Vague or low-confidence questions get a clarification.
 2. **Agent 2, template selector (`lib/ai/experience.ts`):** a fixed table.
 3. **Agent 3, finance validator (`lib/ai/validator.ts`, `lib/ai/guard.ts`):** checks every response, including cached and template ones. Amounts, dates, names, balances, statuses and evidence must match the facts. Anything else falls back to a template, then to "I can't tell that from your transactions."
 
-Gemini never calculates, chooses evidence, or chooses a screen. At most two Gemini calls per question, and most questions use one or none.
+Groq never calculates, chooses evidence, or chooses a screen. At most two Groq calls per question, and most questions use one or none.
 
 ## Dial intelligence additions (proposed by the frontend lead, `feat/dial-intelligence`)
 

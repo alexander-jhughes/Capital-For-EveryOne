@@ -1,4 +1,4 @@
-// End-to-end tests of POST /api/ask against the production build, with a fake Gemini API.
+// End-to-end tests of POST /api/ask against the production build, with a fake Groq API.
 // No real key and no network. Usage: npm run build, then npm run test:http
 
 import { spawn, spawnSync } from "node:child_process";
@@ -12,7 +12,7 @@ const FAKE_KEY = "fake-key-must-never-be-printed";
 const CHARGED = "Was I charged twice for anything?";
 
 type Mode =
-  | "ok" | "stall" | "reset" | "invalid-key" | "forbidden" | "quota" | "server-error" | "unavailable" | "html"
+  | "ok" | "stall" | "reset" | "invalid-key" | "bad-request" | "forbidden" | "quota" | "server-error" | "unavailable" | "html"
   | "not-json" | "bad-json-reply" | "wrong-shape" | "empty" | "no-candidates" | "safety" | "cut-off"
   | "invented-amount" | "advice" | "contradiction" | "wrong-balance" | "invented-evidence" | "wrong-currency"
   | "pending-arrived" | "vague-owe" | "low-confidence" | "bad-category" | "markup";
@@ -21,10 +21,11 @@ let mode: Mode = "ok";
 let modelCalls = 0;
 let failures = 0;
 
-const reply = (text: string | null, finishReason = "STOP") =>
-  JSON.stringify({ candidates: [{ finishReason, content: { role: "model", parts: text === null ? [] : [{ text }] } }] });
+// Groq's OpenAI-compatible chat completion shape.
+const reply = (text: string | null, finishReason = "stop") =>
+  JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion", choices: [{ index: 0, finish_reason: finishReason, message: { role: "assistant", content: text } }] });
 const answer = (text: string, extra: object = {}) => reply(JSON.stringify({ answer: text, ...extra }));
-const apiError = (code: number, status: string) => JSON.stringify({ error: { code, status, message: "failed" } });
+const apiError = (_code: number, type: string) => JSON.stringify({ error: { type, message: "failed" } });
 
 const fakeApi = http.createServer((request, response) => {
   let received = "";
@@ -35,13 +36,16 @@ const fakeApi = http.createServer((request, response) => {
       response.writeHead(status, { "content-type": type });
       response.end(body);
     };
+    // Only the chat completions endpoint exists, with the key as a bearer token.
+    if (request.url !== "/chat/completions" || request.headers.authorization !== `Bearer ${FAKE_KEY}`) return send(404, apiError(404, "not_found"));
     const isClassify = received.includes("You sort questions");
     switch (mode) {
       case "stall": return;
       case "reset": request.socket.destroy(); return;
-      case "invalid-key": return send(400, apiError(400, "INVALID_ARGUMENT"));
+      case "invalid-key": return send(401, apiError(401, "invalid_api_key"));
+      case "bad-request": return send(400, apiError(400, "invalid_request_error"));
       case "forbidden": return send(403, apiError(403, "PERMISSION_DENIED"));
-      case "quota": return send(429, apiError(429, "RESOURCE_EXHAUSTED"));
+      case "quota": return send(429, apiError(429, "rate_limit_exceeded"));
       case "server-error": return send(500, apiError(500, "INTERNAL"));
       case "unavailable": return send(503, apiError(503, "UNAVAILABLE"));
       case "html": return send(502, "<html>Bad gateway</html>", "text/html");
@@ -49,9 +53,9 @@ const fakeApi = http.createServer((request, response) => {
       case "bad-json-reply": return send(200, reply("Tesco charged you twice"));
       case "wrong-shape": return send(200, reply(JSON.stringify({ text: "hello" })));
       case "empty": return send(200, reply(null));
-      case "no-candidates": return send(200, JSON.stringify({ promptFeedback: { blockReason: "SAFETY" } }));
-      case "safety": return send(200, reply(null, "SAFETY"));
-      case "cut-off": return send(200, reply(null, "MAX_TOKENS"));
+      case "no-candidates": return send(200, JSON.stringify({ id: "chatcmpl-fake", choices: [] }));
+      case "safety": return send(200, reply(null, "content_filter"));
+      case "cut-off": return send(200, reply(null, "length"));
       case "wrong-currency": return send(200, answer("Tesco charged you £38.62 twice, which is $38.62."));
       case "pending-arrived": return send(200, answer("Your £19.99 refund has arrived. Your £14.99 refund has arrived."));
       case "vague-owe": return send(200, answer("You owe £1,069.89 right now."));
@@ -79,7 +83,7 @@ async function post(body: unknown, visitorId = `10.0.0.${(visitor += 1)}`) {
   const started = Date.now();
   const response = await fetch(APP, {
     method: "POST",
-    // A new visitor each call, so this suite doesn't hit the Gemini rate limit. That limit has its own test below.
+    // A new visitor each call, so this suite doesn't hit the Groq rate limit. That limit has its own test below.
     headers: { "Content-Type": "application/json", "x-forwarded-for": visitorId },
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
@@ -179,18 +183,18 @@ async function noKeyTests() {
   const hostile = await post({ question: "What's my balance?", state: { purchases: [{ ...purchase, merchant: "<script>" }] } });
   check("a bad state is a friendly 400", hostile.status === 400 && typeof hostile.body.error === "string");
   const status = await (await fetch(APP)).json();
-  check("GET shows Gemini isn't configured, and no key", status.gemini === "not configured" && !JSON.stringify(status).includes("key"), JSON.stringify(status));
+  check("GET shows Groq isn't configured, and no key", status.groq === "not configured" && !JSON.stringify(status).includes("key"), JSON.stringify(status));
   check("empty question is a friendly 400", (await post({ question: "  " })).status === 400);
   check("long question is a friendly 400", (await post({ question: "a".repeat(301) })).status === 400);
   check("bad JSON is a friendly 400", (await post("nope")).status === 400);
 }
 
 async function fakeApiTests() {
-  console.log("\nFake Gemini API");
+  console.log("\nFake Groq API");
   const template = "You may have been charged twice: Tesco, £38.62, on Thursday 5 November and Friday 6 November.";
 
   const failuresToTest: Mode[] = [
-    "invalid-key", "forbidden", "quota", "server-error", "unavailable", "html", "reset", "not-json", "bad-json-reply",
+    "invalid-key", "bad-request", "forbidden", "quota", "server-error", "unavailable", "html", "reset", "not-json", "bad-json-reply",
     "wrong-shape", "empty", "no-candidates", "safety", "cut-off", "invented-amount", "wrong-currency", "advice", "contradiction", "markup",
   ];
   for (const failure of failuresToTest) {
@@ -234,12 +238,12 @@ async function fakeApiTests() {
   check("valid reply is used", good.body.source === "model" && isAskResponse(good.body), JSON.stringify(good.body));
 
   const configured = await (await fetch(APP)).json();
-  check("GET shows Gemini is configured, without the key", configured.gemini === "configured" && !JSON.stringify(configured).includes(FAKE_KEY), JSON.stringify(configured));
+  check("GET shows Groq is configured, without the key", configured.groq === "configured" && !JSON.stringify(configured).includes(FAKE_KEY), JSON.stringify(configured));
   mode = "ok";
   modelCalls = 0;
   const sources = [];
   for (let i = 0; i < 6; i += 1) sources.push((await post({ question: CHARGED }, "10.9.9.9")).body.source);
-  check("the rate limit stops Gemini calls, and answers keep coming", modelCalls === 4 && sources.slice(0, 4).every((s) => s === "model") && sources.slice(4).every((s) => s === "template"), `${modelCalls} calls`);
+  check("the rate limit stops Groq calls, and answers keep coming", modelCalls === 4 && sources.slice(0, 4).every((s) => s === "model") && sources.slice(4).every((s) => s === "template"), `${modelCalls} calls`);
 
   const tooBig = await post(JSON.stringify({ question: "a".repeat(5000) }));
   check("an oversized body is a friendly 400", tooBig.status === 400);
@@ -255,9 +259,9 @@ async function fakeApiTests() {
 }
 
 await new Promise<void>((resolve) => fakeApi.listen(API_PORT, resolve));
-const noKeyLogs = await withApp({ GEMINI_API_KEY: "" }, noKeyTests);
-check("with no key, the server says so in its log", noKeyLogs.includes("GEMINI_API_KEY is not set"));
-const logs = await withApp({ GEMINI_API_KEY: FAKE_KEY, GOOGLE_GEMINI_BASE_URL: `http://localhost:${API_PORT}`, ASK_MODEL_CALLS_PER_MINUTE: "4" }, fakeApiTests);
+const noKeyLogs = await withApp({ GROQ_API_KEY: "" }, noKeyTests);
+check("with no key, the server says so in its log", noKeyLogs.includes("GROQ_API_KEY is not set"));
+const logs = await withApp({ GROQ_API_KEY: FAKE_KEY, GROQ_BASE_URL: `http://localhost:${API_PORT}`, GROQ_FALLBACK_MODELS: "", ASK_MODEL_CALLS_PER_MINUTE: "4" }, fakeApiTests);
 check("the API key is not in the server logs", !logs.includes(FAKE_KEY));
 check("no raw error details in the server logs", !/Error:|at .+:\d+:\d+/.test(logs), logs.slice(0, 300));
 fakeApi.closeAllConnections();

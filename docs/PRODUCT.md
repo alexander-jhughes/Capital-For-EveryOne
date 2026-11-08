@@ -30,7 +30,7 @@ npm test && npm run typecheck && npm run lint
 BASE_URL=http://localhost:3100 npm run test:product                # 72 browser checks, screenshots in docs/screenshots/product
 ```
 
-## Demo script for judges (about 2 minutes, works with no Gemini key)
+## Demo script for judges (about 2 minutes, works with no Groq key)
 
 1. Open `/?demo=reset`. The welcome screen says it's demo data. Choose **Set up my view**.
 2. Pick **Simple**: the page changes as you choose. Continue, choose **150%** text, continue, tick **Your progress**,

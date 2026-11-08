@@ -1,5 +1,5 @@
 // What the personalisation engine remembers about one person, on their device only.
-// Pure functions plus try/catch storage helpers. Nothing here is sent to a server or to the Gemini assistant.
+// Pure functions plus try/catch storage helpers. Nothing here is sent to a server or to the Groq assistant.
 //
 // - consent: nothing is recorded or predicted until the person says yes. Saying no (or turning it off later) deletes everything.
 // - signals: counts of explicit display actions ("made the text bigger"). No timestamps, no content, nothing financial.

@@ -40,12 +40,12 @@ describe("account overview", () => {
     expect(checkAnswer(reply, set, "tell me about my account").ok).toBe(false);
   });
 
-  it("accepts a correct Gemini-style summary", () => {
+  it("accepts a correct Groq-style summary", () => {
     const reply = "Your bill of £486.20 is due on Friday 13 November, with a minimum payment of £25.00. You have spent £402.35 so far this month, and you owe £1,069.89 in total.";
     expect(checkAnswer(reply, set, "tell me about my account")).toEqual({ ok: true });
   });
 
-  it("goes to Gemini to word it, and falls back to the template when Gemini's reply fails the guard", async () => {
+  it("goes to Groq to word it, and falls back to the template when Groq's reply fails the guard", async () => {
     const good = "Your bill of £486.20 is due on Friday 13 November, with a minimum payment of £25.00. You have spent £402.35 so far this month, and you owe £1,069.89 in total.";
     const model: AskModel = { classify: vi.fn(async () => null), phrase: vi.fn(async () => good) };
     const r = await answerQuestion("tell me about my accounts", { model, ctx });
@@ -58,7 +58,7 @@ describe("account overview", () => {
     expect(r2.answer).toContain("you owe £1,069.89 in total");
   });
 
-  it("Gemini can route an unusual phrasing to the overview", async () => {
+  it("Groq can route an unusual phrasing to the overview", async () => {
     const model: AskModel = { classify: vi.fn(async () => ({ intent: "account_overview" as const, confidence: "high" as const })), phrase: vi.fn(async () => null) };
     const r = await answerQuestion("anything I need to know about my card right now", { model, ctx });
     expect(model.classify).toHaveBeenCalled();

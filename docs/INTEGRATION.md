@@ -133,7 +133,7 @@ three (it returns `null` for the others, so nothing in Dial changes until you ch
   plain words only, 24 characters at most.
 - Session wire tags added in `lib/server/session.ts`: `d`, `u`, `s`, `t`. Old cookies decode exactly as before. Round
   trip and validation tested in `lib/goals/new-kinds.test.ts`.
-- Goal titles for Dial come from `describeGoal`, which now covers every kind. Goals never reach Gemini.
+- Goal titles for Dial come from `describeGoal`, which now covers every kind. Goals never reach the AI provider (Groq).
 
 ### 2. Home sections and two display preferences (Alex: voice and the command model read these)
 
@@ -156,3 +156,23 @@ normal `PUT /api/spend-pause`. It only touches the visitor's own cookies.
 On a clean copy of `c5b7a0c`, `test:pay` (16 pass, stops at "Your bill is paid"), `test:browser` (Spend Pause: 1 pass,
 3 fail) and `test:stage6` (5 pass, 7 fail) fail the same way as on this branch. They seem to predate the server-side
 session. Owners: 6A and 6B.
+
+  Probable cause: those three suites start `next start` without `SESSION_SECRET`, and production refuses to sign
+  sessions without one. With `SESSION_SECRET` set, `test:stage6` gets to 40 passes (3 failures) instead of 5.
+
+### 5. Gemini replaced by Groq (ported from Mate 3's `feat/groq-adaptive-access`, commit `9e532ed`)
+
+Asked for by the project lead on 8 Nov 2026. This touches Alex's `lib/ai` area, so please review.
+
+- Ported as a patch of Mate 3's migration commit, not a cherry-pick. It applied cleanly because both branches start
+  at `c5b7a0c`. Also ported: the warmer answer prompt from his `29e993a` (wording only; the rules are unchanged).
+- Not ported: his on-device accessibility engine (`lib/access`, `1de9e33`), Groq Whisper speech-to-text (`da09593`)
+  and small talk (`lib/dial/social.ts`, `29e993a`). Each is a separate feature.
+- `lib/ai/groq.ts` is the only file that calls Groq: a plain `fetch` to the OpenAI-compatible endpoint, with no SDK.
+  `@google/genai` was removed from `package.json`.
+- Models: `llama-3.3-70b-versatile`, then `openai/gpt-oss-20b`, then `llama-3.1-8b-instant`. Overridden with
+  `GROQ_MODEL` / `GROQ_FALLBACK_MODELS`; `GROQ_BASE_URL` is for the fake server in tests only.
+- Contracts are unchanged: `/api/ask` and `/api/dial` take and return the same shapes. One exception: `GET /api/ask`
+  now reports `{ ai: "groq", groq, model, backups }` instead of `{ gemini, model, backups }`.
+- Added tests: a rate-limited main model falls back to the backup over real requests, and a bad key (Groq's 401) is
+  not retried. The fake server's "invalid key" is now 401, as Groq sends, and the old 400 case is kept as "bad-request".
