@@ -10,6 +10,8 @@ import { closestProfile, SIGNAL_LABEL } from "@/lib/similar-users/profiles";
 import { useMode } from "@/lib/state/mode-context";
 
 const KEY = "cfe-similar-dismissed";
+/** Buttons wrap at large text sizes instead of pushing the page wider than a phone (as on Pay and Spend Pause). */
+const wrap = "h-auto min-h-(--target-min) max-w-full whitespace-normal px-4 py-2";
 
 export function SimilarUsersBanner() {
   const { prefs } = usePreferences();
@@ -43,13 +45,13 @@ export function SimilarUsersBanner() {
       </h2>
       <p className="text-lg leading-snug">{match.profile.reason}</p>
       <div className="flex flex-wrap gap-2">
-        <Button size="lg" className="min-h-(--target-min) px-4 font-bold" onClick={() => setMode(match.profile.recommends)}>
+        <Button size="lg" className={`${wrap} font-bold`} onClick={() => setMode(match.profile.recommends)}>
           Try {view}
         </Button>
-        <Button size="lg" variant="outline" className="min-h-(--target-min) px-4" onClick={notNow}>
+        <Button size="lg" variant="outline" className={wrap} onClick={notNow}>
           Not now
         </Button>
-        <Button size="lg" variant="ghost" className="min-h-(--target-min) px-4 underline underline-offset-4" aria-expanded={why} onClick={() => setWhy((w) => !w)}>
+        <Button size="lg" variant="ghost" className={`${wrap} underline underline-offset-4`} aria-expanded={why} onClick={() => setWhy((w) => !w)}>
           Why am I seeing this?
         </Button>
       </div>
