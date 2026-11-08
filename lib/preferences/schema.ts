@@ -3,7 +3,7 @@
 import type { Mode } from "../types";
 import type { ListenMode } from "../voice/types";
 
-export const WIDGETS = ["bill", "balance", "insights", "budget", "chart", "recent", "pause"] as const;
+export const WIDGETS = ["bill", "balance", "insights", "budget", "categories", "upcoming", "chart", "payments", "recent", "progress", "pause"] as const;
 export type WidgetId = (typeof WIDGETS)[number];
 
 export const WIDGET_LABELS: Record<WidgetId, string> = {
@@ -11,7 +11,11 @@ export const WIDGET_LABELS: Record<WidgetId, string> = {
   balance: "Balance and credit",
   insights: "Dial noticed",
   budget: "Spending this month",
+  categories: "Spending by category",
+  upcoming: "Coming up before your bill",
   chart: "Daily spending chart",
+  payments: "Payments and history",
+  progress: "Your progress",
   recent: "Recent transactions",
   pause: "Spend Pause",
 };
@@ -53,6 +57,10 @@ export interface Preferences {
    * typing: the person prefers not to use voice input.
    */
   speechInput: "unset" | "on-device" | "cloud" | "typing";
+  /** "hide" swaps every chart on Home for its plain list of figures. The figures never disappear. */
+  charts: "show" | "hide";
+  /** Whether the Credit Learning Lab appears in navigation and on Home. The page itself always works. */
+  learning: "on" | "off";
   layout: Layout;
 }
 
@@ -74,15 +82,20 @@ export const DEFAULT_PREFS: Preferences = {
   answerStyle: "standard",
   listenMode: "tap",
   speechInput: "unset",
+  charts: "show",
+  learning: "on",
   layout: { pinned: [], shown: [], hidden: [], emphasis: null, density: "standard" },
 };
 
 /** Which widgets each view shows, in its own default order. */
 export const VIEW_DEFAULTS: Record<Mode, { order: WidgetId[]; visible: WidgetId[] }> = {
-  simple: { order: ["bill", "insights", "pause", "balance", "budget", "chart", "recent"], visible: ["bill", "insights", "pause"] },
+  simple: {
+    order: ["bill", "insights", "pause", "progress", "balance", "budget", "categories", "upcoming", "payments", "chart", "recent"],
+    visible: ["bill", "insights", "pause"],
+  },
   complex: {
-    order: ["balance", "bill", "insights", "budget", "chart", "recent", "pause"],
-    visible: ["balance", "bill", "insights", "budget", "chart", "recent", "pause"],
+    order: ["balance", "bill", "insights", "budget", "categories", "upcoming", "chart", "payments", "recent", "progress", "pause"],
+    visible: ["balance", "bill", "insights", "budget", "categories", "upcoming", "chart", "payments", "recent", "progress", "pause"],
   },
 };
 
@@ -100,6 +113,8 @@ export type UiAction =
   | { type: "answerStyle"; value: Preferences["answerStyle"] }
   | { type: "listenMode"; value: ListenMode }
   | { type: "speechInput"; value: Preferences["speechInput"] }
+  | { type: "charts"; value: Preferences["charts"] }
+  | { type: "learning"; value: Preferences["learning"] }
   | { type: "moveToTop"; widget: WidgetId }
   | { type: "emphasize"; widget: WidgetId }
   | { type: "show"; widget: WidgetId }
@@ -129,6 +144,8 @@ export function sanitize(input: unknown): Preferences {
     answerStyle: oneOf(o.answerStyle, ["standard", "brief"] as const, d.answerStyle),
     listenMode: oneOf(o.listenMode, ["tap", "hold", "continuous"] as const, d.listenMode),
     speechInput: oneOf(o.speechInput, ["unset", "on-device", "cloud", "typing"] as const, d.speechInput),
+    charts: oneOf(o.charts, ["show", "hide"] as const, d.charts),
+    learning: oneOf(o.learning, ["on", "off"] as const, d.learning),
     layout: {
       pinned: widgetList(l.pinned),
       shown: widgetList(l.shown),
@@ -159,6 +176,8 @@ export function applyAction(p: Preferences, a: UiAction): Preferences {
     case "answerStyle":
     case "listenMode":
     case "speechInput":
+    case "charts":
+    case "learning":
       return { ...p, [a.type]: a.value };
     case "density":
       return { ...p, layout: { ...l, density: a.value } };
@@ -240,6 +259,10 @@ export function describeActions(actions: UiAction[]): string {
             : a.value === "typing"
               ? "use typing instead of voice input"
               : "ask me before using the microphone";
+      case "charts":
+        return a.value === "hide" ? "show figures as lists instead of charts" : "show charts";
+      case "learning":
+        return a.value === "on" ? "show the Credit Learning Lab" : "hide the Credit Learning Lab";
       case "density":
         return a.value === "calm" ? "show less on the home screen, keeping the most important parts" : "show everything on the home screen";
       case "moveToTop":

@@ -121,6 +121,8 @@ export function DisplaySettings() {
         <Segmented legend="Spacing" value={prefs.spacing} options={[{ value: "standard", label: "Standard" }, { value: "roomy", label: "More space" }]} onChange={set("spacing")} />
         <Segmented legend="Buttons" hint="Bigger buttons are easier to press." value={prefs.targets} options={[{ value: "standard", label: "Standard" }, { value: "large", label: "Bigger" }]} onChange={set("targets")} />
         <Segmented legend="Animation" value={prefs.motion} options={[{ value: "system", label: "Match my device" }, { value: "reduced", label: "Turn off" }]} onChange={set("motion")} />
+        <Segmented legend="Charts" hint="Lists show the same figures in words, without bars." value={prefs.charts} options={[{ value: "show", label: "Show charts" }, { value: "hide", label: "Lists instead" }]} onChange={set("charts")} />
+        <Segmented legend="Credit Learning Lab" hint="Calculators, explainers and a quiz. Hiding it removes it from the menu and Home." value={prefs.learning} options={[{ value: "on", label: "Show" }, { value: "off", label: "Hide" }]} onChange={set("learning")} />
       </section>
 
       <section aria-labelledby="s-assist" className="elevated flex flex-col gap-6 rounded-xl bg-card p-(--space)">
