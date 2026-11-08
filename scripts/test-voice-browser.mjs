@@ -120,11 +120,13 @@ function installFakes() {
   };
 }
 
-async function open({ viewport = DESKTOP, prefs = {} } = {}) {
+async function open({ viewport = DESKTOP, prefs = {}, hold = null } = {}) {
   const context = await browser.newContext({ viewport });
   await context.addCookies([{ name: "cfe-prefs", value: encodeURIComponent(JSON.stringify({ onboarding: "done", speechInput: "cloud", ...prefs })), domain: HOST, path: "/" }]);
   const page = await context.newPage();
   await page.addInitScript(installFakes);
+  // Requests matching `hold` are never answered (and the server never sees them), so whatever waits for them stays waiting.
+  if (hold) await page.route(hold, () => {});
   page.on("console", (m) => {
     if (m.type() === "error" && !/favicon|Failed to load resource/.test(m.text())) problems.push(`${page.url()}: ${m.text().slice(0, 200)}`);
   });
@@ -393,6 +395,26 @@ async function scenarios(label, viewport) {
     await button(page, "Stop listening").click();
     await button(page, "Start listening").waitFor();
     check("Stop turns the indicator off", (await panel(page).locator('[role="status"] .animate-pulse').count()) === 0 && (await stats(page)).open === 0);
+    await page.context().close();
+  }
+
+  console.log(`\n${label}: a correction spoken while the first request is still in flight`);
+  {
+    // The on-device understanding model is held, so the first request waits for it (up to 4 seconds), as on a slow
+    // first load. "Actually, not bigger, smaller" then has both words of a contradiction: it must correct the request
+    // in flight, not get "Do you want it bigger or smaller?" back (lib/dial/turn-start.ts).
+    const page = await open({ viewport, prefs: { listenMode: "continuous", textSize: 125 }, hold: "**/vendor/transformers.min.js" });
+    await listen(page);
+    await fake(page, "final", "Make the text bigger");
+    await panel(page).getByText("Thinking", { exact: false }).first().waitFor();
+    check("the first request is still in flight, nothing changed yet", (await textSize(page)) === "125", await textSize(page));
+    await fake(page, "final", "Actually, not bigger, smaller");
+    await page.waitForFunction(() => document.documentElement.dataset.text === "100", null, { timeout: 15000 }).catch(() => {});
+    check("the correction applies to the request in flight: the text goes down a size", (await textSize(page)) === "100", await textSize(page));
+    check("Dial doesn't ask whether bigger or smaller", (await panel(page).getByText("Do you want it bigger or smaller?").count()) === 0);
+    await page.waitForTimeout(SETTLE_MS + 1000);
+    check("the replaced request never applies afterwards", (await textSize(page)) === "100", await textSize(page));
+    await button(page, "Stop listening").click();
     await page.context().close();
   }
 

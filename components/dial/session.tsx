@@ -13,13 +13,13 @@ import { brainWithin, loadBrain } from "@/lib/access/brain";
 import { adaptationFor, offeredAdaptation, type Adaptation } from "@/lib/access/pipeline";
 import { changesFor, planKeep } from "@/lib/access/understand";
 import { prefersReducedMotion, reveal } from "@/lib/access/reveal";
-import { clarify } from "@/lib/access/clarify";
 import { PROTECTED_NOTE, withoutProtectedHides } from "@/lib/access/safety";
 import { liveState } from "@/lib/assistant/live-state";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
 import { afterAnswer, withRoute } from "@/lib/dial/context";
 import { plan } from "@/lib/dial/plan";
+import { startTurn } from "@/lib/dial/turn-start";
 import { runSteps, type PendingOffer, type ReplyItem } from "@/lib/dial/runner";
 import { DIAL_ROUTES, EMPTY_CONTEXT, type DialContext, type DialRoute, type DialStep } from "@/lib/dial/types";
 import { buildVisual } from "@/lib/dial/visuals";
@@ -32,7 +32,7 @@ import { usePreferences } from "@/lib/preferences/provider";
 import { useProfile } from "@/lib/profile/provider";
 import { dialStyle } from "@/lib/preferences/schema";
 import { spendPauseReply } from "@/lib/spend-pause/dial";
-import { opensWithCorrection, splitCorrection } from "@/lib/voice/correction";
+import { splitCorrection } from "@/lib/voice/correction";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import type { Mode } from "@/lib/types";
@@ -171,21 +171,19 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     async (text: string, opts: { replaces?: string } = {}): Promise<DialTurn | null> => {
       const input = text.trim();
       if (!input) return null;
-      // "How much on food?" ... "actually, groceries" while the first is still with the backend: the context only
-      // learns a question once its answer is back, so the correction is planned against the question it cuts off.
-      const replaces = opts.replaces ?? (inFlight.current && opensWithCorrection(input) ? inFlight.current : undefined);
-      inFlight.current = replaces ? `${replaces}. ${input}` : input;
+      // Corrections of the question still in flight, and the accessibility layer's question back (lib/dial/turn-start.ts).
+      const start = startTurn(input, opts.replaces, inFlight.current);
+      const { replaces } = start;
+      inFlight.current = start.inFlight;
       abort.current?.abort();
       const controller = new AbortController();
       abort.current = controller;
       const id = ++turnId.current;
       const L = live.current;
 
-      // A contradictory or vague request gets a question back, never a guess (lib/access/clarify.ts). A correction
-      // ("no, I meant bigger") is already a clear choice, so it skips this.
-      const question = opts.replaces || splitCorrection(input) ? null : clarify(input);
-      if (question) {
-        const asked: DialTurn = { id, input, understood: "", corrected: false, status: "done", items: [{ kind: "say", text: question }], local: true };
+      // A contradictory or vague request gets a question back, never a guess. A correction skips this.
+      if (start.question) {
+        const asked: DialTurn = { id, input, understood: "", corrected: false, status: "done", items: [{ kind: "say", text: start.question }], local: true };
         setStats((s) => ({ ...s, turns: s.turns + 1, local: s.local + 1 }));
         setTurn(asked);
         return asked;
