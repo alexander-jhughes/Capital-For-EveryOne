@@ -145,7 +145,7 @@ export function TransactionList({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-[2fr_1fr_1fr]">
+      <div className="grid gap-3 @xl:grid-cols-[2fr_1fr_1fr]">
         <div className="flex flex-col gap-1">
           <label htmlFor={ids.search} className="text-sm font-bold">
             Search

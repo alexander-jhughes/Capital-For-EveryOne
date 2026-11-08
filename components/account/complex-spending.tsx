@@ -96,7 +96,7 @@ export function ComplexSpending({ filters }: { filters: SpendingFilters }) {
         />
       )}
 
-      <div className="grid grid-cols-1 gap-(--space) lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-(--space) @3xl:grid-cols-2">
         <section aria-labelledby="sp-total" className="elevated flex flex-col gap-3 rounded-xl bg-card p-(--space)">
           <h2 id="sp-total" className="text-base font-bold text-muted-foreground">
             {range.future
@@ -141,6 +141,10 @@ export function ComplexSpending({ filters }: { filters: SpendingFilters }) {
             <caption id="sp-cat" className="pb-2 text-left text-lg font-bold">
               {f.month ? `Where it went in ${thisName}` : "Where it went"}
             </caption>
+            <colgroup>
+              <col />
+              <col className="w-[6rem]" />
+            </colgroup>
             <thead className="sr-only">
               <tr>
                 <th scope="col">Category</th>
@@ -166,7 +170,7 @@ export function ComplexSpending({ filters }: { filters: SpendingFilters }) {
                         <span className="block h-full rounded-full bg-chart" style={{ width: `${(Math.max(0, c.total) * 100) / biggest}%` }} />
                       </span>
                     </th>
-                    <td className={`w-[42%] py-1.5 text-right align-top font-bold ${mine ? "pr-3" : ""}`}>{formatPence(c.total)}</td>
+                    <td className={`py-1.5 text-right align-top font-bold ${mine ? "pr-3" : ""}`}>{formatPence(c.total)}</td>
                   </tr>
                 );
               })}
