@@ -48,7 +48,7 @@ function Segmented<T extends string | number>({
 
 /** Display and voice: everything Dial can change by voice, changeable by touch and keyboard too. */
 export function DisplaySettings() {
-  const { prefs, apply, undo, save, resetToDefault, canUndo, unsaved } = usePreferences();
+  const { prefs, kept, apply, undo, save, resetToDefault, canUndo, unsaved, nightActive, showNightNow } = usePreferences();
   const { mode } = useMode();
   const { openVoice } = useAskDial();
   const announce = useAnnounce();
@@ -121,6 +121,74 @@ export function DisplaySettings() {
         <Segmented legend="Spacing" value={prefs.spacing} options={[{ value: "standard", label: "Standard" }, { value: "roomy", label: "More space" }]} onChange={set("spacing")} />
         <Segmented legend="Buttons" hint="Bigger buttons are easier to press." value={prefs.targets} options={[{ value: "standard", label: "Standard" }, { value: "large", label: "Bigger" }]} onChange={set("targets")} />
         <Segmented legend="Animation" value={prefs.motion} options={[{ value: "system", label: "Match my device" }, { value: "reduced", label: "Turn off" }]} onChange={set("motion")} />
+        <Segmented
+          legend="Reading"
+          hint="Easier reading adds space between letters, words and lines, and avoids italics. It can help with dyslexia."
+          value={prefs.reading}
+          options={[{ value: "standard", label: "Standard" }, { value: "easy", label: "Easier reading" }]}
+          onChange={set("reading")}
+        />
+        <Segmented
+          legend="Colours"
+          hint="Colour-safe never relies on telling red from green: warnings are orange, good news is blue, always with words."
+          value={prefs.colours}
+          options={[{ value: "standard", label: "Standard" }, { value: "safe", label: "Colour-safe" }]}
+          onChange={set("colours")}
+        />
+      </section>
+
+      <section aria-labelledby="s-night" className="elevated flex flex-col gap-4 rounded-xl bg-card p-(--space)">
+        <h2 id="s-night" className="text-lg font-bold">
+          Night look
+        </h2>
+        {kept.night.length > 0 ? (
+          <>
+            <p>
+              From 7pm to 7am, Dial will {describeActions(kept.night)}.{" "}
+              <span className="font-bold">{nightActive ? "It's on now." : "It's off now (daytime)."}</span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => { showNightNow(!nightActive); announce(nightActive ? "Showing the daytime look." : "Showing the night look."); }} className={`${pill} hairline bg-card`}>
+                {nightActive ? "Show the daytime look" : "See the night look now"}
+              </button>
+              <button type="button" onClick={() => { showNightNow(false); change([{ type: "nightOff" }]); save(); }} className={`${pill} hairline bg-card`}>
+                Turn off the night look
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="text-muted-foreground">
+            No night look yet. Tell Dial something like &ldquo;I have trouble seeing at night&rdquo; and it will suggest one that switches on by itself
+            every evening.
+          </p>
+        )}
+      </section>
+
+      <section aria-labelledby="s-hands" className="elevated flex flex-col gap-6 rounded-xl bg-card p-(--space)">
+        <h2 id="s-hands" className="text-lg font-bold">
+          Touch and feedback
+        </h2>
+        <Segmented
+          legend="Accidental double taps"
+          hint="Ignore a second tap on the same place straight after the first, so a shaky press never counts twice."
+          value={prefs.tapGuard ? "on" : "off"}
+          options={[{ value: "off", label: "Count every tap" }, { value: "on", label: "Ignore double taps" }]}
+          onChange={(v) => change([{ type: "tapGuard", value: v === "on" }])}
+        />
+        <Segmented
+          legend="One-handed use"
+          hint="On a phone, moves the view switch down within reach of your thumb."
+          value={prefs.reach}
+          options={[{ value: "standard", label: "Standard" }, { value: "thumb", label: "Within thumb reach" }]}
+          onChange={set("reach")}
+        />
+        <Segmented
+          legend="Vibration"
+          hint="A short vibration when Dial replies or Spend Pause steps in, on phones that support it."
+          value={prefs.vibrate ? "on" : "off"}
+          options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]}
+          onChange={(v) => change([{ type: "vibrate", value: v === "on" }])}
+        />
       </section>
 
       <section aria-labelledby="s-assist" className="elevated flex flex-col gap-6 rounded-xl bg-card p-(--space)">
@@ -147,6 +215,19 @@ export function DisplaySettings() {
           value={prefs.answerStyle}
           options={[{ value: "standard", label: "Standard" }, { value: "brief", label: "Short" }]}
           onChange={set("answerStyle")}
+        />
+        <Segmented
+          legend="Reading replies aloud"
+          hint="Read every reply aloud as soon as it arrives, even when you typed the question."
+          value={prefs.autoRead ? "auto" : "ask"}
+          options={[{ value: "ask", label: "When I ask, or speak" }, { value: "auto", label: "Every reply" }]}
+          onChange={(v) => change([{ type: "autoRead", value: v === "auto" }])}
+        />
+        <Segmented
+          legend="Voice speed"
+          value={prefs.voiceRate}
+          options={[{ value: "slow", label: "Slower" }, { value: "normal", label: "Normal" }, { value: "fast", label: "Faster" }]}
+          onChange={set("voiceRate")}
         />
         <Segmented
           legend="How Dial listens"

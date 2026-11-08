@@ -53,8 +53,32 @@ export interface Preferences {
    * typing: the person prefers not to use voice input.
    */
   speechInput: "unset" | "on-device" | "cloud" | "typing";
+  /** Easier reading: wider letter, word and line spacing, left-aligned text, no italics (dyslexia friendly). */
+  reading: "standard" | "easy";
+  /** Colour-safe: alerts and statuses never rely on red against green; a blue and orange palette with shapes and words. */
+  colours: "standard" | "safe";
+  /** How fast Dial speaks its replies. */
+  voiceRate: "slow" | "normal" | "fast";
+  /** Read Dial's replies aloud as soon as they arrive. Only ever on because the person asked for it. */
+  autoRead: boolean;
+  /** One-handed use: the main buttons and Dial's controls sit low on the screen, within thumb reach. */
+  reach: "standard" | "thumb";
+  /** Ignores a second tap on the same control within a moment, so a shaky press doesn't count twice. */
+  tapGuard: boolean;
+  /** A short vibration when Dial replies or Spend Pause steps in, for people who can't rely on sound. */
+  vibrate: boolean;
+  /** The night look: display changes applied only between NIGHT_WINDOW.from and NIGHT_WINDOW.to. Empty means off. */
+  night: NightAction[];
   layout: Layout;
 }
+
+/** When the night look applies, in local hours: from 7pm until 7am. */
+export const NIGHT_WINDOW = { from: 19, to: 7 } as const;
+export const inNightWindow = (hour: number) => hour >= NIGHT_WINDOW.from || hour < NIGHT_WINDOW.to;
+
+/** Settings that may be part of a night look: how the screen looks, never how Dial behaves. */
+export const NIGHT_SETTINGS = ["textSize", "contrast", "theme", "spacing", "motion", "reading", "colours", "targets"] as const;
+export type NightAction = Extract<UiAction, { type: (typeof NIGHT_SETTINGS)[number] }>;
 
 /** The one-word answer style sent to /api/ask. Step by step wins over brief, because it was asked for explicitly. */
 export type DialStyle = "standard" | "brief" | "stepByStep";
@@ -74,6 +98,14 @@ export const DEFAULT_PREFS: Preferences = {
   answerStyle: "standard",
   listenMode: "tap",
   speechInput: "unset",
+  reading: "standard",
+  colours: "standard",
+  voiceRate: "normal",
+  autoRead: false,
+  reach: "standard",
+  tapGuard: false,
+  vibrate: false,
+  night: [],
   layout: { pinned: [], shown: [], hidden: [], emphasis: null, density: "standard" },
 };
 
@@ -100,6 +132,15 @@ export type UiAction =
   | { type: "answerStyle"; value: Preferences["answerStyle"] }
   | { type: "listenMode"; value: ListenMode }
   | { type: "speechInput"; value: Preferences["speechInput"] }
+  | { type: "reading"; value: Preferences["reading"] }
+  | { type: "colours"; value: Preferences["colours"] }
+  | { type: "voiceRate"; value: Preferences["voiceRate"] }
+  | { type: "autoRead"; value: boolean }
+  | { type: "reach"; value: Preferences["reach"] }
+  | { type: "tapGuard"; value: boolean }
+  | { type: "vibrate"; value: boolean }
+  | { type: "nightLook"; actions: NightAction[] }
+  | { type: "nightOff" }
   | { type: "moveToTop"; widget: WidgetId }
   | { type: "emphasize"; widget: WidgetId }
   | { type: "show"; widget: WidgetId }
@@ -129,6 +170,14 @@ export function sanitize(input: unknown): Preferences {
     answerStyle: oneOf(o.answerStyle, ["standard", "brief"] as const, d.answerStyle),
     listenMode: oneOf(o.listenMode, ["tap", "hold", "continuous"] as const, d.listenMode),
     speechInput: oneOf(o.speechInput, ["unset", "on-device", "cloud", "typing"] as const, d.speechInput),
+    reading: oneOf(o.reading, ["standard", "easy"] as const, d.reading),
+    colours: oneOf(o.colours, ["standard", "safe"] as const, d.colours),
+    voiceRate: oneOf(o.voiceRate, ["slow", "normal", "fast"] as const, d.voiceRate),
+    autoRead: o.autoRead === true,
+    reach: oneOf(o.reach, ["standard", "thumb"] as const, d.reach),
+    tapGuard: o.tapGuard === true,
+    vibrate: o.vibrate === true,
+    night: nightList(o.night),
     layout: {
       pinned: widgetList(l.pinned),
       shown: widgetList(l.shown),
@@ -137,6 +186,23 @@ export function sanitize(input: unknown): Preferences {
       density: oneOf(l.density, ["standard", "calm"] as const, "standard"),
     },
   };
+}
+
+/**
+ * A night look from untrusted input: only NIGHT_SETTINGS with allowed values, one per setting (the last one wins).
+ * Each value is checked by sanitize itself, so the night look can never hold a value the day look couldn't.
+ */
+export function nightList(v: unknown): NightAction[] {
+  if (!Array.isArray(v)) return [];
+  const bySetting = new Map<string, NightAction>();
+  for (const item of v.slice(0, NIGHT_SETTINGS.length * 2)) {
+    if (typeof item !== "object" || item === null) continue;
+    const { type, value } = item as { type?: unknown; value?: unknown };
+    if (!NIGHT_SETTINGS.includes(type as (typeof NIGHT_SETTINGS)[number])) continue;
+    const kept = sanitize({ [type as string]: value }) as unknown as Record<string, unknown>;
+    if (kept[type as string] === value) bySetting.set(type as string, { type, value } as NightAction);
+  }
+  return [...bySetting.values()];
 }
 
 const without = (list: WidgetId[], w: WidgetId) => list.filter((x) => x !== w);
@@ -159,7 +225,18 @@ export function applyAction(p: Preferences, a: UiAction): Preferences {
     case "answerStyle":
     case "listenMode":
     case "speechInput":
+    case "reading":
+    case "colours":
+    case "voiceRate":
+    case "autoRead":
+    case "reach":
+    case "tapGuard":
+    case "vibrate":
       return { ...p, [a.type]: a.value };
+    case "nightLook":
+      return { ...p, night: nightList(a.actions) };
+    case "nightOff":
+      return { ...p, night: [] };
     case "density":
       return { ...p, layout: { ...l, density: a.value } };
     case "moveToTop":
@@ -179,6 +256,11 @@ export function applyAction(p: Preferences, a: UiAction): Preferences {
 }
 
 export const applyActions = (p: Preferences, actions: UiAction[]) => actions.reduce(applyAction, p);
+
+/** What the screen should show at this hour: the kept preferences, with the night look on top during the night window. */
+export function effectivePrefs(p: Preferences, hour: number): Preferences {
+  return p.night.length > 0 && inNightWindow(hour) ? applyActions(p, p.night) : p;
+}
 
 /** The widgets a view shows, in order, after the person's layout. */
 export function visibleWidgets(mode: Mode, layout: Layout): WidgetId[] {
@@ -252,6 +334,24 @@ export function describeActions(actions: UiAction[]): string {
         return `show ${lower(WIDGET_LABELS[a.widget])}`;
       case "hide":
         return `hide ${lower(WIDGET_LABELS[a.widget])}`;
+      case "reading":
+        return a.value === "easy" ? "space out the words and lines so they're easier to read" : "use standard text spacing";
+      case "colours":
+        return a.value === "safe" ? "use colours that don't rely on telling red from green" : "use the standard colours";
+      case "voiceRate":
+        return a.value === "slow" ? "speak more slowly" : a.value === "fast" ? "speak faster" : "speak at the normal speed";
+      case "autoRead":
+        return a.value ? "read my replies aloud straight away" : "only read replies aloud when I ask";
+      case "reach":
+        return a.value === "thumb" ? "move the main buttons within reach of your thumb" : "put the buttons back in their usual place";
+      case "tapGuard":
+        return a.value ? "ignore accidental double taps" : "count every tap";
+      case "vibrate":
+        return a.value ? "vibrate when Dial replies or Spend Pause steps in" : "stop vibrating";
+      case "nightLook":
+        return a.actions.length ? `from ${NIGHT_WINDOW.from - 12}pm to ${NIGHT_WINDOW.to}am, ${describeActions(a.actions)}` : "turn off the night look";
+      case "nightOff":
+        return "turn off the night look";
     }
   });
   const unique = [...new Set(parts)];
@@ -280,5 +380,9 @@ export function prefAttributes(p: Preferences): Record<string, string> {
     "data-motion": p.motion,
     "data-theme": p.theme,
     "data-targets": p.targets,
+    "data-reading": p.reading,
+    "data-colours": p.colours,
+    "data-reach": p.reach,
+    "data-tap-guard": String(p.tapGuard),
   };
 }

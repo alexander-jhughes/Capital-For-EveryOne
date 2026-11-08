@@ -23,7 +23,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
               Skip to main content
             </a>
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="gutter page-width flex flex-wrap items-center justify-between gap-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-10 lg:pt-6">
+              <header className="app-header gutter page-width flex flex-wrap items-center justify-between gap-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-10 lg:pt-6">
                 <span className="lg:hidden">
                   <Wordmark stacked />
                 </span>

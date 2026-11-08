@@ -14,10 +14,16 @@
     "test:backend": "npm exec --yes --package=playwright@1 -- node scripts/test-backend-browser.mjs",
     "test:ask": "node --no-warnings scripts/test-ask.ts",
     "test:http": "node --no-warnings scripts/test-ask-http.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/access/copy-runtime.mjs",
+    "predev": "node scripts/access/copy-runtime.mjs",
+    "prebuild": "node scripts/access/copy-runtime.mjs",
+    "access:index": "node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/access/build-index.ts",
+    "access:eval": "node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/access/evaluate.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@huggingface/transformers": "^4.3.2",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "lucide-react": "^1.70.0",
