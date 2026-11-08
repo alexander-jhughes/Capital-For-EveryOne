@@ -42,6 +42,20 @@ describe("promotion gates", () => {
     expect(g.gates[2].note).toContain("no active model");
   });
 
+  it("fail closed when an active model exists but can't be loaded or validated", () => {
+    const g = evaluateGates({
+      candidate: result("hybrid", 0.6, { ece: 0.02 }),
+      popularity,
+      v1,
+      active: null,
+      noActiveNote: "active model could not be loaded",
+      activeUnverifiable: true,
+      artifactBytes: 50_000,
+    });
+    expect(g.gates.find((x) => x.id === "false_rec_vs_active")?.passed).toBe(false);
+    expect(g.passed).toBe(false);
+  });
+
   it("fail on each budget separately", () => {
     const fail = (c: ContenderResult, bytes = 1000, active: ContenderResult | null = null) =>
       evaluateGates({ candidate: c, popularity, v1, active, artifactBytes: bytes })

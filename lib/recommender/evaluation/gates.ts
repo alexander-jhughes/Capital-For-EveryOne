@@ -35,6 +35,11 @@ export interface GateInput {
   active: ContenderResult | null;
   /** Why there is no active model to compare with (default: none exists yet). */
   noActiveNote?: string;
+  /**
+   * An active model exists but couldn't be loaded or validated, so "no worse than the active model" can't be checked.
+   * The gate then fails closed: roll back or reject the unusable active model first.
+   */
+  activeUnverifiable?: boolean;
   artifactBytes: number;
 }
 
@@ -76,7 +81,7 @@ export function evaluateGates(g: GateInput, budgets: Budgets = DEFAULT_BUDGETS):
       description: `False-recommendation rate not worse than the active model's + ${budgets.falseRecTolerance}`,
       value: fr,
       threshold: null,
-      passed: true,
+      passed: !g.activeUnverifiable,
       note: g.noActiveNote ?? "no active model to compare against (first model): reported, not gated",
     });
   }
