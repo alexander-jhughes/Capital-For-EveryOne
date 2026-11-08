@@ -200,7 +200,10 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       let usedModel = false;
       const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
       const corrected = !!opts.replaces || splitCorrection(input) !== null;
-      const working: DialTurn = { id, input, understood: gaveUp ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
+      // When the situation layer took the sentence, its card says what it heard ("I heard: ..."), so the keyword rules'
+      // reading ("Use a dark interface") must not be shown alongside it.
+      const understood = adaptation || gaveUp ? "" : planned.understood;
+      const working: DialTurn = { id, input, understood, corrected, status: "working", items: [], local: adaptation ? true : planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;

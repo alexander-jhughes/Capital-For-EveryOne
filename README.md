@@ -8,6 +8,32 @@ A WHACK 2026 prototype for Capital One's "Make Credit Accessible" challenge: one
 - The AI never does maths. Every figure comes from a tested, deterministic finance layer (`lib/finance`).
 - Works fully offline, with no API key.
 
+## Tell Dial what's hard
+
+People rarely say "set contrast to high". They say **"I have trouble seeing at night"**, "my hands shake", "I'm
+dyslexic", "u talk 2 fast". Dial understands that by meaning, on the phone, and offers the changes that help, each with
+a reason, before anything is kept.
+
+- **On-device AI.** A small sentence-embedding model (all-MiniLM-L6-v2, 8-bit, 23 MB, served from `public/models`) runs
+  in the browser with Transformers.js. It compares what the person said with example sentences for 16 situations
+  (`lib/access/catalogue.ts`): night vision, low vision, screen reader, colour vision, reading, tremor, one hand,
+  sunlight, migraine, focus, memory, money anxiety, hearing, speech speed, second language and unclear speech. Health
+  details never leave the phone and are never stored: only the settings the person keeps.
+- **When it applies.** "At night" makes a night look that switches on by itself from 7pm to 7am; "on the bus" is just
+  for now; anything else is saved.
+- **Safe by design.** The AI only names a situation; fixed, tested code decides the changes. Commands and money
+  questions go to the precise rules first, so "I can't see my refund" is never turned into a display change.
+- **Measured.** On a blind test set: **88% of described situations recognised exactly** (old keyword rules: 15%),
+  **0 money questions or commands hijacked** (old rules: 18%). See [docs/ACCESS-EVALUATION.md](docs/ACCESS-EVALUATION.md);
+  rerun with `npm run access:eval`.
+- **Cloud backup.** If the on-device model isn't sure, Groq may name a situation, but only from the same list.
+- **Clearer voice.** People whose speech the browser struggles with (accents, stammers, slurred or slow speech) can
+  choose Groq's Whisper (`POST /api/transcribe`); each sentence is sent, transcribed and thrown away.
+
+New settings it can use (also in Settings): easier reading, colour-safe palette, voice speed, read every reply aloud,
+thumb reach, ignore accidental double taps, vibration, and the night look. Demo the night look at any time of day with
+`/account?hour=21`.
+
 ## Run it
 
 ```bash

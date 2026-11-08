@@ -23,6 +23,7 @@ export const SITUATION_IDS = [
   "hearing",
   "slow_speech",
   "second_language",
+  "speech_clarity",
 ] as const;
 export type SituationId = (typeof SITUATION_IDS)[number];
 
@@ -429,6 +430,34 @@ export const SITUATIONS: readonly Situation[] = [
       "English is my second language",
       "I find English difficult",
       "can you use easier words, my English is weak",
+    ],
+  },
+  {
+    id: "speech_clarity",
+    heard: "Voice recognition struggles to understand you",
+    defaultScope: "always",
+    changes: [
+      {
+        action: { type: "speechInput", value: "whisper" },
+        why: "Clearer recognition copes better with accents, stammers and slow or unclear speech. Each sentence is sent to Groq to turn it into text, then thrown away.",
+      },
+      { action: { type: "listenMode", value: "tap" }, why: "One sentence per tap, and Dial waits for a longer pause, so you're never cut off." },
+    ],
+    examples: [
+      "I have a stammer",
+      "I stutter",
+      "my speech is slurred",
+      "I have a speech impairment",
+      "voice recognition never understands me",
+      "it never gets what I say",
+      "people find my accent hard to understand",
+      "the microphone doesn't understand my accent",
+      "I had a stroke and my speech is affected",
+      "I talk slowly and it cuts me off",
+      "my voice is very quiet",
+      "I have dysarthria",
+      "speech to text always gets my words wrong",
+      "I speak with a strong accent",
     ],
   },
 ] as const;

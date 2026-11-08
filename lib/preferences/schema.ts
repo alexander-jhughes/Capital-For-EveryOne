@@ -50,9 +50,10 @@ export interface Preferences {
   /**
    * Where the person agreed their voice is turned into text. Asked before the microphone is first used.
    * unset: not asked yet. on-device: only on this device. cloud: the browser's online speech service may be used.
-   * typing: the person prefers not to use voice input.
+   * typing: the person prefers not to use voice input. whisper: "clearer recognition", the recording goes to Groq's
+   * Whisper, which copes better with accents and slow or unclear speech.
    */
-  speechInput: "unset" | "on-device" | "cloud" | "typing";
+  speechInput: "unset" | "on-device" | "cloud" | "typing" | "whisper";
   /** Easier reading: wider letter, word and line spacing, left-aligned text, no italics (dyslexia friendly). */
   reading: "standard" | "easy";
   /** Colour-safe: alerts and statuses never rely on red against green; a blue and orange palette with shapes and words. */
@@ -169,7 +170,7 @@ export function sanitize(input: unknown): Preferences {
     onboarding: oneOf(o.onboarding, ["unset", "done", "skipped"] as const, d.onboarding),
     answerStyle: oneOf(o.answerStyle, ["standard", "brief"] as const, d.answerStyle),
     listenMode: oneOf(o.listenMode, ["tap", "hold", "continuous"] as const, d.listenMode),
-    speechInput: oneOf(o.speechInput, ["unset", "on-device", "cloud", "typing"] as const, d.speechInput),
+    speechInput: oneOf(o.speechInput, ["unset", "on-device", "cloud", "typing", "whisper"] as const, d.speechInput),
     reading: oneOf(o.reading, ["standard", "easy"] as const, d.reading),
     colours: oneOf(o.colours, ["standard", "safe"] as const, d.colours),
     voiceRate: oneOf(o.voiceRate, ["slow", "normal", "fast"] as const, d.voiceRate),
@@ -321,6 +322,8 @@ export function describeActions(actions: UiAction[]): string {
             ? "allow my browser's online speech service to turn my voice into text"
             : a.value === "typing"
               ? "use typing instead of voice input"
+              : a.value === "whisper"
+                ? "use clearer recognition, which sends my recording to Groq to turn it into text"
               : "ask me before using the microphone";
       case "density":
         return a.value === "calm" ? "show less on the home screen, keeping the most important parts" : "show everything on the home screen";

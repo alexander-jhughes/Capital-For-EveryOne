@@ -345,7 +345,9 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
               {mic.supported
                 ? mic.speechInput === "on-device"
                   ? "Speech is turned into text on this device. Dial never records audio."
-                  : "Speech is turned into text by your browser's speech service (Google in Chrome). Dial never records audio."
+                  : mic.speechInput === "whisper"
+                    ? "Clearer recognition: each sentence is recorded and sent to Groq to turn it into text, then thrown away."
+                    : "Speech is turned into text by your browser's speech service (Google in Chrome). Dial never records audio."
                 : "Voice input isn't available in this browser. Typing works."}
             </p>
             {speaker.supported && (

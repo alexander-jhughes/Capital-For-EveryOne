@@ -53,6 +53,8 @@ Delete any `.claude/worktrees` folder if you have one, or the test runner picks 
 | Dial panel | `components/voice/voice-mode.tsx`, `components/assistant/ask-dial.tsx`, `components/dial/dial-reply.tsx` |
 | Display preferences | `lib/preferences/*` (one store for text size, contrast, layout, voice settings) |
 | ML personalisation | `lib/personalisation/*`, `docs/ml-personalisation/*` (random forest, on device, needs consent) |
+| Situation understanding ("I have trouble seeing at night") | `lib/access/*` (catalogue, on-device embeddings, routing), `public/models`, `docs/ACCESS-EVALUATION.md` |
+| Clearer voice (Groq Whisper) | `lib/ai/transcribe.ts`, `app/api/transcribe`, `lib/voice/use-whisper.ts` |
 | Screens and styling | `app/(dial)/*`, `components/*`, `app/globals.css` |
 
 More detail: `docs/ARCHITECTURE.md`, `docs/AI-UI-CONTRACT.md`, `docs/INTEGRATION.md`.

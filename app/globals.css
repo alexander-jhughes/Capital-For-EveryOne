@@ -508,7 +508,7 @@ body:has(> * nav[aria-label="Main"]) {
   :root[data-reach="thumb"] .app-header {
     order: 2;
     position: sticky;
-    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    bottom: calc(5.5rem + env(safe-area-inset-bottom));
     z-index: 30;
     background: var(--background);
     padding-block: 0.5rem;

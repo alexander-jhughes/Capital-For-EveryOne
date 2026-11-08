@@ -11,7 +11,7 @@ small talk as a situation.
 **How it was built and tested:**
 
 - The model compares meaning, not keywords: each sentence is turned into a 384-number vector and compared with the
-  catalogue's example sentences (`lib/access/catalogue.ts`, 240 examples).
+  catalogue's example sentences (`lib/access/catalogue.ts`, 254 examples).
 - Thresholds (accept 0.5, gap 0.1; "maybe" 0.4, gap 0.05) were chosen by
   leave-one-out over the catalogue's own examples, never on these sets.
 - The **development set** was used while building. The **blind test set** was written afterwards and nothing was
@@ -30,7 +30,7 @@ small talk as a situation.
 | "When" right (night, now, always), where the sentence says | 100% (4/4) |
 | Old keyword rules: changed anything for a described situation | 15% (8/52) |
 | Old keyword rules: changed the look for a money question, denial or small talk | 18% (2/11) |
-| Median time per sentence (Node, one CPU thread) | 3 ms |
+| Median time per sentence (Node, one CPU thread) | 2 ms |
 
 ## Development set (141 sentences)
 
