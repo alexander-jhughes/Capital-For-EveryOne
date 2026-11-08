@@ -2,7 +2,7 @@
 
 import { buzz } from "@/lib/assistant/speech";
 
-import { ChevronDown, ChevronUp, Mic, Pause, Pencil, Send, Square, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Mic, Pause, Pencil, Play, Send, Square, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { spokenText } from "@/lib/dial/runner";
 import { usePreferences } from "@/lib/preferences/provider";
@@ -293,6 +293,28 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
               <DialReply turn={turn} tone="voice" offer={session.offer} onDecide={(yes, o) => { const said = session.decide(yes, o); if (heard?.spoken) reply(said); }} onFollowUp={(q) => void handle(q)} onNavigate={() => window.innerWidth < 1024 && setDocked(true)} />
             ) : (
               <p className="text-lg leading-snug">Hi. Type or tap the microphone. You can ask about your money, go anywhere in the app, or change how it looks.</p>
+            )}
+            {/* Any finished reply can be read aloud on request, typed or spoken, with or without the microphone. */}
+            {speaker.supported && turn?.status === "done" && (
+              <div className="flex flex-wrap gap-2">
+                {speaker.speaking ? (
+                  <>
+                    <button type="button" onClick={speaker.paused ? speaker.resume : speaker.pause} className={outline}>
+                      {speaker.paused ? <Play aria-hidden className="size-[1.1em]" /> : <Pause aria-hidden className="size-[1.1em]" />}
+                      {speaker.paused ? "Resume reading" : "Pause reading"}
+                    </button>
+                    <button type="button" onClick={() => { speaker.cancel(); mic.setSpeaking(null); }} className={outline}>
+                      <Square aria-hidden className="size-[1.1em]" />
+                      Stop reading
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => { const text = spokenText(turn.items); mic.setSpeaking(text); speaker.speak(text, () => mic.setSpeaking(null)); }} className={outline}>
+                    <Volume2 aria-hidden className="size-[1.1em]" />
+                    Read aloud
+                  </button>
+                )}
+              </div>
             )}
           </section>
 
