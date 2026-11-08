@@ -655,3 +655,69 @@ describe("lifecycle", () => {
     expect(log.states.length).toBe(before);
   });
 });
+
+describe("continuous listening stops when it's quiet", () => {
+  const quiet = { quietMs: 120_000 };
+
+  it("closes the microphone after the quiet period with nothing said, and says why", () => {
+    const { engine, log, clock, rec, world, listen } = setup({ timing: quiet });
+    listen("continuous");
+    // Chrome ends quiet sessions every few seconds; the engine restarts them, but they don't count as speech.
+    for (let i = 0; i < 20; i++) {
+      clock.tick(5000);
+      rec().end();
+      clock.tick(200);
+      rec().begin();
+    }
+    clock.tick(120_000 - 20 * 5200 - 1);
+    expect(engine.state).toBe("listening");
+    clock.tick(1);
+    expect(engine.state).toBe("failed");
+    expect(world.open).toBe(0);
+    expect(log.errors.at(-1)).toMatchObject({ code: "no-speech", recoverable: true });
+    expect(log.errors.at(-1)!.message).toMatch(/quiet/);
+  });
+
+  it("counts from the last words the person said, not from start", () => {
+    const { engine, log, clock, rec, listen } = setup({ timing: quiet });
+    listen("continuous");
+    clock.tick(100_000);
+    rec().hear(["what's my balance", "final"]);
+    clock.tick(1100);
+    expect(texts(log.utterances)).toEqual(["what's my balance"]);
+    clock.tick(100_000);
+    expect(engine.state).toBe("listening");
+    clock.tick(20_000);
+    expect(engine.state).toBe("failed");
+  });
+
+  it("doesn't count Dial's own voice as the person speaking", () => {
+    const { engine, clock, rec, listen } = setup({ timing: quiet });
+    listen("continuous");
+    clock.tick(60_000);
+    engine.setSpeaking("your balance is two hundred pounds");
+    rec().hear("your balance is two hundred pounds");
+    engine.setSpeaking(null);
+    clock.tick(60_000);
+    expect(engine.state).toBe("failed");
+  });
+
+  it("waits while Dial is still answering", () => {
+    const { engine, clock, listen } = setup({ timing: quiet });
+    listen("continuous");
+    engine.setProcessing(true);
+    clock.tick(120_000);
+    expect(engine.state).toBe("processing");
+    engine.setProcessing(false);
+    clock.tick(120_000);
+    expect(engine.state).toBe("failed");
+  });
+
+  it("never applies to tap or push-to-talk", () => {
+    const { engine, clock, listen } = setup({ timing: { ...quiet, noSpeechMs: 10 ** 9 } });
+    listen("hold");
+    clock.tick(300_000);
+    expect(engine.state).toBe("listening");
+    engine.stop();
+  });
+});

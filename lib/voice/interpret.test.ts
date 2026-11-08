@@ -59,6 +59,15 @@ const CASES: Case[] = [
   ["Use fewer numbers", ui("answerStyle=brief", "density=calm")],
   ["Shorter explanations", ui("answerStyle=brief")],
   ["Keep your answers short", ui("answerStyle=brief")],
+  ["Less detail in your answers", ui("answerStyle=brief")],
+  ["More detail in your answers please", ui("answerStyle=standard")],
+  ["Give me more detail in the explanations", ui("answerStyle=standard")],
+  // How the microphone listens
+  ["Keep listening", ui("listenMode=continuous")],
+  ["Hands free please", ui("listenMode=continuous")],
+  ["Push to talk", ui("listenMode=hold")],
+  ["Only listen while I hold the button", ui("listenMode=hold")],
+  ["One question at a time", ui("listenMode=tap")],
   ["Make this easier to understand", ui("explanations=stepByStep", "density=calm")],
   ["Larger buttons", ui("targets=large")],
   ["High contrast", ui("contrast=high")],
@@ -66,6 +75,7 @@ const CASES: Case[] = [
   // View (mode)
   ["Switch to simple view", { kind: "mode", mode: "simple" }],
   ["Show me more detail", { kind: "mode", mode: "complex" }],
+  ["Switch to detailed view", { kind: "mode", mode: "complex" }],
   ["Give me the full details", { kind: "mode", mode: "complex" }],
   // Navigation
   ["Take me to payments", { kind: "navigate", to: "/account/pay" }],
