@@ -47,7 +47,7 @@ export const MAX_STEPS = 4;
 const FOOD_PAIR: SpendCategory[] = ["Groceries", "Eating out"];
 const FOOD_SAY = "Food covers two categories, groceries and eating out, so here are both.";
 const FOOD_CLARIFY = "Do you mean groceries or eating out? Food covers both.";
-const NOT_UNDERSTOOD = "Sorry, I didn't understand that. You can ask about your money, open a page such as Spending, or change how the app looks.";
+const NOT_UNDERSTOOD = "Sorry, I didn't quite get that. You could ask me about your bill or spending, open a page like Spending, or tell me if something's hard to see or use.";
 
 // ─── Reading one part ───────────────────────────────────────────────────────────────────────────────────────────
 

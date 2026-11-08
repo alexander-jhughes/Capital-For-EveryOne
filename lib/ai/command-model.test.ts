@@ -145,3 +145,17 @@ describe("browser client", () => {
     expect(await askModelForSteps("a", screen, { fetchImpl: retry })).toEqual([{ type: "back" }]);
   });
 });
+
+describe("small talk the rules don't cover", () => {
+  const screen = { route: "/account", mode: "simple" as const, textSize: 100 as const };
+  it("becomes a friendly local reply when it is safe", async () => {
+    const { toSteps } = await import("./command-model");
+    expect(toSteps([{ do: "chat", say: "Ha, I can't do cats, but I'm great with cards. What can I check for you?" }], screen)).toEqual([
+      { type: "local", text: "Ha, I can't do cats, but I'm great with cards. What can I check for you?" },
+    ]);
+  });
+  it("is dropped if the model slips in a figure, money talk or advice", async () => {
+    const { toSteps } = await import("./command-model");
+    for (const say of ["You've got £430 left, so treat yourself!", "You should pay it off now.", "Your balance is fine."]) expect(toSteps([{ do: "chat", say }], screen), say).toEqual([]);
+  });
+});

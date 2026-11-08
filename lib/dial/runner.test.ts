@@ -134,7 +134,7 @@ describe("runSteps", () => {
     const cant = async (): Promise<AskOutcome> => ({ kind: "answer", response: { answer: "I can't tell that from your transactions.", evidenceIds: [], source: "model" }, experience: { template: "general", intent: null }, followUps: [] });
     const out = await run([{ type: "ask", question: "what is the meaning of life" }], deps({ ask: cant }));
     const text = spokenText(out.items);
-    expect(text).toMatch(/only answer questions about this card/);
+    expect(text).toMatch(/not something I can see from your card/);
     expect(text).not.toMatch(/£\d/);
     expect(out.items[0]).toMatchObject({ kind: "answer", evidenceIds: [] });
   });

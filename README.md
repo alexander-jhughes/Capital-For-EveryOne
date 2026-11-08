@@ -34,6 +34,15 @@ New settings it can use (also in Settings): easier reading, colour-safe palette,
 thumb reach, ignore accidental double taps, vibration, and the night look. Demo the night look at any time of day with
 `/account?hour=21`.
 
+## Talks like a person
+
+Dial answers "hello", "how are you?", "thanks", "ugh", "tell me a joke" or "I'm having a rough day" the way a kind
+person would, with varied wording, then offers to help (`lib/dial/social.ts`, on the device). "Hi Dial, did I pay Tesco
+twice?" gets a hello and then the real answer. "I can't pay my bill" gets empathy, the Pay screen and free debt advice
+(StepChange, MoneyHelper). Anything suggesting someone may be in danger always gets the same careful reply with
+Samaritans (116 123) and 999: fixed text, never AI. Other small talk is worded by Groq, and every such reply is checked:
+no figures, money talk, advice or links, or Dial uses its own words.
+
 ## Run it
 
 ```bash

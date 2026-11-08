@@ -29,6 +29,8 @@ import { usePreferences } from "@/lib/preferences/provider";
 import { dialStyle } from "@/lib/preferences/schema";
 import { spendPauseReply } from "@/lib/spend-pause/dial";
 import { splitCorrection } from "@/lib/voice/correction";
+import { interpret } from "@/lib/voice/interpret";
+import { socialTurn, type SocialTurn } from "@/lib/dial/social";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import type { Mode } from "@/lib/types";
@@ -69,7 +71,7 @@ interface SessionApi {
 const SessionContext = createContext<SessionApi | null>(null);
 
 const HELP =
-  "I'm Dial, the assistant for this card. I use Groq to understand you, but every figure comes from your account, checked on this device. You can ask about your money, like where does most of my money go, or compare October with September. You can say take me to spending or show my groceries for October. You can change how the app looks, like make everything bigger or use fewer numbers. You can ask what if I spend 100 pounds less next month, or set a goal. Say undo, stop, or exit at any time.";
+  "I'm Dial, your card's assistant. Think of me as a friendly helper: I use AI to understand you, but every figure I give you comes straight from your account and is checked first. You can ask about your money, like where does most of my money go, or compare October with September. You can say take me to spending or show my groceries for October. You can change how the app looks, like make everything bigger or use fewer numbers. You can ask what if I spend 100 pounds less next month, or set a goal. Say undo, stop, or exit at any time.";
 
 const sameUrl = (href: string) => `${window.location.pathname}${window.location.search}` === href;
 
@@ -120,7 +122,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     if (step.type === "adapt") {
       if (!yes) {
         p.rejectPreview();
-        return "Okay, I've left it as it was. You can tell me more about what's hard, or change anything in Settings.";
+        return "No problem, I've left it as it was. Tell me a bit more about what's hard, if you like, or change anything in Settings.";
       }
       const keep = planKeep(changesFor(step.situations), step.scope);
       if (step.scope === "night") {
@@ -128,10 +130,10 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         // anything that isn't about the light; the screen returns to the day look until 7pm.
         p.rejectPreview();
         p.apply([...keep.now, { type: "nightLook", actions: keep.night }], { save: true, source: "voice" });
-        return "Done. Your night look switches on by itself from 7pm to 7am. You can change it in Settings, or say undo.";
+        return "Done! From 7pm to 7am the app will switch to your night look by itself. You can change it any time in Settings, or say \"undo\".";
       }
       p.acceptPreview({ save: step.scope === "always" || save });
-      return step.scope === "now" ? "Done, just for now. It goes back to normal next time, or say undo." : "Done, and saved for next time. Say undo to change it back.";
+      return step.scope === "now" ? "Done, just for now. It'll go back to normal next time, or say \"undo\" whenever you like." : "Done, and I'll remember it for next time. Just say \"undo\" if it's not right.";
     }
     if (step.type === "setMode") {
       if (!yes && modeBefore.current) setMode(modeBefore.current);
@@ -142,9 +144,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       if (step.op === "remove") g.remove(step.goalId);
       return step.op === "create" ? "Goal added. You can see how it's going on the Goals screen." : "Goal removed.";
     }
-    if (!yes) return "Okay, I've left it as it was.";
-    if (step.type === "preferences" && save) return "Kept and saved. It will look like this next time.";
-    return step.type === "preferences" ? "Done. Say save it to keep this for next time, or undo to change it back." : "Done.";
+    if (!yes) return "No problem, I've left it as it was.";
+    if (step.type === "preferences" && save) return "Lovely, kept and saved. It'll look like this next time too.";
+    return step.type === "preferences" ? "Done! Say \"save it\" to keep it for next time, or \"undo\" if you change your mind." : "Done!";
   }, [setMode]);
 
   const submit = useCallback(
@@ -157,6 +159,23 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const id = ++turnId.current;
       const L = live.current;
 
+      // The human side comes first, on the device: hello, how are you, thanks, a joke, a bad day, and care for anyone
+      // who sounds like they're struggling (lib/dial/social.ts). A "yes", "ok" or "keep it" answering an open preview
+      // is left to the rules so it still keeps the change.
+      const answeringOffer = !!offerRef.current && interpret(input).kind === "control";
+      const social: SocialTurn = answeringOffer ? { kind: "none" } : socialTurn(input, { hour: new Date().getHours(), turn: id });
+      if (social.kind === "reply") {
+        const items: ReplyItem[] = [{ kind: "say", text: social.reply.text }];
+        if (social.reply.link) items.push({ kind: "link", ...social.reply.link });
+        const done: DialTurn = { id, input, understood: "", corrected: false, status: "done", items, local: true };
+        setStats((s) => ({ ...s, turns: s.turns + 1, local: s.local + 1 }));
+        setTurn(done);
+        return done;
+      }
+      // "Hi Dial, did I pay Tesco twice?": say hello, then handle the request without the hello.
+      const request = social.kind === "greeting" ? social.rest : input;
+      const greeting = social.kind === "greeting" ? social.greeting : null;
+
       // Someone describing their situation ("I have trouble seeing at night") is understood on this device by meaning,
       // before the precise rules run. Commands, page names and money questions skip this (lib/access/route.ts).
       // The model is given up to 4 seconds the first time it loads; after that it answers in milliseconds.
@@ -164,7 +183,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       try {
         const brain = await brainWithin(4000);
         if (id !== turnId.current) return null;
-        if (brain) found = await adaptationFor(input, brain);
+        if (brain) found = await adaptationFor(request, brain);
         if (id !== turnId.current) return null;
       } catch {
         // The rules below still run; nothing about the sentence is logged.
@@ -173,7 +192,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const months = [...new Set(L.transactions.map((t) => t.date.slice(0, 7)))].sort();
       const merchants = [...new Set(L.transactions.map((t) => t.merchant))];
       const planned = plan(
-        { text: input, replaces: opts.replaces },
+        { text: request, replaces: opts.replaces },
         {
           context: context.current,
           textSize: L.prefsApi.prefs.textSize,
@@ -202,12 +221,14 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const corrected = !!opts.replaces || splitCorrection(input) !== null;
       // When the situation layer took the sentence, its card says what it heard ("I heard: ..."), so the keyword rules'
       // reading ("Use a dark interface") must not be shown alongside it.
-      const understood = adaptation || gaveUp ? "" : planned.understood;
+      // Removing a "hi" isn't news, so it isn't shown as "Understood: ...".
+      const sameAsAsked = planned.understood.trim().toLowerCase() === request.trim().toLowerCase();
+      const understood = adaptation || gaveUp || (greeting && sameAsAsked) ? "" : planned.understood;
       const working: DialTurn = { id, input, understood, corrected, status: "working", items: [], local: adaptation ? true : planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
-        const fromModel = await askModelForSteps(input, { route, mode: L.mode, textSize: L.prefsApi.prefs.textSize }, { signal: controller.signal });
+        const fromModel = await askModelForSteps(request, { route, mode: L.mode, textSize: L.prefsApi.prefs.textSize }, { signal: controller.signal });
         if (id !== turnId.current) return null; // a newer turn replaced this one
         if (fromModel === "busy") steps = [{ type: "unsupported", say: "Groq is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
         else if (fromModel && fromModel.length > 0) {
@@ -304,7 +325,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const reused = cache.stats.reused + cache.stats.joined - reusedBefore;
       const network = out.network + (gaveUp ? 1 : 0);
       setStats((s) => ({ turns: s.turns + 1, local: s.local + (network === 0 ? 1 : 0), network: s.network + network - reused, reused: s.reused + reused }));
-      const done: DialTurn = { ...working, local: working.local && !gaveUp && !usedModel, status: "done", items: out.items };
+      const items: ReplyItem[] = greeting ? [{ kind: "say", text: greeting }, ...out.items] : out.items;
+      const done: DialTurn = { ...working, local: working.local && !gaveUp && !usedModel, status: "done", items };
       setTurn(done);
       return done;
     },

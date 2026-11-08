@@ -174,10 +174,10 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
             cloud: !!step.cloud,
           });
           deps.previewAdapt(step);
-          out.items.push({ kind: "offer", text: `${step.tentative ? "Here's a preview, in case it helps." : "Here's a preview."} Do you want to keep it?` });
+          out.items.push({ kind: "offer", text: `${step.tentative ? "I've put up a preview in case it helps." : "I've put up a preview so you can see how it feels."} Do you want to keep it?` });
           break;
         }
-        out.items.push({ kind: "offer", text: `${step.type === "goal" ? description : `Here's a preview. ${description}`} Do you want to keep it?` });
+        out.items.push({ kind: "offer", text: `${step.type === "goal" ? description : `Have a look, this is a preview. ${description}`} Do you want to keep it?` });
         break;
       }
       case "control": {
@@ -227,7 +227,7 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
           // "I can't tell that from your transactions" is the safe answer to anything the account can't support. On its
           // own it reads like a failure, so say what Dial can answer instead (same safety: no figure is invented).
           const answer = isCantTell(outcome.response.answer)
-            ? "I can only answer questions about this card: your bill, spending, shops, subscriptions and payments. Try asking where your money goes, or if a subscription has gone up."
+            ? "That's not something I can see from your card, sorry. I can help with your bill, your spending, shops, subscriptions and payments. You could ask where your money goes, or whether a subscription has gone up."
             : outcome.response.answer;
           out.resolvedQuestion = outcome.resolvedQuestion;
           out.items.push({ kind: "answer", text: answer, evidenceIds, source, template: outcome.experience.template, followUps: outcome.followUps, ...(outcome.modelBusy ? { modelBusy: true } : {}) });
