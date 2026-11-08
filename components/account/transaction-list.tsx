@@ -2,52 +2,75 @@
 
 // Successor to Alexander Hughes's TransactionTable (origin/complex-mode, e1ed0e5 / 879ae79): search, category filter,
 // sorting and highlight-and-scroll keep his behaviour. Changed: rows grouped by day instead of a sideways-scrolling
-// table (no horizontal scrolling at 320px), native selects, the new design tokens.
+// table (no horizontal scrolling at 320px), native selects, the new design tokens. Dial 2.0: the category and sort
+// can start from the URL, and ?txn= opens one row with its details.
 
+import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { flagTransactions } from "@/lib/finance";
+import { SORT_OPTIONS, sortTransactions, type SortKey } from "@/lib/dial/spending-view";
+import { flagTransactions, type TransactionFlags } from "@/lib/finance";
 import { formatDate, formatPence } from "@/lib/format";
 import type { Transaction } from "@/lib/types";
 import { FlagBadges } from "./flag-badges";
+import { TransactionDetail } from "./transaction-detail";
 
-type SortKey = "newest" | "oldest" | "highest" | "lowest" | "shop";
-const SORTS: { value: SortKey; label: string }[] = [
-  { value: "newest", label: "Newest first" },
-  { value: "oldest", label: "Oldest first" },
-  { value: "highest", label: "Highest amount" },
-  { value: "lowest", label: "Lowest amount" },
-  { value: "shop", label: "Shop, A to Z" },
-];
 const ALL = "all";
 const control = "min-h-(--target-min) w-full rounded-xl border border-input bg-card px-3 text-base";
-
-function sortTxns(txns: Transaction[], key: SortKey) {
-  const byDate = (a: Transaction, b: Transaction) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id);
-  const cmp: Record<SortKey, (a: Transaction, b: Transaction) => number> = {
-    newest: byDate,
-    oldest: (a, b) => -byDate(a, b),
-    highest: (a, b) => b.amount - a.amount || byDate(a, b),
-    lowest: (a, b) => a.amount - b.amount || byDate(a, b),
-    shop: (a, b) => a.merchant.localeCompare(b.merchant, "en-GB") || byDate(a, b),
-  };
-  return [...txns].sort(cmp[key]);
-}
 
 const matches = (t: Transaction, q: string, cat: string) =>
   (cat === ALL || t.category === cat) && (t.merchant.toLowerCase().includes(q.toLowerCase()) || t.category.toLowerCase().includes(q.toLowerCase()));
 
-export function TransactionList({ transactions, highlightIds = [] }: { transactions: Transaction[]; highlightIds?: string[] }) {
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
+
+interface Props {
+  transactions: Transaction[];
+  highlightIds?: string[];
+  /** Starting category and sort, e.g. from the URL. Give the list a new `key` when they change. */
+  initialCategory?: string;
+  initialSort?: SortKey;
+  /** Flags worked out over the whole account, so a price change or duplicate across a month boundary still shows. */
+  flags?: Map<string, TransactionFlags>;
+  /** Every transaction on the account (for the detail panel). Defaults to `transactions`. */
+  allTransactions?: Transaction[];
+  /** One transaction to open: scrolled to, highlighted, focused and described. */
+  openId?: string;
+  /** Where the detail panel's Close goes. */
+  closeHref?: string;
+  /** Said when the list starts empty because of the URL's filters, e.g. "No Groceries purchases in September." */
+  emptyMessage?: string;
+  /** Where to go to drop the URL's filters when the list is empty. */
+  clearHref?: string;
+}
+
+export function TransactionList({
+  transactions,
+  highlightIds = [],
+  initialCategory = ALL,
+  initialSort = "newest",
+  flags: givenFlags,
+  allTransactions,
+  openId,
+  closeHref = "/account/spending",
+  emptyMessage,
+  clearHref,
+}: Props) {
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState(ALL);
-  const [sort, setSort] = useState<SortKey>("newest");
+  const [category, setCategory] = useState(initialCategory);
+  const [sort, setSort] = useState<SortKey>(initialSort);
   const ids = { search: useId(), cat: useId(), sort: useId() };
   const listRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
   const scrolledKey = useRef("");
+  const openedKey = useRef("");
+  const lastOpen = useRef<string | undefined>(undefined);
 
   const q = search.trim();
-  const flags = useMemo(() => flagTransactions(transactions), [transactions]);
-  const categories = useMemo(() => [...new Set(transactions.map((t) => t.category))].sort((a, b) => a.localeCompare(b, "en-GB")), [transactions]);
-  const rows = useMemo(() => sortTxns(transactions.filter((t) => matches(t, q, category)), sort), [transactions, q, category, sort]);
+  const ownFlags = useMemo(() => givenFlags ?? flagTransactions(transactions), [givenFlags, transactions]);
+  const categories = useMemo(
+    () => [...new Set([...transactions.map((t) => t.category as string), ...(initialCategory === ALL ? [] : [initialCategory])])].sort((a, b) => a.localeCompare(b, "en-GB")),
+    [transactions, initialCategory],
+  );
+  const rows = useMemo(() => sortTransactions(transactions.filter((t) => matches(t, q, category)), sort), [transactions, q, category, sort]);
   const highlighted = useMemo(() => new Set(highlightIds), [highlightIds]);
   const highlightKey = highlightIds.join(",");
 
@@ -71,9 +94,36 @@ export function TransactionList({ transactions, highlightIds = [] }: { transacti
     const row = listRef.current?.querySelector<HTMLElement>("[data-highlighted]");
     if (!row) return;
     scrolledKey.current = highlightKey;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
-    row.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    row.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
   }, [highlightKey, rows]);
+
+  // The same for an opened transaction: never hidden by a search typed earlier.
+  useEffect(() => {
+    const t = openId && transactions.find((x) => x.id === openId);
+    if (t && !matches(t, q, category)) {
+      setSearch("");
+      setCategory(ALL);
+    }
+    // Only a change of the opened transaction should clear filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId]);
+
+  // Scroll to and focus the opened transaction once it has rendered; when it closes, return focus to its row.
+  useEffect(() => {
+    if (!openId) {
+      openedKey.current = "";
+      const prev = lastOpen.current;
+      lastOpen.current = undefined;
+      const active = document.activeElement;
+      if (prev && (!active || active === document.body)) listRef.current?.querySelector<HTMLElement>(`[data-txn="${prev}"]`)?.focus({ preventScroll: true });
+      return;
+    }
+    lastOpen.current = openId;
+    if (openedKey.current === openId || !detailRef.current) return;
+    openedKey.current = openId;
+    detailRef.current.closest("li")?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
+    detailRef.current.focus({ preventScroll: true });
+  }, [openId, rows]);
 
   const groups = useMemo(() => {
     if (sort !== "newest" && sort !== "oldest") return [{ label: null as string | null, items: rows }];
@@ -90,6 +140,8 @@ export function TransactionList({ transactions, highlightIds = [] }: { transacti
   const results = filtered
     ? `${rows.length === 0 ? "No results" : `${rows.length} ${rows.length === 1 ? "result" : "results"}`}${q ? ` for ${q}` : ""}${category !== ALL ? ` in ${category}` : ""}`
     : `${rows.length} transactions`;
+  // Empty because of the URL, not because of anything typed here.
+  const emptyFromUrl = rows.length === 0 && q === "" && category === initialCategory && emptyMessage;
 
   return (
     <div className="flex flex-col gap-3">
@@ -116,7 +168,7 @@ export function TransactionList({ transactions, highlightIds = [] }: { transacti
             Sort
           </label>
           <select id={ids.sort} value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={control}>
-            {SORTS.map((s) => (
+            {SORT_OPTIONS.map((s) => (
               <option key={s.value} value={s.value}>
                 {s.label}
               </option>
@@ -131,39 +183,64 @@ export function TransactionList({ transactions, highlightIds = [] }: { transacti
 
       {rows.length === 0 ? (
         <div className="flex flex-col items-start gap-3 rounded-xl bg-card p-(--space)">
-          <p>{transactions.length === 0 ? "There are no transactions on this account yet." : "Nothing matches. Try a different shop or category."}</p>
-          {transactions.length > 0 && (
-            <button type="button" onClick={() => { setSearch(""); setCategory(ALL); }} className="hairline inline-flex min-h-(--target-min) items-center rounded-full px-5 font-bold">
-              Clear search and filter
-            </button>
+          {emptyFromUrl ? (
+            <>
+              <p className="font-bold">{emptyMessage}</p>
+              {clearHref && (
+                <Link href={clearHref} scroll={false} className="hairline inline-flex min-h-(--target-min) items-center rounded-full px-5 font-bold">
+                  Show all spending
+                </Link>
+              )}
+            </>
+          ) : (
+            <>
+              <p>{transactions.length === 0 ? "There are no transactions on this account yet." : "Nothing matches. Try a different shop or category."}</p>
+              {transactions.length > 0 && (
+                <button type="button" onClick={() => { setSearch(""); setCategory(ALL); }} className="hairline inline-flex min-h-(--target-min) items-center rounded-full px-5 font-bold">
+                  Clear search and filter
+                </button>
+              )}
+            </>
           )}
         </div>
       ) : (
-        <div ref={listRef} className="elevated rounded-xl bg-card px-(--space) py-1">
+        <div ref={listRef} className="elevated @container rounded-xl bg-card px-(--space) py-1">
           {groups.map((g, gi) => (
             <section key={g.label ?? gi} aria-label={g.label ?? undefined}>
               {g.label && <h3 className="pb-1 pt-3 text-sm font-bold text-muted-foreground">{g.label}</h3>}
               <ul>
                 {g.items.map((t) => {
                   const hl = highlighted.has(t.id);
+                  const open = t.id === openId;
                   return (
                     <li
                       key={t.id}
+                      data-txn={t.id}
+                      tabIndex={-1}
                       data-highlighted={hl ? "" : undefined}
-                      className={`flex scroll-my-24 items-center gap-3 border-b py-2.5 last:border-0 ${hl ? "-mx-2 rounded-lg bg-accent px-2" : ""}`}
+                      data-open={open ? "" : undefined}
+                      className={`scroll-my-24 border-b py-2.5 last:border-0 ${hl || open ? "-mx-2 rounded-lg bg-accent px-2" : ""} ${open ? "pb-2" : ""}`}
                     >
-                      <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent font-bold text-accent-foreground">
-                        {t.merchant[0]}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-bold">{t.merchant}</span>
-                        <span className="text-sm text-muted-foreground">
-                          {t.category}
-                          {g.label ? "" : `, ${formatDate(t.date)}`}
+                      {/* In a narrow column (320px, large text) the initial goes and the amount can wrap under the shop. */}
+                      <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span aria-hidden className="flex size-10 shrink-0 items-center @max-[16em]:hidden justify-center rounded-full bg-accent font-bold text-accent-foreground shadow-[0_0_0_1px_var(--border)]">
+                          {t.merchant[0]}
                         </span>
-                        <FlagBadges flags={flags.get(t.id)!} highlighted={hl} />
+                        <span className="min-w-[min(100%,6em)] flex-1">
+                          <span className="block font-bold">{t.merchant}</span>
+                          <span className="text-sm text-muted-foreground">
+                            {t.category}
+                            {g.label ? "" : `, ${formatDate(t.date)}`}
+                          </span>
+                          <FlagBadges flags={ownFlags.get(t.id)!} highlighted={hl} />
+                        </span>
+                        <span className={`ml-auto shrink-0 font-bold ${t.amount < 0 ? "text-success" : ""}`}>{t.amount < 0 ? `+${formatPence(-t.amount)}` : formatPence(t.amount)}</span>
                       </span>
-                      <span className={`shrink-0 font-bold ${t.amount < 0 ? "text-success" : ""}`}>{t.amount < 0 ? `+${formatPence(-t.amount)}` : formatPence(t.amount)}</span>
+                      {open && (
+                        <div className="mt-2.5">
+                          <TransactionDetail ref={detailRef} transaction={t} flags={ownFlags.get(t.id)!} transactions={allTransactions ?? transactions} closeHref={closeHref} level={g.label ? 4 : 3} />
+                        </div>
+                      )}
                     </li>
                   );
                 })}

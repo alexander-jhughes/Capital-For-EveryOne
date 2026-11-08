@@ -2,6 +2,7 @@
 
 import { ArrowRight, CalendarClock, ChevronRight, Mic, PauseCircle, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { evidenceHref } from "@/lib/assistant/client";
 import { DEMO_TODAY } from "@/lib/demo-clock";
 import {
@@ -17,7 +18,8 @@ import {
 import { formatDate, formatLongDate, formatMonth, formatPence, formatShortDate } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences/provider";
 import { MlSuggestion } from "../personalise/ml-suggestion";
-import { DEFAULT_PREFS, visibleWidgets, WIDGET_LABELS, type WidgetId } from "@/lib/preferences/schema";
+import { DEFAULT_PREFS, VIEW_DEFAULTS, visibleWidgets, WIDGET_LABELS, type Layout, type WidgetId } from "@/lib/preferences/schema";
+import type { HomeSection } from "@/lib/dial/types";
 import { activeSince } from "@/lib/spend-pause/dial";
 import { describeChecks } from "@/lib/spend-pause/settings";
 import { useAccount } from "@/lib/state/account-context";
@@ -417,8 +419,56 @@ const SPAN: Partial<Record<WidgetId, string>> = {
   pause: "lg:col-span-12",
 };
 
+/** "balance and credit", "Dial noticed", "bill and next payment": reads after "Your". */
+function sectionName(w: WidgetId) {
+  const label = WIDGET_LABELS[w].replace(/^Your /, "");
+  return /^(Dial|Spend Pause)/.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+function hiddenReason(w: WidgetId, mode: "simple" | "complex", layout: Layout) {
+  if (layout.hidden.includes(w)) return "You chose to hide it.";
+  if (layout.density === "calm") return "Your calmer home screen shows only the first three sections.";
+  if (!VIEW_DEFAULTS[mode].visible.includes(w)) return `${mode === "simple" ? "Simple" : "Detailed"} view keeps Home short, so it isn't shown unless you add it.`;
+  return null;
+}
+
+/**
+ * ?focus=<section> from Dial: scroll to the section, focus its heading and emphasise it for a moment. Runs whenever
+ * the section changes, so it works after a client-side navigation as well as on a full load. With reduced motion the
+ * emphasis is a static ring and nothing moves.
+ */
+function useSectionFocus(target: WidgetId | undefined, shown: boolean, notice: React.RefObject<HTMLDivElement | null>) {
+  const [flash, setFlash] = useState<{ widget: WidgetId; animate: boolean } | null>(null);
+  useEffect(() => {
+    if (!target) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // After the router has finished its own scroll for the navigation.
+    const frame = requestAnimationFrame(() => {
+      if (!shown) {
+        window.scrollTo({ top: 0 });
+        notice.current?.focus({ preventScroll: true });
+        return;
+      }
+      const box = document.querySelector<HTMLElement>(`[data-widget="${target}"]`);
+      if (!box) return;
+      const heading = box.querySelector<HTMLElement>("h2, h3") ?? box.querySelector<HTMLElement>("a, button") ?? box;
+      if (!heading.matches("a, button")) heading.setAttribute("tabindex", "-1");
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "reduced";
+      box.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+      heading.focus({ preventScroll: true });
+      setFlash({ widget: target, animate: !reduce });
+      timer = setTimeout(() => setFlash(null), 3000);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [target, shown, notice]);
+  return flash;
+}
+
 /** Home for both views. Which widgets appear, their order and emphasis come from the person's layout preference. */
-export function HomeScreen() {
+export function HomeScreen({ focus }: { focus?: HomeSection }) {
   const { mode } = useMode();
   const { prefs, apply } = usePreferences();
   const { openVoice } = useAskDial();
@@ -426,6 +476,11 @@ export function HomeScreen() {
   const simple = mode === "simple";
   const widgets = visibleWidgets(mode, prefs.layout);
   const personalised = JSON.stringify(prefs.layout) !== JSON.stringify(DEFAULT_PREFS.layout);
+  const target: WidgetId | undefined = focus;
+  const shown = !!target && widgets.includes(target);
+  const notice = useRef<HTMLDivElement>(null);
+  const flash = useSectionFocus(target, shown, notice);
+  const reason = target && !shown ? hiddenReason(target, mode, prefs.layout) : null;
 
   const render = (w: WidgetId) => {
     switch (w) {
@@ -473,6 +528,15 @@ export function HomeScreen() {
           </div>
         </section>
       )}
+      {target && !shown && (
+        <div ref={notice} tabIndex={-1} role="status" className="hairline flex flex-col items-start gap-1 rounded-xl bg-card px-(--space) py-3">
+          <p className="font-bold">Your {sectionName(target)} section is hidden on Home.</p>
+          {reason && <p className="text-sm text-muted-foreground">{reason}</p>}
+          <Link href="/account/settings#s-layout" className="inline-flex min-h-(--target-min) items-center font-bold text-primary underline underline-offset-4">
+            Show it<span className="sr-only"> in Settings</span>
+          </Link>
+        </div>
+      )}
       <MlSuggestion />
       {personalised && (
         <p className="rounded-lg bg-accent px-(--space) py-2 text-sm text-accent-foreground">
@@ -487,11 +551,15 @@ export function HomeScreen() {
           <div
             key={w}
             data-widget={w}
-            className={`${simple ? "" : (SPAN[w] ?? "lg:col-span-6")} ${prefs.layout.emphasis === w ? "widget-emphasis rounded-xl" : ""} [&>*]:h-full`}
+            data-focused={flash?.widget === w ? "" : undefined}
+            className={`relative scroll-mt-(--space) ${simple ? "" : (SPAN[w] ?? "lg:col-span-6")} ${prefs.layout.emphasis === w ? "widget-emphasis rounded-xl" : ""} [&>*]:h-full`}
             aria-label={prefs.layout.emphasis === w ? `${WIDGET_LABELS[w]}, highlighted by you` : undefined}
             role={prefs.layout.emphasis === w ? "group" : undefined}
           >
             {render(w)}
+            {flash?.widget === w && (
+              <span aria-hidden className={`widget-emphasis pointer-events-none absolute inset-0 rounded-xl ${flash.animate ? "animate-pulse" : ""}`} />
+            )}
           </div>
         ))}
       </div>
