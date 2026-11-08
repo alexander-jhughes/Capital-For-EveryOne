@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type ChangeSource, emit, type PrefsListener } from "./events";
 import { applyActions, DEFAULT_PREFS, effectivePrefs, encodePrefs, inNightWindow, prefAttributes, PREFS_COOKIE, sanitize, type Preferences, type UiAction } from "./schema";
 
@@ -112,7 +112,8 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
   // A preview shows exactly what is being offered; otherwise the kept look, with the night look on top at night.
   const prefs = preview?.result ?? effectivePrefs(kept, effectiveHour);
 
-  useEffect(() => {
+  // Layout effect: the attributes change in the same frame as the render, so a view transition captures the new look.
+  useLayoutEffect(() => {
     const el = document.documentElement;
     for (const [k, v] of Object.entries(prefAttributes(prefs))) el.setAttribute(k, v);
   }, [prefs]);

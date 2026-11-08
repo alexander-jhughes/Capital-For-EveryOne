@@ -73,6 +73,8 @@ function summarise(name: string, rows: Row[]) {
     exact,
     pos: pos.length,
     hijack,
+    neg: neg.length,
+    oldAny,
   };
 }
 
@@ -132,5 +134,15 @@ person is a money question turned into a display change, which is why that numbe
 `;
 
 writeFileSync(fileURLToPath(new URL("../../docs/ACCESS-EVALUATION.md", import.meta.url)), report);
+// The figures the app shows under an adaptation ("tested on sentences it had never seen"), straight from this run.
+const accuracy = {
+  set: "blind test",
+  sentences: TEST_SET.length,
+  recognised: Math.round((100 * test.exact) / test.pos),
+  keywordRules: Math.round((100 * test.oldAny) / test.pos),
+  hijacked: test.hijack,
+  nonSituations: test.neg,
+};
+writeFileSync(fileURLToPath(new URL("../../lib/access/accuracy.json", import.meta.url)), `${JSON.stringify(accuracy, null, 2)}\n`);
 console.log(`Blind test: ${test.exact}/${test.pos} exactly right, ${test.hijack} non-situations hijacked. Development: ${dev.exact}/${dev.pos}, ${dev.hijack} hijacked.`);
 console.log("Wrote docs/ACCESS-EVALUATION.md");

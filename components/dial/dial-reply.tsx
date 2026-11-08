@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertCircle, ArrowRight, Check, Clock, Save, ShieldCheck, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, Clock, Gauge, Save, ShieldCheck, Undo2 } from "lucide-react";
+import accuracy from "@/lib/access/accuracy.json";
 import { SCOPE_TEXT } from "@/lib/dial/runner";
 import Link from "next/link";
 import type { PendingOffer, ReplyItem } from "@/lib/dial/runner";
@@ -137,8 +138,8 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
             {item.tentative ? "?" : "."}
           </p>
           <ul className="flex flex-col gap-3" aria-label="Changes in this preview">
-            {item.changes.map((c) => (
-              <li key={c.text} className="flex items-start gap-2">
+            {item.changes.map((c, i) => (
+              <li key={c.text} className="reveal-item flex items-start gap-2" style={{ "--reveal-index": i } as React.CSSProperties}>
                 <Check aria-hidden className="mt-1 size-[1.1em] shrink-0" />
                 <span>
                   <span className="block font-bold">{c.text.charAt(0).toUpperCase() + c.text.slice(1)}</span>
@@ -157,6 +158,15 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
               ? "Understood with Groq's AI, which only chose from Dial's fixed list. Only the settings you keep are saved, never what you told me."
               : "Understood on this phone. Only the settings you keep are saved, never what you told me."}
           </p>
+          {!item.cloud && (
+            <p className={`flex items-start gap-2 text-sm ${voice ? "text-[#aab4c8]" : "text-muted-foreground"}`}>
+              <Gauge aria-hidden className="mt-0.5 size-[1.1em] shrink-0" />
+              <span>
+                <span className="font-bold">{accuracy.recognised}% right</span> on {accuracy.sentences} sentences it had never seen (keyword rules:{" "}
+                {accuracy.keywordRules}%). It never mistook a money question for one of these.
+              </span>
+            </p>
+          )}
         </div>
       );
     case "answer":

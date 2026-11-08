@@ -12,6 +12,7 @@ import { askModelForSteps } from "@/lib/assistant/command-client";
 import { brainWithin, loadBrain } from "@/lib/access/brain";
 import { adaptationFor, offeredAdaptation, type Adaptation } from "@/lib/access/pipeline";
 import { changesFor, planKeep } from "@/lib/access/understand";
+import { prefersReducedMotion, reveal } from "@/lib/access/reveal";
 import { liveState } from "@/lib/assistant/live-state";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
@@ -91,6 +92,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
   const offerRef = useRef<PendingOffer | null>(null);
   /** The mode before a view preview, so "no" can put it back. */
   const modeBefore = useRef<Mode | null>(null);
+  /** Stops an adaptation that is still revealing itself, one change at a time. */
+  const stopReveal = useRef<() => void>(() => {});
   const cache = useMemo(() => createAskCache(), []);
 
   // Latest values for callbacks that outlive a render (async steps, the voice engine).
@@ -108,7 +111,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     setOffer(o);
   };
 
-  const settle = useCallback((o: PendingOffer, yes: boolean, save = false): string => {
+  const settle = useCallback((o: PendingOffer, yes: boolean, save = false): string => settleNowRef.current(o, yes, save), []);
+
+  const settleNow = (o: PendingOffer, yes: boolean, save = false): string => {
     const { prefsApi: p, goalsApi: g } = live.current;
     const step = o.step;
     setPending(null);
@@ -118,6 +123,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       else p.rejectPreview();
     }
     if (step.type === "adapt") {
+      // Answering before the last change has landed stops the sequence; what's kept is always the full set.
+      stopReveal.current();
       if (!yes) {
         p.rejectPreview();
         return "Okay, I've left it as it was. You can tell me more about what's hard, or change anything in Settings.";
@@ -130,7 +137,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         p.apply([...keep.now, { type: "nightLook", actions: keep.night }], { save: true, source: "voice" });
         return "Done. Your night look switches on by itself from 7pm to 7am. You can change it in Settings, or say undo.";
       }
-      p.acceptPreview({ save: step.scope === "always" || save });
+      // Applied from the plan, not from the preview, so it's complete even if "Keep it" came mid-animation.
+      p.rejectPreview();
+      p.apply(keep.now, { save: step.scope === "always" || save, source: "voice" });
       return step.scope === "now" ? "Done, just for now. It goes back to normal next time, or say undo." : "Done, and saved for next time. Say undo to change it back.";
     }
     if (step.type === "setMode") {
@@ -145,7 +154,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     if (!yes) return "Okay, I've left it as it was.";
     if (step.type === "preferences" && save) return "Kept and saved. It will look like this next time.";
     return step.type === "preferences" ? "Done. Say save it to keep this for next time, or undo to change it back." : "Done.";
-  }, [setMode]);
+  };
+  const settleNowRef = useRef(settleNow);
+  settleNowRef.current = settleNow;
 
   const submit = useCallback(
     async (text: string, opts: { replaces?: string } = {}): Promise<DialTurn | null> => {
@@ -243,7 +254,14 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
             return true;
           },
           previewPreferences: (step) => live.current.prefsApi.startPreview(step.actions, { source: "voice" }),
-          previewAdapt: (step) => live.current.prefsApi.startPreview(changesFor(step.situations).map((c) => c.action), { source: "voice" }),
+          // Each change lands on its own, a beat apart, in step with its line in Dial's card (lib/access/reveal.ts).
+          previewAdapt: (step) => {
+            const actions = changesFor(step.situations).map((c) => c.action);
+            stopReveal.current();
+            stopReveal.current = reveal(actions.length, (n) => live.current.prefsApi.startPreview(actions.slice(0, n), { source: "voice" }), {
+              reduced: prefersReducedMotion(live.current.prefsApi.prefs.motion),
+            });
+          },
           previewMode: (m) => {
             modeBefore.current = live.current.mode;
             setMode(m);

@@ -529,6 +529,39 @@ body:has(> * nav[aria-label="Main"]) {
   }
 }
 
+/*
+  Adapting, one change at a time (lib/access/reveal.ts). Each change cross-fades the whole screen (View Transitions);
+  browsers without them still ease colours and sizes. The card's lines appear in step with the screen.
+  Reduced motion turns all of it off (the rule at the end of the file, and the device setting below).
+*/
+:root { --reveal-gap: 750ms; }
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 520ms;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+:root[data-revealing="true"] body,
+:root[data-revealing="true"] body * {
+  transition-property: background-color, color, border-color, box-shadow, font-size, letter-spacing, padding, gap;
+  transition-duration: 480ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.reveal-item {
+  animation: reveal-in 480ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc(var(--reveal-index, 0) * var(--reveal-gap));
+}
+@keyframes reveal-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none; }
+  .reveal-item { animation: none; }
+}
+:root[data-motion="reduced"]::view-transition-old(root),
+:root[data-motion="reduced"]::view-transition-new(root) { animation: none; }
+
 /* Thumb reach (one-handed): on phones the header with the view switch moves down, just above the tab bar. */
 @media (max-width: 1023px) {
   :root[data-reach="thumb"] .app-header {
