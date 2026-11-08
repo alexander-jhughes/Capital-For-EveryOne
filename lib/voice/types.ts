@@ -21,6 +21,8 @@ export type VoiceState =
   | "listening"
   /** Words are arriving (interim text visible). */
   | "transcribing"
+  /** The person paused listening. The microphone is closed and nothing is captured; the words so far stay on screen and are not sent. */
+  | "paused"
   /** The utterance was handed over and Dial is working on it. */
   | "processing"
   /** Dial is showing or speaking the answer. */
@@ -85,6 +87,8 @@ export interface VoiceError {
 
 export interface VoiceEngineEvents {
   onState(state: VoiceState): void;
+  /** The microphone opened or closed. In continuous mode that can happen while the state stays "processing" or "responding". */
+  onListening?(open: boolean): void;
   onTranscript(snapshot: TranscriptSnapshot): void;
   /** Called at most once per utteranceId, with the final, corrected text. */
   onUtterance(utterance: Utterance): void;
@@ -96,11 +100,17 @@ export interface VoiceEngineEvents {
 export interface VoiceEngine {
   readonly backend: RecognitionBackend;
   readonly state: VoiceState;
+  /** True while the microphone is open or being opened. In continuous mode it stays true while Dial works or speaks, so the microphone indicator must use this, not the state. */
+  readonly listening: boolean;
   start(mode: ListenMode): void;
   /** Stop listening and deliver the pending utterance if it has words. */
   stop(): void;
   /** Stop listening and drop the pending utterance. Nothing is submitted. */
   cancel(): void;
+  /** Close the microphone but keep this utterance's words, unsent. Works whenever the engine is listening in tap or continuous mode, including while Dial works or speaks; otherwise does nothing. */
+  pause(): void;
+  /** Reopen the microphone in the mode used before the pause and carry on the same utterance. Only while paused. */
+  resume(): void;
   /** Tell the engine what Dial is saying (null when quiet), for echo filtering and barge-in. */
   setSpeaking(text: string | null): void;
   /** The caller finished handling an utterance (answer shown or failed). */

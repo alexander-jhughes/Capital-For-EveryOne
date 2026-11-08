@@ -26,7 +26,7 @@ import { usePreferences } from "@/lib/preferences/provider";
 import { useProfile } from "@/lib/profile/provider";
 import { dialStyle } from "@/lib/preferences/schema";
 import { spendPauseReply } from "@/lib/spend-pause/dial";
-import { splitCorrection } from "@/lib/voice/correction";
+import { opensWithCorrection, splitCorrection } from "@/lib/voice/correction";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import type { Mode } from "@/lib/types";
@@ -85,6 +85,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
   const context = useRef<DialContext>(EMPTY_CONTEXT);
   const turnId = useRef(0);
   const abort = useRef<AbortController | null>(null);
+  /** What the turn still waiting for its answer asked, so a correction spoken meanwhile can correct it. */
+  const inFlight = useRef<string | null>(null);
   const surface = useRef<DialSurface | null>(null);
   const offerRef = useRef<PendingOffer | null>(null);
   /** The mode before a view preview, so "no" can put it back. */
@@ -137,6 +139,10 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     async (text: string, opts: { replaces?: string } = {}): Promise<DialTurn | null> => {
       const input = text.trim();
       if (!input) return null;
+      // "How much on food?" ... "actually, groceries" while the first is still with the backend: the context only
+      // learns a question once its answer is back, so the correction is planned against the question it cuts off.
+      const replaces = opts.replaces ?? (inFlight.current && opensWithCorrection(input) ? inFlight.current : undefined);
+      inFlight.current = replaces ? `${replaces}. ${input}` : input;
       abort.current?.abort();
       const controller = new AbortController();
       abort.current = controller;
@@ -146,7 +152,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const months = [...new Set(L.transactions.map((t) => t.date.slice(0, 7)))].sort();
       const merchants = [...new Set(L.transactions.map((t) => t.merchant))];
       const planned = plan(
-        { text: input, replaces: opts.replaces },
+        { text: input, replaces },
         {
           context: context.current,
           textSize: L.prefsApi.prefs.textSize,
@@ -168,7 +174,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       let steps = planned.steps;
       let usedModel = false;
       const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
-      const corrected = !!opts.replaces || splitCorrection(input) !== null;
+      const corrected = !!replaces || splitCorrection(input) !== null;
       const working: DialTurn = { id, input, understood: gaveUp ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
@@ -265,6 +271,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       );
 
       if (id !== turnId.current || out.cancelled) return null; // a newer turn replaced this one
+      inFlight.current = null;
       if (out.asked) context.current = afterAnswer(context.current, { question: out.asked, resolvedQuestion: out.resolvedQuestion });
       if (out.offer) setPending(out.offer);
       const reused = cache.stats.reused + cache.stats.joined - reusedBefore;
@@ -290,6 +297,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
 
   const cancel = useCallback(() => {
     abort.current?.abort();
+    inFlight.current = null;
     turnId.current++;
     setTurn((t) => (t?.status === "working" ? { ...t, status: "done", items: [{ kind: "say", text: "Stopped." }] } : t));
   }, []);

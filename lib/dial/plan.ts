@@ -10,6 +10,7 @@ import type { UiAction } from "../preferences/schema";
 import { describeActions } from "../preferences/schema";
 import { splitCorrection } from "../voice/correction";
 import { interpret, isQuestionText, normaliseUtterance, type Interpretation } from "../voice/interpret";
+import { isStopWord } from "../voice/transcript";
 import { nextSubject } from "./context";
 import {
   addMonths,
@@ -478,7 +479,7 @@ interface Fragment {
 }
 
 const FILLER = new Set(
-  "the my on in for at of to and or just only specifically instead please i mean meant it's its it was is sorry no um uh er erm oh then also with this that one page screen section tab spend spent spending transactions purchases what how about same again too as well".split(" "),
+  "the my on in for at of to and or just only specifically instead please i mean meant it's its it was is sorry no um uh er erm oh then also with this that one page screen section tab spend spent spending transactions purchases what how about same again too as well actually wait".split(" "),
 );
 
 function fragment(text: string, env: PlanEnv): Fragment | null {
@@ -498,17 +499,22 @@ function fragment(text: string, env: PlanEnv): Fragment | null {
   if (!spansUsed.length) return null;
   let rest = lower;
   for (const sp of spansUsed) rest = rest.slice(0, sp.start) + " ".repeat(sp.end - sp.start) + rest.slice(sp.end);
-  const words = rest.replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+  // "Change that to Tesco" is a correction, but "change my budget" is a request, so "change" alone isn't filler.
+  const words = rest.replace(/\bchange (?:that|it) to\b/, " ").replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
   if (!words.every((w) => FILLER.has(w))) return null;
   return { categories, merchants, months, amount, route: slots.length ? null : route };
 }
 
 const isFragment = (text: string, env: PlanEnv) => fragment(text, env) !== null;
 
+/** "Explain that again": the same thing once more. */
+const AGAIN = / (explain|say|show|show me|tell me|go over|go through|repeat) (that|it|this) (to me )?(again|once more|one more time) /;
+const BIGGEST_ONE = / (biggest|largest|most expensive|highest|priciest|top) one /;
+
 /** "what about X", "and X", "X instead": the shapes a follow-up takes. */
 const ELLIPSIS = /^ (?:(?:and|so|ok|okay|right|now|but) )?(?:what|how) about .+ $|^ and .+ $|^ (?:the )?same (?:for|with) .+ $|^ .+ instead $|^ (?:now |then )?(?:for|in) .+ $/;
 const LIST =
-  / (show (it|that|this|them|those|these)( to me)?( as a list| in a list| as transactions)?|as a list|in a list|list (it|them|those|that|these)|(show|see|open|view) (me )?(those|these|the) (transactions|purchases)|those transactions|these transactions|which transactions|what were they|which ones were they) /;
+  / (show (it|that|this|them|those|these)( to me)?( as a list| in a list| as transactions)?|show me instead|as a list|in a list|list (it|them|those|that|these)|(show|see|open|view) (me )?(those|these|the) (transactions|purchases)|those transactions|these transactions|which transactions|what were they|which ones were they) /;
 
 function filtersFromContext(ctx: DialContext): SpendingFilters {
   const v = ctx.lastVisual;
@@ -561,6 +567,17 @@ function followUpTurn(said: Said, env: PlanEnv): Turn | null {
   const { s } = said;
   const v = ctx.lastVisual;
 
+  if (v && has(s, AGAIN)) return { ...visualTurn([v], env), followUp: true };
+  if (has(s, BIGGEST_ONE)) {
+    const category = v?.category ?? ctx.subject.category;
+    const months = v?.months ?? ctx.subject.months;
+    // This chart can't filter by shop and shows one month, so a shop goes to the backend, and several months mean the latest.
+    if (!ctx.subject.merchant && (v || category || months)) {
+      const month = months && [...months].sort().at(-1);
+      return { ...visualTurn([{ kind: "biggest_purchases", limit: 1, ...(category ? { category } : {}), ...(month ? { months: [month] } : {}) }], env), followUp: true };
+    }
+    if (ctx.lastQuestion) return { ...ask(said.text, ctx), followUp: true };
+  }
   if (has(s, LIST)) {
     if (!v && !ctx.subject.category && !ctx.subject.merchant && !ctx.subject.months) return null;
     return { ...navTurn("/account/spending", { filters: filtersFromContext(ctx) }, env), followUp: true };
@@ -593,7 +610,8 @@ function followUpTurn(said: Said, env: PlanEnv): Turn | null {
   const cats = categoriesFor(said);
   const months = said.months.length ? [...said.months].sort() : undefined;
   if (said.unavailable.length && !said.months.length) return unsupported(`I only have spending from ${rangeLabel(env)}.`, "Months without data");
-  if (cats.length) return visualTurn(cats.map((c) => ({ kind: "category_trend", category: c, months: months ?? [current(env)] })), env);
+  // "How much on food in October", then "actually, groceries": two charts leave no last visual, but the month stands.
+  if (cats.length) return visualTurn(cats.map((c) => ({ kind: "category_trend", category: c, months: months ?? ctx.subject.months ?? [current(env)] })), env);
   if (months) return visualTurn([{ kind: "category_breakdown", months }], env);
   return null;
 }
@@ -678,6 +696,8 @@ function classify(text: string, env: PlanEnvWithTransactions): Turn {
   const ir = interpret(text, { textSize: env.textSize });
   const moneyQuestion = said.question && (has(s, MONEY) || said.text.includes("£"));
 
+  // "Wait." and "Cancel." stop Dial, as they do while it is speaking. With a preview showing, "cancel" means no to it.
+  if (isStopWord(text) && !(ctx.pending && ir.kind === "control" && ir.command === "no")) return { steps: [{ type: "control", command: "stop" }], understood: CONTROL_LABEL.stop, keepSubject: true };
   if (ir.kind === "control") {
     if ((ir.command === "yes" || ir.command === "no") && !ctx.pending) return unsupported("There's nothing waiting for a yes or no right now.", CONTROL_LABEL[ir.command]);
     return { steps: [{ type: "control", command: ir.command }], understood: CONTROL_LABEL[ir.command], keepSubject: true };

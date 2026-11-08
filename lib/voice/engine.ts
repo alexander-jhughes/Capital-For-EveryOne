@@ -7,6 +7,7 @@
 // was heard is delivered. Finals don't end the utterance on their own, so a natural pause mid-question can't cut it.
 // We always ask for a continuous session and decide the end ourselves; when the browser ends a session early
 // (Chrome does after silence, Android after each phrase) we restart it with back-off and keep the words heard so far.
+// pause() closes the microphone the same way but keeps the words unsent; resume() opens a new session that carries on.
 
 import {
   getLiveRecognition,
@@ -107,6 +108,10 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   let backend: RecognitionBackend = knownBackend(win, allowCloud) ?? "none";
   /** True from start() until stop/cancel/failure/tap delivery: the person wants us listening. */
   let active = false;
+  /** The person paused: still active (the utterance and mode are kept), but no session or timers run. */
+  let paused = false;
+  /** What onListening last said. */
+  let micOn = false;
   let mode: ListenMode = "tap";
   /** Bumped on every start(), so a slow backend check can't open the microphone after stop(). */
   let startToken = 0;
@@ -175,6 +180,7 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   }
 
   function computeState(): VoiceState {
+    if (paused) return "paused";
     if (interrupted) return "interrupted";
     if (active && current) return "transcribing";
     if (speaking !== null) return "responding";
@@ -184,6 +190,11 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   }
   function emit() {
     if (disposed) return;
+    const open = active && !paused;
+    if (open !== micOn) {
+      micOn = open;
+      events.onListening?.(open);
+    }
     const next = computeState();
     if (next === state) return;
     state = next;
@@ -277,16 +288,22 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
     open();
   }
 
-  /** Stops listening. Timers and the recogniser go; the pending utterance is dropped (callers take it first). */
-  function halt() {
-    active = false;
-    startToken++;
+  /** Closes the microphone and clears the listening timers. The utterance is left alone. */
+  function release() {
     pauseTimer = clear(pauseTimer);
     restartTimer = clear(restartTimer);
     noSpeechTimer = clear(noSpeechTimer);
     startTimer = clear(startTimer);
     quietTimer = clear(quietTimer);
     abortRecogniser();
+  }
+
+  /** Stops listening. Timers and the recogniser go; the pending utterance is dropped (callers take it first). */
+  function halt() {
+    active = false;
+    paused = false;
+    startToken++;
+    release();
     resetUtterance();
   }
 
@@ -426,7 +443,8 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
 
   function onVisibility() {
     if (doc?.visibilityState !== "hidden" || disposed) return;
-    if (!active && speaking === null) return;
+    // Paused: the microphone is already closed and the person chose to keep the words, so leave them.
+    if (paused || (!active && speaking === null)) return;
     const t = take();
     halt();
     if (t) events.onTranscript(emptySnapshot(t.snapshot.utteranceId));
@@ -434,15 +452,33 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   }
   doc?.addEventListener("visibilitychange", onVisibility);
 
+  function resume() {
+    if (disposed || !paused) return;
+    paused = false;
+    restarts = 0;
+    armQuiet();
+    open();
+    // Resuming means more is coming, so the kept words get the longer pause, as after "and".
+    if (current && mode !== "hold") pauseTimer = later(endOfUtterance, timing.longPauseMs);
+    emit();
+  }
+
   return {
     get backend() {
       return backend;
+    },
+    get listening() {
+      return active && !paused;
     },
     get state() {
       return state;
     },
     start(m: ListenMode) {
       if (disposed) return;
+      if (paused) {
+        mode = m;
+        return resume();
+      }
       if (active) {
         mode = m; // already listening: never a second session
         return armQuiet();
@@ -475,6 +511,20 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
       if (t) events.onTranscript(emptySnapshot(t.snapshot.utteranceId));
       emit();
     },
+    pause() {
+      // Whenever the microphone is ours to close, including while Dial works or speaks in continuous mode.
+      if (disposed || !active || paused || mode === "hold" || state === "requesting-permission") return;
+      release();
+      if (current) {
+        // That session is gone, so its words (interim included) become the kept prefix, as when the browser ends one.
+        carried = joinParts(carried, sessionWords);
+        current = buildTranscript(utteranceId, carried, "");
+        events.onTranscript(current.snapshot);
+      }
+      paused = true;
+      emit();
+    },
+    resume,
     setSpeaking(text: string | null) {
       if (disposed) return;
       const next = text && normalise(text) ? normalise(text) : null;

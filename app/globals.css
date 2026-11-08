@@ -400,6 +400,18 @@ html { font-size: calc(16px * var(--ui-scale)); }
 .voice-mode[data-docked="true"] {
   max-height: min(34dvh, 22rem);
 }
+/* At 150% and 200% text the header and composer fill most of a 60% sheet and the conversation gets a sliver, so on
+   phones the panel takes most of the screen. "Make the panel smaller" still docks it. */
+@media (max-width: 1023.98px) {
+  :root[data-text="150"] .voice-mode,
+  :root[data-text="200"] .voice-mode {
+    max-height: min(88dvh, 52rem);
+  }
+  :root[data-text="150"] .voice-mode[data-docked="true"],
+  :root[data-text="200"] .voice-mode[data-docked="true"] {
+    max-height: min(56dvh, 32rem);
+  }
+}
 @media (min-width: 1024px) {
   .voice-mode {
     inset: auto 1.5rem 1.5rem auto;
