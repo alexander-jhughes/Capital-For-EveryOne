@@ -23,6 +23,7 @@ import {
   loadState,
   loadVisit,
   NEW_VISIT,
+  noteOwnChange,
   type Outcome,
   type PersonalisationState,
   recordOutcome as recordOutcomeIn,
@@ -49,6 +50,13 @@ export interface PersonalisationApi {
   recordOutcome: (target: TargetId, outcome: Outcome, fingerprint: string) => void;
   /** The person tapped to open Voice Mode. Counted only with consent. Nothing they say is recorded. */
   noteVoiceOpened: () => void;
+  /** The person tapped a "Read aloud" button (to start reading). Counted only with consent. The text read is never passed. */
+  noteReadAloud: () => void;
+  /**
+   * The person tapped the Simple / Detailed switch themselves (not a preview, Make it yours or Voice Mode). Counted only
+   * with consent, and counts as a change they made themselves, so it lifts the back-off after two "No thanks".
+   */
+  noteViewChosen: (view: "simple" | "complex") => void;
 }
 
 const noop = () => {};
@@ -60,6 +68,8 @@ const OFF: PersonalisationApi = {
   resetSuggestions: noop,
   recordOutcome: noop,
   noteVoiceOpened: noop,
+  noteReadAloud: noop,
+  noteViewChosen: noop,
 };
 const Ctx = createContext<PersonalisationApi>(OFF);
 /** Safe anywhere: outside the provider it behaves as "suggestions off". */
@@ -145,10 +155,15 @@ export function PersonalisationProvider({ children }: { children: React.ReactNod
     setVisit((v) => ({ shown: v.shown ?? t, answered: true }));
   }, []);
   const noteVoiceOpened = useCallback(() => setState((s) => recordSignal(s, "voiceSessions")), []);
+  const noteReadAloud = useCallback(() => setState((s) => recordSignal(s, "readAloud")), []);
+  const noteViewChosen = useCallback(
+    (view: "simple" | "complex") => setState((s) => noteOwnChange(recordSignal(s, view === "simple" ? "viewSimple" : "viewDetailed"))),
+    [],
+  );
 
   const api = useMemo<PersonalisationApi>(
-    () => ({ consent: state.consent, modelStatus, result, setConsent, resetSuggestions, recordOutcome, noteVoiceOpened }),
-    [state.consent, modelStatus, result, setConsent, resetSuggestions, recordOutcome, noteVoiceOpened],
+    () => ({ consent: state.consent, modelStatus, result, setConsent, resetSuggestions, recordOutcome, noteVoiceOpened, noteReadAloud, noteViewChosen }),
+    [state.consent, modelStatus, result, setConsent, resetSuggestions, recordOutcome, noteVoiceOpened, noteReadAloud, noteViewChosen],
   );
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }

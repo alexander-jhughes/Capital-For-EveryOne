@@ -1,13 +1,19 @@
 // Training and evaluation pipeline. Pure and deterministic: the same config always gives the same model.
 // Run it with scripts/personalisation/train.ts, which writes model.json and the evaluation report.
-import { MODEL_FORMAT, MODEL_FORMAT_VERSION, type ModelArtifact, type TargetModel } from "./artifact";
-import { extractFeatures, FEATURE_IDS } from "./features";
+import { FORMAT_FEATURES, MODEL_FORMAT, type ModelArtifact, type TargetModel } from "./artifact";
+import { calibrate, fitIsotonic } from "./calibration";
+import { extractFeatures } from "./features";
 import { type ForestOptions, predictProba, trainForest, type Tree } from "./forest";
-import { binaryMetrics, type BinaryMetrics, recommendationMetrics } from "./metrics";
-import { DEFAULT_SYNTHETIC, generateSynthetic, splitIndices, SYNTHETIC_GENERATOR_VERSION, type SyntheticOptions, type SyntheticPerson } from "./synthetic";
+import { binaryMetrics, type BinaryMetrics, ece, recommendationMetrics } from "./metrics";
+import { DEFAULT_SYNTHETIC, generateSynthetic, servedPopulation, splitIndices, type SyntheticOptions, type SyntheticPerson } from "./synthetic";
 import { TARGET_IDS, type TargetId, targetStatus } from "./targets";
 
 export interface TrainConfig {
+  /**
+   * 1: the shipped v1 pipeline (28 features, everyone in the sample, raw probabilities, model format 1).
+   * 2: the v2 candidate (all features, only people the app can score, isotonic calibration on validation, format 2).
+   */
+  pipeline: 1 | 2;
   data: SyntheticOptions;
   forest: Omit<ForestOptions, "seed">;
   /** A target is only ever offered if, on validation data, at least this share of offers would be kept. */
@@ -18,13 +24,21 @@ export interface TrainConfig {
   thresholdFloor: number;
 }
 
-export const DEFAULT_CONFIG: TrainConfig = {
-  data: DEFAULT_SYNTHETIC,
+/** Exactly reproduces the committed model.json (model v1). */
+export const V1_CONFIG: TrainConfig = {
+  pipeline: 1,
+  data: { people: 20000, seed: 20261107, labelNoise: 0.05, version: 1 },
   forest: { trees: 30, maxDepth: 5, minLeaf: 30, featuresPerSplit: 6, bootstrap: true },
   minKeepRate: 0.8,
   minOffered: 20,
   thresholdFloor: 0.6,
 };
+
+/** The v2 candidate. It did not pass the retraining rule (docs/ml-personalisation/EVALUATION-v2.md), so it is not shipped. */
+export const V2_CONFIG: TrainConfig = { ...V1_CONFIG, pipeline: 2, data: DEFAULT_SYNTHETIC };
+
+/** What the training script trains and `--check` compares with model.json. Switch to V2_CONFIG only if v2 passes the rule. */
+export const DEFAULT_CONFIG: TrainConfig = V1_CONFIG;
 
 /** Model families compared in the report. The forest is the one shipped. */
 const SINGLE_TREE: Omit<ForestOptions, "seed"> = { trees: 1, maxDepth: 8, minLeaf: 5, featuresPerSplit: 0, bootstrap: false };
@@ -37,8 +51,8 @@ export interface Dataset {
   eligible: Record<TargetId, boolean[]>;
 }
 
-export function buildDataset(people: SyntheticPerson[]): Dataset {
-  const X = people.map((p) => extractFeatures(p.input, p.signals));
+export function buildDataset(people: SyntheticPerson[], featureCount?: number): Dataset {
+  const X = people.map((p) => extractFeatures(p.input, p.signals).slice(0, featureCount));
   const y = Object.fromEntries(TARGET_IDS.map((id) => [id, people.map((p) => p.labels[id])])) as Dataset["y"];
   const eligible = Object.fromEntries(TARGET_IDS.map((id) => [id, people.map((p) => targetStatus(id, p.input.preferences) === "off")])) as Dataset["eligible"];
   return { X, y, eligible };
@@ -54,6 +68,8 @@ export interface TargetReport {
   overfitGap: { singleTree: number | null; forest: number | null };
   /** At the chosen threshold, on test people. */
   recommendations: { offered: number; coverage: number; keepRate: number | null } | null;
+  /** Test expected calibration error of the forest's raw vote share and after the validation-fitted calibration. */
+  ece: { raw: number | null; calibrated: number | null };
 }
 
 export interface TrainingReport {
@@ -78,12 +94,19 @@ export function chooseThreshold(y: number[], p: number[], cfg: Pick<TrainConfig,
 }
 
 export function modelVersionFor(cfg: TrainConfig) {
-  return `rf-1.0.0+synthetic.g${SYNTHETIC_GENERATOR_VERSION}.s${cfg.data.seed}`;
+  return `rf-${cfg.pipeline}.0.0+synthetic.g${cfg.data.version ?? DEFAULT_SYNTHETIC.version ?? 2}.s${cfg.data.seed}`;
 }
 
-/** `people` defaults to generator A from `cfg.data`; the evaluation passes generator B to get a reference model (never shipped). */
-export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG, people: SyntheticPerson[] = generateSynthetic(cfg.data)): { model: ModelArtifact; report: TrainingReport } {
-  const data = buildDataset(people);
+/**
+ * Pipeline 2 trains only on the people the app can actually score (servedPopulation): consented, current schema, no
+ * Make it yours ticks; pipeline 1 (v1) used everyone. `everyone` defaults to generator A from `cfg.data`; the evaluation
+ * passes generator B to get a reference model (never shipped).
+ */
+export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG, everyone: SyntheticPerson[] = generateSynthetic(cfg.data)): { model: ModelArtifact; report: TrainingReport } {
+  const v2 = cfg.pipeline === 2;
+  const features = FORMAT_FEATURES[cfg.pipeline];
+  const people = v2 ? servedPopulation(everyone) : everyone;
+  const data = buildDataset(people, features.length);
   const split = splitIndices(people.length, cfg.data.seed);
   const targets = {} as Record<TargetId, TargetModel>;
   const reports = {} as Record<TargetId, TargetReport>;
@@ -104,14 +127,18 @@ export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG, people: SyntheticP
     const stump = trainForest(data.X, y, train, { ...STUMP, seed });
     const baseRate = Math.round((ys(train).reduce((s, v) => s + v, 0) / Math.max(train.length, 1)) * 1e4) / 1e4;
 
-    const threshold = chooseThreshold(ys(validation), proba(forest, validation), cfg);
+    // Calibration is fitted on validation only; thresholds are then chosen on calibrated validation probabilities.
+    const calibration = v2 ? fitIsotonic(ys(validation), proba(forest, validation)) : null;
+    const calibrated = (part: number[]) => proba(forest, part).map((p) => (calibration ? calibrate(calibration, p) : p));
+    const threshold = chooseThreshold(ys(validation), calibrated(validation), cfg);
     const testY = ys(test);
-    const forestTest = proba(forest, test);
+    const forestRawTest = proba(forest, test);
+    const forestTest = calibrated(test);
     const at = threshold ?? 0.5;
 
     const testForest = binaryMetrics(testY, forestTest, at);
     const testSingle = binaryMetrics(testY, proba(single, test), 0.5);
-    const trainForestM = binaryMetrics(ys(train), proba(forest, train), at);
+    const trainForestM = binaryMetrics(ys(train), calibrated(train), at);
     const trainSingle = binaryMetrics(ys(train), proba(single, train), 0.5);
 
     reports[id] = {
@@ -127,20 +154,21 @@ export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG, people: SyntheticP
       train: { singleTree: trainSingle, forest: trainForestM },
       overfitGap: { singleTree: gap(trainSingle.auc, testSingle.auc), forest: gap(trainForestM.auc, testForest.auc) },
       recommendations: threshold === null ? null : recommendationMetrics(testY, forestTest, threshold),
+      ece: { raw: ece(testY, forestRawTest), calibrated: ece(testY, forestTest) },
     };
-    targets[id] = { threshold, baseRate, trees: forest };
+    targets[id] = calibration ? { threshold, baseRate, calibration, trees: forest } : { threshold, baseRate, trees: forest };
     nodes += forest.reduce((s, t) => s + t.f.length, 0);
   });
 
   const modelVersion = modelVersionFor(cfg);
   const model: ModelArtifact = {
     format: MODEL_FORMAT,
-    formatVersion: MODEL_FORMAT_VERSION,
+    formatVersion: cfg.pipeline,
     modelVersion,
     trainedOn: "synthetic",
-    generatorVersion: SYNTHETIC_GENERATOR_VERSION,
+    generatorVersion: cfg.data.version ?? DEFAULT_SYNTHETIC.version ?? 2,
     seed: cfg.data.seed,
-    features: FEATURE_IDS,
+    features,
     targets,
   };
   return {
@@ -149,7 +177,7 @@ export function trainModel(cfg: TrainConfig = DEFAULT_CONFIG, people: SyntheticP
       config: cfg,
       modelVersion,
       people: { train: split.train.length, validation: split.validation.length, test: split.test.length },
-      features: FEATURE_IDS.length,
+      features: features.length,
       nodes,
       targets: reports,
     },

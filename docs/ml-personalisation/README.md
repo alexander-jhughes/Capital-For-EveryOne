@@ -6,6 +6,7 @@ A small, trained machine-learning model that works in the background. It looks a
 > **Integration:** wired into the adaptive UI behind explicit consent. See [Integration on the adaptive UI](#integration-on-the-adaptive-ui-agreed).
 
 - Generated metrics and example predictions: [`EVALUATION.md`](./EVALUATION.md)
+- Re-measurement as the app uses it, generator B robustness, coverage, repetition, cross-mode, and the v2 candidate vs v1: [`EVALUATION-v2.md`](./EVALUATION-v2.md) (see [Evaluation v2](#evaluation-v2-re-measured-and-a-v2-candidate))
 - Code: `lib/personalisation/` · Training script: `scripts/personalisation/train.ts`
 
 ---
@@ -17,7 +18,7 @@ A small, trained machine-learning model that works in the background. It looks a
 3. [Inputs and privacy](#inputs-and-privacy)
 4. [Synthetic training data](#synthetic-training-data)
 5. [Training](#training)
-6. [Evaluation](#evaluation)
+6. [Evaluation](#evaluation) · [Evaluation v2](#evaluation-v2-re-measured-and-a-v2-candidate)
 7. [Inference](#inference)
 8. [Integration on the adaptive UI (agreed)](#integration-on-the-adaptive-ui-agreed)
 9. [Reproducing the model](#reproducing-the-model)
@@ -83,6 +84,7 @@ The model reads **only** these 28 features (`lib/personalisation/features.ts`). 
 | Explicit settings (13) | text size, contrast, spacing, motion, theme, button size, calm density, step-by-step, voice-first, bill at top, chart on home, number of hidden sections, Simple/Detailed view | `Preferences` from `lib/preferences/schema.ts` and the view cookie |
 | "Make it yours" ticks (9) | the nine checkboxes, or *missing* if never done | PR #9's `CHOICES` |
 | Action counts (6) | made text bigger · made text smaller · opened Voice Mode · asked for less on screen · asked for more detail · undid a display change | counted on the device, **only after consent**, capped at 10, no timestamps or content |
+| Added for v2 (5, appended) | answer style (brief/standard) · listen mode (tap/hold/continuous) · tapped Read aloud · tapped Simple · tapped Detailed | the same rules. The shipped v1 model reads only the first 28; a format-2 model reads all 33. `speechInput` (where speech becomes text) is a privacy choice and is **never** an input |
 
 **What it never does**
 
@@ -99,7 +101,9 @@ The model reads **only** these 28 features (`lib/personalisation/features.ts`). 
 | Hasn't been asked | `status: "needs_consent"`. Nothing is counted or predicted. |
 | Says no / turns it off | `setConsent(state, false)` **deletes** every count and answer. `status: "disabled"`. |
 | Says no to a suggestion | Not offered again while their settings are unchanged. Never offered again after 2 noes. |
-| Ignores a suggestion | Held back until their settings change. |
+| Says No thanks twice in a row (any suggestions) | Nothing is suggested (`status: "paused"`) until they change a setting themselves (a kept Settings or Voice change, or tapping the view switch). |
+| Answers any suggestion (Keep it, Go back, No thanks, Not now) | Nothing else is suggested for the rest of the visit. A visit shows **at most one** suggestion (`controller.forVisit`, `sessionStorage`, no timestamps). |
+| Taps Not now | Held for the visit, and after that until their settings change. |
 | Resets personalisation | `resetPersonalisation()` / `clearState()` forget everything and keep the on/off choice. |
 
 State is stored in `localStorage` under `cfe-personalisation`, with every read and write in `try/catch`. It is sanitised on load. It is never sent anywhere.
@@ -170,6 +174,34 @@ From `lib/personalisation/examples.ts`. Full inputs are in `EVALUATION.md`.
 | Talks to Dial, on the redesign schema (no voice-first setting) | voice-first and step-by-step withheld: `not_supported` |
 | Not asked about personalisation yet | `needs_consent` (nothing predicted) |
 
+## Evaluation v2: re-measured, and a v2 candidate
+
+Run `train.ts --evaluate` to regenerate [`EVALUATION-v2.md`](./EVALUATION-v2.md). It measures models **as the app uses them**: only people who consented, current schema through `sanitize()`, no Make it yours ticks, the full inference pipeline, one suggestion at a time. It uses fresh samples that were never trained on.
+
+**What it found about v1** (the shipped model):
+
+- **Served coverage is far below the reported numbers.** Larger text reaches 0.14% of eligible people, not the 1.5% in `EVALUATION.md`. Most of v1's confident larger-text predictions come from Make it yours ticks, which the provider never passes. 6.0% of people ever see a suggestion, and 87% of those suggestions are the calmer home screen.
+- **Calibration is decent under its own assumptions** (mean ECE 0.035), but probabilities are squeezed: nothing on A goes above 0.9.
+- **It is not robust to different assumptions.** On generator B, which is designed differently and never trained on, mean AUC drops from 0.680 to 0.559, and the keep rate of what it offers falls from 84% to 56%. Under the broader generator A v2 it also offers talking-first to people who keep it only 62% of the time. **The 80% promise is a property of generator A, not of the model.**
+- **It is view-dependent.** 9.4% of Simple-view people get a suggestion, against 0.4% in Detailed view. Talking-first disappears entirely when the same people switch to Detailed.
+- **Repetition:** after any setting change, a declined suggestion comes back once (REJECTION_LIMIT). Accepting one suggestion could immediately show another in the same visit.
+
+**What changed.** These ship regardless of the model:
+- the repetition rules in the table above;
+- the harness;
+- generator B;
+- generator A version 2, which keeps version 1 intact and randomises its uncertain assumptions per person;
+- the five new inputs and the provider calls that record them;
+- isotonic calibration, fitted on validation only, with thresholds chosen on calibrated validation probabilities;
+- training on the served population.
+
+**Decision: v1 stays.** The v2 candidate (`V2_CONFIG`) improves AUC and calibration on generator A v2 (mean AUC 0.619 to 0.632, every target better; ECE 0.044 to 0.018) and in Detailed view. It fails the rule that was fixed before v2 was built:
+- on generator A as v1 knew it, `paymentsProminent` AUC is 0.011 lower and mean ECE is worse (0.035 to 0.056);
+- on B, its pooled keep rate is slightly lower (56.5% to 55.4%);
+- its one offered target keeps 76.5% (below 80%) on generator A v2.
+
+`DEFAULT_CONFIG` therefore stays `V1_CONFIG`, which reproduces `model.json` byte for byte (`--check`). To ship a future candidate, it must pass the same rule. Then set `DEFAULT_CONFIG = V2_CONFIG`, retrain and commit.
+
 ## Inference
 
 `recommendPreferences(input, state, model, options?)` in `lib/personalisation/infer.ts`. It is pure, synchronous and **never throws**.
@@ -226,13 +258,16 @@ node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/per
 # Check the committed model is exactly what training produces (exit 1 if not)
 node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/personalisation/train.ts --check
 
+# Evaluate the committed model and the v2 candidate; writes docs/ml-personalisation/EVALUATION-v2.md (~15-30 s), never model.json
+node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/personalisation/train.ts --evaluate
+
 # Tests (training, evaluation, inference, privacy, performance): part of the normal suite
 npm test
 ```
 
 `ts-resolve.mjs` is a 15-line Node resolve hook, so the script can import the same extensionless `lib/` modules the app uses. I didn't add an `npm run` alias, because that needs a `package.json` change (awaiting approval).
 
-To change the model, edit `DEFAULT_CONFIG` (`train.ts`) or the generator (and bump `SYNTHETIC_GENERATOR_VERSION`), re-run the script, and commit both outputs. `train.test.ts` fails if `model.json` and the code drift apart.
+To change the model, edit `DEFAULT_CONFIG` (`train.ts`; currently `V1_CONFIG`) or the generator (and bump `SYNTHETIC_GENERATOR_VERSION`; version 1 must stay reproducible), re-run the script, and commit both outputs. `train.test.ts` fails if `model.json` and the code drift apart. Features are append-only: format-1 models read the first 28 (`artifact.ts` `FORMAT_FEATURES`).
 
 ## Limitations
 
@@ -244,6 +279,9 @@ To change the model, edit `DEFAULT_CONFIG` (`train.ts`) or the generator (and bu
 - **Explanations are based on contributions.** They show which of the person's own actions pushed the prediction up. They are not causal claims.
 - **Make it yours ticks are not used** (agreed, to keep the rules flow independent). The model sees settings, view and the counted actions only.
 - **View matters.** Switching to Detailed changes a model input, so a suggestion offered in Simple view may be withheld in Detailed view.
+- **One-time re-offer after this update.** The "unchanged settings" fingerprint now includes answer style and listen mode, so a suggestion someone declined **once** before the update may be offered once more. Two noes still block it for good.
+- **Voice-first use.** The suggestion card is on Home only, so people who mostly use Voice Mode see it only when they visit Home. Offering suggestions inside Voice Mode would be a frontend change.
+- **New inputs are recorded but unused by v1.** Read aloud and view-switch counts, answer style and listen mode are kept on the device with consent, so a future model can use them. Withdrawing consent deletes them.
 - **Model size** is 204 KB of JSON (lazy-loaded, compresses well). It could be shrunk further by quantising thresholds or pruning low-value trees if needed.
 
 ## Files
@@ -256,7 +294,11 @@ The engine files below are new. The integration also makes small, agreed changes
 | `lib/personalisation/targets.ts` | The 8 predicted settings, their `UiAction`-shaped changes and Dial's questions |
 | `lib/personalisation/forest.ts` | CART / random forest training, prediction, contributions, tree validation |
 | `lib/personalisation/synthetic.ts` | Seeded synthetic data generator and splits |
-| `lib/personalisation/metrics.ts` | AUC, precision/recall/F1, Brier, keep rate |
+| `lib/personalisation/metrics.ts` | AUC, precision/recall/F1, Brier, keep rate, ECE and reliability |
+| `lib/personalisation/calibration.ts` | Isotonic calibration (fit on validation, monotone knots, validation of the JSON) |
+| `lib/personalisation/synthetic-b.ts` | Generator B: a differently designed population, for robustness testing only |
+| `lib/personalisation/evaluate.ts` | Evaluation harness: served population, calibration, coverage, repetition, cross-mode |
+| `scripts/personalisation/evaluation-report.ts` | Writes `EVALUATION-v2.md`, including the retraining rule check |
 | `lib/personalisation/train.ts` | Training and evaluation pipeline |
 | `lib/personalisation/artifact.ts` | Model file format and validation |
 | `lib/personalisation/model.json` | **The trained model** |

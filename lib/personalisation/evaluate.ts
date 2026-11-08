@@ -10,19 +10,22 @@
 //   5. cross-mode: suggestion rates in Simple vs Detailed view and with talking-first on.
 import { applyActions, type Preferences, sanitize, type UiAction } from "../preferences/schema";
 import type { ModelArtifact } from "./artifact";
-import { onPrefsEvent, reconcile } from "./controller";
+import { forVisit, onPrefsEvent, reconcile } from "./controller";
 import { extractFeatures, type PersonalisationInput } from "./features";
-import { predictProba, rng } from "./forest";
-import { recommendPreferences } from "./infer";
+import { rng } from "./forest";
+import { recommendPreferences, targetProbability } from "./infer";
 import { binaryMetrics, ece, recommendationMetrics, reliability, type ReliabilityBin } from "./metrics";
-import { INITIAL_STATE, type PersonalisationState, recordOutcome } from "./state";
-import { DEFAULT_SYNTHETIC, type SyntheticOptions, type SyntheticPerson } from "./synthetic";
+import { INITIAL_STATE, NEW_VISIT, type PersonalisationState, recordOutcome, type Visit } from "./state";
+import { DEFAULT_SYNTHETIC, servedPopulation, type SyntheticOptions, type SyntheticPerson } from "./synthetic";
 import { DEFAULT_SYNTHETIC_B } from "./synthetic-b";
 import { TARGET_IDS, type TargetId, targetStatus } from "./targets";
 
 /** Fresh evaluation samples. Seeds differ from training, so none of these people were trained on. */
-export const EVAL_SAMPLES: { a: SyntheticOptions; b: SyntheticOptions; bReferenceTrain: SyntheticOptions } = {
-  a: { ...DEFAULT_SYNTHETIC, seed: 7001 },
+export const EVAL_SAMPLES: { a: SyntheticOptions; a1: SyntheticOptions; b: SyntheticOptions; bReferenceTrain: SyntheticOptions } = {
+  /** Generator A as it is now (version 2). */
+  a: { ...DEFAULT_SYNTHETIC, people: 20000, seed: 7001, version: 2 },
+  /** Generator A as v1 knew it (version 1): the same people as the Phase A baseline. */
+  a1: { ...DEFAULT_SYNTHETIC, people: 20000, seed: 7001, version: 1 },
   b: { ...DEFAULT_SYNTHETIC_B, seed: 7002 },
   bReferenceTrain: { ...DEFAULT_SYNTHETIC_B, seed: 7003 },
 };
@@ -30,21 +33,12 @@ export const EVAL_SAMPLES: { a: SyntheticOptions; b: SyntheticOptions; bReferenc
 const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
 const share = (num: number, den: number) => (den ? r4(num / den) : 0);
 
-/**
- * The people the app can actually score, as PersonalisationProvider sees them: they consented (so they have counts),
- * their settings went through the cookie's sanitize() (current schema, defaults filled in), and Make it yours ticks
- * are not passed (the provider sends choices: null). People on the older schema don't exist in this app.
- */
-export function servedPopulation(people: SyntheticPerson[]): SyntheticPerson[] {
-  return people
-    .filter((p) => p.signals !== null && typeof p.input.preferences?.voiceFirst === "boolean")
-    .map((p) => ({ ...p, input: { preferences: sanitize(p.input.preferences), view: p.input.view, choices: null } }));
-}
+export { servedPopulation };
 
 const grantedState = (p: SyntheticPerson): PersonalisationState => ({ ...INITIAL_STATE, consent: "granted", signals: { ...(p.signals ?? {}) } });
 
-/** The probability the model reports for a target. */
-export const probability = (model: ModelArtifact, id: TargetId, x: number[]) => predictProba(model.targets[id].trees, x);
+/** The (calibrated) probability the model reports for a target, exactly as inference uses it. */
+export const probability = targetProbability;
 
 export interface TargetScore {
   /** People with the setting off (the only ones who can be offered it). */
@@ -164,6 +158,8 @@ export interface RepetitionOptions {
   /** Chance, between visits, that the person changes one of their own settings (here: light/dark theme). */
   settingChangeRate?: number;
   seed?: number;
+  /** v1: no visit limit and no back-off (as shipped with v1). v2: one suggestion per visit and the back-off (default). */
+  behaviour?: "v1" | "v2";
 }
 
 const MAX_PER_VISIT = 10;
@@ -175,10 +171,13 @@ const MAX_PER_VISIT = 10;
 export function simulateRepetition(model: ModelArtifact, people: SyntheticPerson[], opts: RepetitionOptions): RepetitionStats {
   const visits = opts.visits ?? 6;
   const rand = rng(opts.seed ?? 1);
-  const evaluate = (prefs: Preferences, view: PersonalisationInput["view"], state: PersonalisationState) => {
+  const v2 = (opts.behaviour ?? "v2") === "v2";
+  const evaluate = (prefs: Preferences, view: PersonalisationInput["view"], state: PersonalisationState, visit: Visit) => {
     const input: PersonalisationInput = { preferences: prefs, view, choices: null };
     const next = reconcile(state, input);
-    return { state: next, top: recommendPreferences(input, next, model, { maxSuggestions: 1 }) };
+    // v1 had no back-off: run it with the run of noes always reset.
+    const r = recommendPreferences(input, v2 ? next : { ...next, declines: 0 }, model, { maxSuggestions: 1 });
+    return { state: next, top: v2 ? forVisit(r, visit) : r };
   };
 
   let population = 0;
@@ -190,19 +189,21 @@ export function simulateRepetition(model: ModelArtifact, people: SyntheticPerson
   for (const p of people) {
     let prefs = sanitize(p.input.preferences);
     let state = grantedState(p);
-    if (evaluate(prefs, p.input.view, state).top.status !== "ok") continue;
+    if (evaluate(prefs, p.input.view, state, NEW_VISIT).top.status !== "ok") continue;
     population++;
     const dismissed = new Set<TargetId>();
     let noStreak = 0;
     let flags = { multiple: false, same: false, afterTwo: false };
     for (let v = 0; v < visits; v++) {
       let inVisit = 0;
+      let visit: Visit = NEW_VISIT;
       for (let k = 0; k < MAX_PER_VISIT; k++) {
-        const e = evaluate(prefs, p.input.view, state);
+        const e = evaluate(prefs, p.input.view, state, visit);
         state = e.state;
         const rec = e.top.preferences[0];
         if (e.top.status !== "ok" || !rec) break;
         inVisit++;
+        visit = { shown: visit.shown ?? rec.target, answered: false };
         shown++;
         if (dismissed.has(rec.target)) flags.same = true;
         if (noStreak >= 2) flags.afterTwo = true;
@@ -217,6 +218,7 @@ export function simulateRepetition(model: ModelArtifact, people: SyntheticPerson
           if (answer === "rejected") noStreak++;
         }
         state = recordOutcome(state, rec.target, answer, e.top.fingerprint!);
+        visit = { ...visit, answered: true };
       }
       if (inVisit >= 2) flags.multiple = true;
       maxPerVisit = Math.max(maxPerVisit, inVisit);
@@ -262,7 +264,7 @@ export interface EvaluationReport {
 }
 
 /** Everything in EVALUATION-v2.md for one model. `a` and `b` are fresh evaluation samples, never trained on. */
-export function evaluateModel(model: ModelArtifact, a: SyntheticPerson[], b: SyntheticPerson[]): EvaluationReport {
+export function evaluateModel(model: ModelArtifact, a: SyntheticPerson[], b: SyntheticPerson[], behaviour: "v1" | "v2" = "v2"): EvaluationReport {
   const aServed = servedPopulation(a);
   const bServed = servedPopulation(b);
   return {
@@ -275,6 +277,6 @@ export function evaluateModel(model: ModelArtifact, a: SyntheticPerson[], b: Syn
     pipelineB: pipelineStats(model, bServed),
     crossModeA: crossModeStats(model, aServed),
     crossModeB: crossModeStats(model, bServed),
-    repetition: (["noThanks", "notNow", "labels"] as const).map((policy) => simulateRepetition(model, aServed, { policy })),
+    repetition: (["noThanks", "notNow", "labels"] as const).map((policy) => simulateRepetition(model, aServed, { policy, behaviour })),
   };
 }

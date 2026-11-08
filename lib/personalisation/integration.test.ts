@@ -11,7 +11,7 @@ import { CHOICES as RULE_CHOICES, recommend } from "../preferences/recommend";
 import { applyActions, DEFAULT_PREFS, sanitize, type Preferences, type UiAction } from "../preferences/schema";
 import type { ModelArtifact } from "./artifact";
 import { forVisit, onPrefsEvent, reconcile, shouldShowCard } from "./controller";
-import { CHOICES } from "./features";
+import { CHOICES, extractFeatures, FEATURE_IDS } from "./features";
 import { type PersonalisationResult, recommendPreferences } from "./infer";
 import modelJson from "./model.json";
 import {
@@ -19,6 +19,7 @@ import {
   INITIAL_STATE,
   loadState,
   NEW_VISIT,
+  noteOwnChange,
   type Outcome,
   type PersonalisationState,
   recordOutcome,
@@ -375,6 +376,33 @@ describe("suggestion lifecycle", () => {
   });
 });
 
+describe("new explicit signals (v2 inputs)", () => {
+  it("N1: Read aloud and the view switch are counted only with consent, as counts, and choosing a view lifts the back-off", () => {
+    const off = app({ consent: false });
+    off.ml = recordSignal(off.ml, "readAloud");
+    expect(off.ml).toEqual(INITIAL_STATE);
+    const a = talker();
+    a.ml = recordSignal(recordSignal(a.ml, "readAloud"), "viewDetailed");
+    expect(a.ml.signals).toMatchObject({ readAloud: 1, viewDetailed: 1 });
+    a.ml = recordOutcome(recordOutcome(a.ml, "voiceFirst", "rejected", "f"), "calmLayout", "rejected", "f");
+    expect(a.ml.declines).toBe(BACKOFF_AFTER);
+    a.ml = noteOwnChange(recordSignal(a.ml, "viewSimple")); // what PersonalisationProvider.noteViewChosen does
+    expect(a.ml.declines).toBe(0);
+    const p = source("lib/personalisation/provider.tsx");
+    expect(p).toMatch(/const noteReadAloud = useCallback\(\(\) => setState\(\(s\) => recordSignal\(s, "readAloud"\)\), \[\]\);/);
+    expect(p).toMatch(/noteOwnChange\(recordSignal\(s, view === "simple" \? "viewSimple" : "viewDetailed"\)\)/);
+  });
+
+  it("N2: speechInput (the microphone privacy choice) never changes the model's inputs; answer style and listen mode do", () => {
+    const x = (p: Preferences) => extractFeatures({ preferences: p, view: "simple" }, {});
+    const base = { ...DEFAULT_PREFS, onboarding: "done" as const };
+    for (const speechInput of ["on-device", "cloud", "typing"] as const) expect(x({ ...base, speechInput })).toEqual(x(base));
+    expect(x({ ...base, answerStyle: "brief" })).not.toEqual(x(base));
+    expect(x({ ...base, listenMode: "continuous" })).not.toEqual(x(base));
+    expect(FEATURE_IDS.join(" ")).not.toMatch(/speech/i);
+  });
+});
+
 describe("undo and reset", () => {
   it("U1: undoing a kept suggestion counts as a no and does not count as an undone display change", () => {
     const a = talker();
@@ -493,7 +521,9 @@ describe("privacy boundaries", () => {
     for (const f of files) expect(source(f), f).not.toMatch(/personalisation/);
     const ask = source("components/assistant/ask-dial.tsx");
     expect(ask.match(/usePersonalisation\(\)/g)).toHaveLength(1);
-    expect(ask).toMatch(/const \{ noteVoiceOpened \} = usePersonalisation\(\)/);
+    // Ask Dial reports only that Voice Mode was opened and (once wired) that Read aloud was tapped: never what was said or read.
+    expect(ask).toMatch(/const \{ noteVoiceOpened(, noteReadAloud)? \} = usePersonalisation\(\)/);
+    expect(ask).not.toMatch(/noteReadAloud\([^)]/);
   });
 
   it("P1: withdrawing consent clears the visit too; the visit stores no timestamps or content", () => {

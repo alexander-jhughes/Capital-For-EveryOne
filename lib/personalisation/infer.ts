@@ -3,6 +3,7 @@
 // The frontend shows a suggestion as a Dial offer and previews it only if the person says yes.
 import { isValidModel, type ModelArtifact } from "./artifact";
 import { explicitFingerprint, extractFeatures, featureIndex, FEATURES, hasInformativeFeatures, type PersonalisationInput } from "./features";
+import { calibrate } from "./calibration";
 import { contributions, predictProba } from "./forest";
 import { INITIAL_STATE, isPaused, type PersonalisationState, REJECTION_LIMIT, sanitizeState } from "./state";
 import { type LayoutStyle, type SuggestedAction, TARGET_IDS, type TargetId, TARGETS, targetStatus } from "./targets";
@@ -15,7 +16,7 @@ export interface PreferenceRecommendation {
   offer: string;
   /** Allowlisted `UiAction`-shaped changes, ready for PreferencesProvider.startPreview(). */
   actions: SuggestedAction[];
-  /** Model probability that the person keeps this setting, 0-1, rounded to 2 decimals. Passed the target's threshold before rounding. */
+  /** Probability that the person keeps this setting (calibrated for format-2 models), 0-1, rounded to 2 decimals. Passed the target's threshold before rounding. */
   confidence: number;
   /** Plain-English reasons, each about something the person explicitly did. Never empty. */
   reasons: string[];
@@ -103,6 +104,13 @@ const usable = (m: ModelArtifact | null | undefined): m is ModelArtifact => {
   return true;
 };
 
+/** Probability that the person keeps `target`: calibrated when the model has a calibration (format 2), else the forest's vote share. */
+export function targetProbability(model: ModelArtifact, target: TargetId, x: number[]): number {
+  const t = model.targets[target];
+  const p = predictProba(t.trees, x);
+  return t.calibration ? calibrate(t.calibration, p) : p;
+}
+
 const empty = (status: PersonalisationStatus, model: ModelArtifact | null = null): PersonalisationResult => ({
   status,
   recommendedLayout: null,
@@ -171,7 +179,7 @@ export function recommendPreferences(
       else if (state.ignored[target] === fingerprint) hold("recently_ignored");
       else if (conflicted.has(target)) hold("conflicting_signals");
       else {
-        const p = predictProba(model.targets[target].trees, x);
+        const p = targetProbability(model, target, x);
         if (!Number.isFinite(p) || p < 0 || p > 1) hold("invalid_output");
         else if (p < Math.max(model.targets[target].threshold!, floor)) hold("low_confidence");
         else {
