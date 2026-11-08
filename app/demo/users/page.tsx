@@ -1,5 +1,6 @@
 // Demo only: pick a synthetic user to see how the app and Dial tailor themselves. Every person here is fictional.
 import Link from "next/link";
+import { DemoUserButton } from "@/components/profile/demo-user-button";
 import { DEMO_USERS } from "@/lib/demo-users/users";
 import { PERSON_TYPE_COPY, PERSON_TYPES } from "@/lib/profile/catalog";
 
@@ -11,7 +12,7 @@ export default function DemoUsersPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-xl font-bold">Synthetic demo users</h1>
         <p className="text-lg">
-          Fictional people with made-up characteristics, for the demo. Choosing one replaces this browser&apos;s demo account and &quot;About you&quot; profile with theirs, then opens Home.
+          Fictional people with made-up characteristics, for the demo. Choosing one gives this browser a clean start as them: their demo account, &quot;About you&quot; profile and view replace yours, and display settings and anything left in this tab are cleared, as with &quot;Start the demo again&quot;. Then Home opens.
           The model works out each person&apos;s type from their characteristics; it is not told the heading they are listed under.
         </p>
         <Link href="/account/more" className="self-start font-bold text-primary underline underline-offset-4">
@@ -26,13 +27,7 @@ export default function DemoUsersPage() {
           <ul className="flex flex-col gap-2">
             {DEMO_USERS.filter((u) => u.designedAs === t).map((u) => (
               <li key={u.id}>
-                {/* A form, not a link: choosing a user replaces this browser's demo data, and prefetching must never do that. */}
-                <form action={`/demo/user/${u.id}`} method="post">
-                  <button type="submit" className="flex min-h-(--target-min) w-full flex-col justify-center rounded-lg bg-accent px-3 py-2 text-left text-accent-foreground">
-                    <span className="font-bold">{u.name}</span>
-                    <span className="text-sm">{u.about}</span>
-                  </button>
-                </form>
+                <DemoUserButton id={u.id} name={u.name} about={u.about} />
               </li>
             ))}
           </ul>
