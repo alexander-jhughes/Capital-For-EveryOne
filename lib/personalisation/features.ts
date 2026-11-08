@@ -1,7 +1,8 @@
 // Feature extraction for the personalisation model.
 //
 // Allowlist only. The model reads exactly three things, all chosen by the person:
-//   1. the display settings they set themselves (lib/preferences/schema.ts `Preferences`),
+//   1. the display settings they set themselves (lib/preferences/schema.ts `Preferences`; never `speechInput`, which is a
+//      privacy choice about the microphone, not a display preference),
 //   2. the boxes they ticked in "Make it yours", if they did it,
 //   3. counts of explicit interface actions (e.g. "made the text bigger"), kept on this device, only with consent.
 // Anything else passed in (transactions, balances, spending, age, account data) is never read.
@@ -10,6 +11,7 @@
 export const MISSING = -1;
 
 export const TEXT_SIZE_LEVELS = [100, 125, 150, 200] as const;
+export const LISTEN_MODES = ["tap", "hold", "continuous"] as const;
 
 /** "Make it yours" choices. Ids and labels match lib/preferences/recommend.ts on feat/hackathon-adaptive-ui. */
 export const CHOICES = [
@@ -26,8 +28,12 @@ export const CHOICES = [
 export type ChoiceId = (typeof CHOICES)[number]["id"];
 export const CHOICE_IDS = CHOICES.map((c) => c.id) as ChoiceId[];
 
-/** Explicit interface actions the person took. Counts only: no timestamps, no content, nothing financial. */
-export const SIGNAL_IDS = ["textLarger", "textSmaller", "voiceSessions", "lessOnScreen", "moreDetail", "undoneChanges"] as const;
+/**
+ * Explicit interface actions the person took. Counts only: no timestamps, no content, nothing financial.
+ * readAloud: tapped a "Read aloud" button. viewSimple / viewDetailed: tapped the Simple / Detailed switch themselves.
+ * Append only: the model's feature order depends on it.
+ */
+export const SIGNAL_IDS = ["textLarger", "textSmaller", "voiceSessions", "lessOnScreen", "moreDetail", "undoneChanges", "readAloud", "viewSimple", "viewDetailed"] as const;
 export type SignalId = (typeof SIGNAL_IDS)[number];
 /** Counts are capped so one very busy session cannot dominate. */
 export const SIGNAL_CAP = 10;
@@ -45,6 +51,8 @@ export interface PreferenceSnapshot {
   targets?: string;
   explanations?: string;
   voiceFirst?: boolean;
+  answerStyle?: string;
+  listenMode?: string;
   layout?: {
     pinned?: readonly string[];
     shown?: readonly string[];
@@ -97,6 +105,12 @@ export const FEATURES: FeatureDef[] = [
   { id: "sig_lessOnScreen", describe: (v) => (v >= 1 ? `You asked for less on screen ${times(v)}` : null) },
   { id: "sig_moreDetail", describe: (v) => (v >= 1 ? `You asked for more detail ${times(v)}` : null) },
   { id: "sig_undoneChanges", describe: (v) => (v >= 1 ? `You undid a display change ${times(v)}` : null) },
+  // Added in model v2. Appended so the first 28 features keep v1's order.
+  { id: "sig_readAloud", describe: (v) => (v >= 1 ? `You tapped Read aloud ${times(v)}` : null) },
+  { id: "sig_viewSimple", describe: (v) => (v >= 1 ? `You switched to Simple view ${times(v)}` : null) },
+  { id: "sig_viewDetailed", describe: (v) => (v >= 1 ? `You switched to Detailed view ${times(v)}` : null) },
+  flag("answerBrief", "You chose short answers"),
+  { id: "listenMode", describe: (v) => (v === 1 ? "You chose to hold the button while you talk" : v === 2 ? "You chose to keep Dial listening" : null) },
 ];
 
 export const FEATURE_IDS = FEATURES.map((f) => f.id);
@@ -146,6 +160,9 @@ export function extractFeatures(input: unknown, signals?: unknown): number[] {
     const n = s ? s[id] : undefined;
     out.push(s ? (typeof n === "number" && Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), SIGNAL_CAP) : 0) : MISSING);
   }
+  out.push(p ? enumFlag(p.answerStyle, "brief", ["standard"]) : MISSING);
+  const listen = p ? LISTEN_MODES.indexOf(p.listenMode as (typeof LISTEN_MODES)[number]) : -1;
+  out.push(listen >= 0 ? listen : MISSING);
   return out;
 }
 
@@ -160,6 +177,5 @@ export function hasInformativeFeatures(x: number[]): boolean {
  * When it changes, a recommendation they turned down earlier may be offered once more.
  */
 export function explicitFingerprint(x: number[]): string {
-  const firstSignal = featureIndex(`sig_${SIGNAL_IDS[0]}`);
-  return x.slice(0, firstSignal).join(",");
+  return x.filter((_, i) => !FEATURE_IDS[i].startsWith("sig_")).join(",");
 }

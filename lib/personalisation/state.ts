@@ -4,12 +4,17 @@
 // - consent: nothing is recorded or predicted until the person says yes. Saying no (or turning it off later) deletes everything.
 // - signals: counts of explicit display actions ("made the text bigger"). No timestamps, no content, nothing financial.
 // - rejected / ignored: so Dial never nags with the same suggestion.
+// - declines: "No thanks" in a row, across all suggestions. After BACKOFF_AFTER, nothing is suggested until the person
+//   changes a setting themselves.
+// - the visit (sessionStorage, this tab only): at most one suggestion per visit. No timestamps anywhere.
 import { type SignalId, SIGNAL_CAP, SIGNAL_IDS, type Signals } from "./features";
 import { TARGET_IDS, type TargetId } from "./targets";
 
 export const PERSONALISATION_STORAGE_KEY = "cfe-personalisation";
 /** After this many "no thanks" a suggestion is never offered again (until the person resets personalisation). */
 export const REJECTION_LIMIT = 2;
+/** After this many "No thanks" in a row (any suggestions), Dial suggests nothing until the person changes a setting themselves. */
+export const BACKOFF_AFTER = 2;
 
 export type Consent = "unset" | "granted" | "declined";
 export type Outcome = "accepted" | "rejected" | "ignored";
@@ -24,9 +29,11 @@ export interface PersonalisationState {
   ignored: Partial<Record<TargetId, string>>;
   /** Per suggestion kept from Dial: the explicit settings at that moment. If the setting is later undone, it counts as a no. */
   accepted: Partial<Record<TargetId, string>>;
+  /** "No thanks" in a row across all suggestions, 0 to BACKOFF_AFTER. Back to 0 on "Keep it" or a change the person makes themselves. */
+  declines: number;
 }
 
-export const INITIAL_STATE: PersonalisationState = { version: 1, consent: "unset", signals: {}, rejected: {}, ignored: {}, accepted: {} };
+export const INITIAL_STATE: PersonalisationState = { version: 1, consent: "unset", signals: {}, rejected: {}, ignored: {}, accepted: {}, declines: 0 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isTarget = (k: string): k is TargetId => (TARGET_IDS as readonly string[]).includes(k);
@@ -60,7 +67,10 @@ export function sanitizeState(input: unknown): PersonalisationState {
   if (isObj(input.accepted))
     for (const [k, v] of Object.entries(input.accepted)) if (isTarget(k) && typeof v === "string" && v.length <= MAX_FINGERPRINT) accepted[k] = v;
 
-  return { version: 1, consent, signals, rejected, ignored, accepted };
+  // Older stored state has no `declines`: treated as 0.
+  const declines = typeof input.declines === "number" && Number.isFinite(input.declines) ? Math.min(Math.max(Math.floor(input.declines), 0), BACKOFF_AFTER) : 0;
+
+  return { version: 1, consent, signals, rejected, ignored, accepted, declines };
 }
 
 /** Yes turns personalisation on. No (or turning it off) also deletes everything it had learned. */
@@ -81,17 +91,28 @@ export function recordOutcome(state: PersonalisationState, target: TargetId, out
   const rejected = { ...state.rejected };
   const ignored = { ...state.ignored };
   const accepted = { ...state.accepted };
+  let declines = state.declines;
   if (outcome === "accepted") {
     delete rejected[target];
     delete ignored[target];
     accepted[target] = fingerprint;
+    declines = 0;
   } else if (outcome === "rejected") {
     rejected[target] = { count: Math.min((rejected[target]?.count ?? 0) + 1, REJECTION_LIMIT), fingerprint };
     delete ignored[target];
     delete accepted[target];
+    declines = Math.min(declines + 1, BACKOFF_AFTER);
   } else ignored[target] = fingerprint;
-  return { ...state, rejected, ignored, accepted };
+  return { ...state, rejected, ignored, accepted, declines };
 }
+
+/** The person changed a setting themselves (Settings, Voice Mode, the view switch): suggestions may resume after a back-off. */
+export function noteOwnChange(state: PersonalisationState): PersonalisationState {
+  return state.consent === "granted" && state.declines !== 0 ? { ...state, declines: 0 } : state;
+}
+
+/** True while Dial is holding back all suggestions after BACKOFF_AFTER "No thanks" in a row. */
+export const isPaused = (state: PersonalisationState) => state.declines >= BACKOFF_AFTER;
 
 /** "Reset personalisation": forgets every count and answer, keeps the person's on/off choice. */
 export function resetPersonalisation(state: PersonalisationState): PersonalisationState {
@@ -121,6 +142,17 @@ export function signalForAction(action: unknown, before?: { textSize?: number })
   }
 }
 
+/**
+ * This visit only, in sessionStorage (gone when the tab closes): the one suggestion this visit is for, and whether
+ * the person answered it. No timestamps, nothing about what the person did.
+ */
+export interface Visit {
+  shown: TargetId | null;
+  answered: boolean;
+}
+export const VISIT_STORAGE_KEY = "cfe-personalisation-visit";
+export const NEW_VISIT: Visit = { shown: null, answered: false };
+
 type ReadStore = Pick<Storage, "getItem">;
 type WriteStore = Pick<Storage, "setItem" | "removeItem">;
 /** Merely reading window.localStorage throws where storage is blocked, so this must never throw: undefined means "no storage". */
@@ -131,6 +163,46 @@ const browserStorage = (): Storage | undefined => {
     return undefined;
   }
 };
+
+const sessionStore = (): Storage | undefined => {
+  try {
+    return typeof window === "undefined" ? undefined : window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Never throws. Blocked or corrupt storage gives a new visit. */
+export function loadVisit(storage: ReadStore | undefined = sessionStore()): Visit {
+  try {
+    const v: unknown = JSON.parse(storage?.getItem(VISIT_STORAGE_KEY) ?? "null");
+    if (!isObj(v)) return NEW_VISIT;
+    return { shown: typeof v.shown === "string" && isTarget(v.shown) ? v.shown : null, answered: v.answered === true };
+  } catch {
+    return NEW_VISIT;
+  }
+}
+
+/** Never throws. */
+export function saveVisit(visit: Visit, storage: WriteStore | undefined = sessionStore()): boolean {
+  try {
+    if (!storage) return false;
+    storage.setItem(VISIT_STORAGE_KEY, JSON.stringify({ shown: visit.shown, answered: visit.answered }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Never throws. */
+export function clearVisit(storage: WriteStore | undefined = sessionStore()): boolean {
+  try {
+    storage?.removeItem(VISIT_STORAGE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Never throws: private mode, blocked storage or corrupt data all give the initial (consent unset) state. */
 export function loadState(storage: ReadStore | undefined = browserStorage()): PersonalisationState {
