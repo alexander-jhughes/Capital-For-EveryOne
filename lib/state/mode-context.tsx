@@ -16,7 +16,7 @@ export function ModeProvider({ initialMode, children }: { initialMode: Mode; chi
     document.documentElement.dataset.mode = m;
     // The cookie is the single source of truth: the server renders the right mode, so nothing flashes.
     document.cookie = `${MODE_KEY}=${m}; path=/; max-age=31536000; samesite=lax`;
-    announce(`Dial: ${m === "simple" ? "Simple" : "Complex"} view on.`);
+    announce(`${m === "simple" ? "Simple" : "Detailed"} view on.`);
   };
 
   return <ModeContext.Provider value={{ mode, setMode }}>{children}</ModeContext.Provider>;

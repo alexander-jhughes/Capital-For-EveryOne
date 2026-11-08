@@ -13,10 +13,56 @@ A WHACK 2026 prototype for Capital One's "Make Credit Accessible" challenge: one
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # finance unit tests
+npm test           # unit tests
 ```
 
-Optional: copy `.env.example` to `.env.local` and add `ANTHROPIC_API_KEY` for AI-phrased answers. Without it, the app uses cached and template answers.
+The app works fully without an API key. To add AI-phrased answers, see below.
+
+## Ask Dial backend
+
+`POST /api/ask` takes `{ "question": "..." }` and returns `{ answer, evidenceIds, source }`. The AI runs on [Groq](https://console.groq.com)'s free tier (Llama 3.3 70B by default, OpenAI-compatible API), on the server only.
+
+The finance layer works out every figure. Groq only turns the verified facts into a sentence. Every reply is checked on the server before it is used, and evidence IDs always come from the facts.
+
+### What it can answer
+
+- **Spending, bills and subscriptions:** the 8 intents from the facts layer.
+- **One shop:** "What did I spend on Argos?" or "Show me my Amazon transactions." Other businesses that share a name, such as Tesco Mobile, are not matched.
+- **Refunds:** "Did I get my Amazon refund?" Each refund is reported as pending or completed, with the purchase it reverses, and a pending refund is never described as arrived.
+- **Each figure is checked against what it belongs to.** Every amount in a reply has to match the shop, date, meaning and status of its fact, not just appear somewhere in the data (`lib/ai/claims.ts`).
+- **Balances:** the current balance, statement balance and minimum payment are kept separate. "How much do I owe?" always uses a fixed template built from the facts, so that it explains all three.
+
+### Set up Groq
+
+1. Create a free key at [console.groq.com/keys](https://console.groq.com/keys). No card is needed.
+2. Run `cp .env.example .env.local`.
+3. Set `GROQ_API_KEY` in `.env.local`. This file is ignored by Git, so never commit it, and never give the variable a `NEXT_PUBLIC_` prefix.
+4. Optionally set `GROQ_MODEL`. The default is `llama-3.3-70b-versatile`, with `openai/gpt-oss-20b` and `llama-3.1-8b-instant` as backups when one is rate limited.
+
+### Test it
+
+```bash
+npm run lint
+npm run typecheck
+npm test                                # unit tests, mocked Groq
+npm run build && npm run test:http      # production build against a fake Groq API, no key or network needed
+npm run dev                             # then, in a second terminal:
+npm run test:ask                        # 10 questions against the running server; real API calls if a key is set
+```
+
+### When Groq is unavailable
+
+| Situation | What happens |
+|---|---|
+| The 4 core demo questions | Always a fixed answer (`source: "cache"`), with no API call |
+| No key, invalid key, quota or rate limit, API error, or more than 4 seconds | A template sentence built from the same verified facts (`source: "template"`) |
+| Malformed, empty or blocked reply | Template sentence |
+| Reply with a figure, date or name not in the facts, the wrong balance, or advice | Rejected, then a template sentence |
+| "How much do I owe?" | Always a template sentence built from the facts, with no API call |
+| More than 20 Groq calls a minute from one visitor | Template sentence, with no error |
+| A question the facts can't answer | "I can't tell that from your transactions." with no evidence |
+
+The figures and evidence stay the same in every case. Only the wording changes.
 
 ## Stack
 

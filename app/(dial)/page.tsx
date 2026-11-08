@@ -1,14 +1,9 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Onboarding } from "@/components/onboarding/onboarding";
 
-// Placeholder: the first-run "How would you like Dial to look?" screen arrives in Stage 7.
-export default function Welcome() {
-  return (
-    <>
-      <h1 className="text-xl font-bold">Welcome to Dial</h1>
-      <p className="mt-(--space)">Choose Simple or Complex view with the switch at the top of every screen.</p>
-      <Link href="/account" className="mt-(--space) inline-flex min-h-(--target-min) items-center rounded-lg bg-primary px-6 font-bold text-primary-foreground">
-        Sign in
-      </Link>
-    </>
-  );
+// First run: welcome, then a short skippable setup. /?demo=reset starts the whole demo again.
+export default async function Welcome({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const q = await searchParams;
+  if (q.demo === "reset") redirect("/demo/reset");
+  return <Onboarding reset={q.reset === "done"} />;
 }

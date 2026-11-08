@@ -18,6 +18,11 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Agent worktrees are separate checkouts of this repo; linting them here double-counts every file.
+      ".claude/**",
+      // Generated: the ONNX runtime copied from node_modules (scripts/access/copy-runtime.mjs).
+      "public/ort/**",
+      "public/vendor/**",
     ],
   },
 ];

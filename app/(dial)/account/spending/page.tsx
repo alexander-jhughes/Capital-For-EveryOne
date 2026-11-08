@@ -1,9 +1,14 @@
 import { ComplexSpending } from "@/components/account/complex-spending";
+import { SimpleSpending } from "@/components/account/simple-spending";
+import { ModeView } from "@/components/mode-view";
+import { parseSpendingFilters } from "@/lib/dial/spending-filters";
 
 export const metadata = { title: "Spending" };
 
-// Stage 5 adds the Simple spending view here; until then both modes show this screen at their own sizes.
-export default async function SpendingPage({ searchParams }: { searchParams: Promise<{ highlight?: string }> }) {
-  const { highlight } = await searchParams;
-  return <ComplexSpending highlightIds={highlight ? highlight.split(",").filter(Boolean) : []} />;
+// Everything the screen shows is in the URL, so a reload, back/forward and a Dial switch keep it:
+// ?category= ?month= ?merchant= ?sort= narrow the list, ?txn= opens one transaction, and ?highlight=<ids> comes from
+// Ask Dial evidence (AskResponse.evidenceIds). parseSpendingFilters drops anything not allowlisted.
+export default async function SpendingPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const filters = parseSpendingFilters(await searchParams);
+  return <ModeView simple={<SimpleSpending filters={filters} />} complex={<ComplexSpending filters={filters} />} />;
 }
