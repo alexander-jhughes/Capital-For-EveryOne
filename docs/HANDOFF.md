@@ -137,3 +137,16 @@ Keep these stable so you can work in parallel:
 - Gemini rate limits on the current key (see above).
 - Demo data only: 28 Sep to 8 Nov 2026. September has 3 days and November 8, so partial months are labelled.
 - Rules for understanding requests are English only.
+
+## Deploying on Vercel
+
+1. Import the repo on vercel.com (Hobby plan is fine). Framework: Next.js, everything else default.
+2. Environment Variables (tick Production, Preview and Development for each):
+   - `GEMINI_API_KEY`: a key from https://aistudio.google.com/apikey
+   - `SESSION_SECRET`: at least 32 random characters (`openssl rand -hex 32`). Without it the account routes answer
+     500 in production and the app falls back to the seed.
+   - optional: `GEMINI_MODEL`, `GEMINI_FALLBACK_MODELS`
+3. Settings, Environments, Production, Branch Tracking: set it to `claude/serene-rubin-2badwa` and save. A commit to
+   that branch then deploys to production. (Redeploying an old deployment rebuilds the old commit.)
+4. Check `https://YOUR-APP.vercel.app/api/ask`: it should show `"gemini":"configured"`.
+5. Never put a key in a file in the repo. Rotate any key that has been pasted into a screenshot or chat.
