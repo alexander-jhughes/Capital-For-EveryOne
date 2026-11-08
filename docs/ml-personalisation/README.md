@@ -2,6 +2,8 @@
 
 A small, trained machine-learning model that works in the background. It looks at the display settings a person has **explicitly** chosen, and (with their consent) at counts of explicit display actions, and predicts which *other* presentation settings they might like. Dial can then **ask**: "Would you like me to make the text larger?" The person can say yes, no, or ignore it. **The model never changes the interface by itself.**
 
+> **Superseded in the app by [personalisation v2](./v2/README.md)** (database-backed, collaborative, hybrid). This v1 engine stays in the repository as the baseline v2 is evaluated against.
+>
 > **Status: prototype, trained on synthetic data only.** It is a working, tested ML pipeline. It has not been validated on real people (see [Limitations](#limitations)).
 > **Integration:** wired into the adaptive UI behind explicit consent. See [Integration on the adaptive UI](#integration-on-the-adaptive-ui-agreed).
 
