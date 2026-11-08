@@ -140,7 +140,6 @@ function setup(o: { available?: string; allowCloud?: boolean; noRecognition?: bo
   return { engine, world, clock, log, rec, listen, doc, listeners, available };
 }
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
 const texts = (u: Utterance[]) => u.map((x) => x.text);
 
 describe("ending an utterance", () => {
