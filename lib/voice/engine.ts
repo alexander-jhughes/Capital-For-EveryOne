@@ -502,7 +502,8 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
       emit();
     },
     pause() {
-      if (disposed || mode === "hold" || (state !== "listening" && state !== "transcribing")) return;
+      // Whenever the microphone is ours to close, including while Dial works or speaks in continuous mode.
+      if (disposed || !active || paused || mode === "hold" || state === "requesting-permission") return;
       release();
       if (current) {
         // That session is gone, so its words (interim included) become the kept prefix, as when the browser ends one.

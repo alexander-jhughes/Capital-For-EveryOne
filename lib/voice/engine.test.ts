@@ -870,6 +870,27 @@ describe("pausing and resuming", () => {
     expect(log.interrupts).toEqual([]);
   });
 
+  it("in continuous mode, pause closes the microphone even while Dial is working or speaking", () => {
+    const { engine, log, rec, listen } = setup();
+    listen("continuous");
+    engine.setProcessing(true);
+    expect(engine.state).toBe("processing");
+    engine.pause();
+    expect(engine.state).toBe("paused");
+    expect(rec().aborted).toBe(true);
+    engine.setProcessing(false);
+    engine.resume();
+    expect(engine.state).not.toBe("paused");
+
+    engine.setSpeaking("Your bill is £120.");
+    expect(engine.state).toBe("responding");
+    engine.pause();
+    expect(engine.state).toBe("paused");
+    expect(rec().aborted).toBe(true);
+    expect(log.interrupts).toEqual([]);
+    expect(log.utterances).toEqual([]);
+  });
+
   it("pause does nothing in push-to-talk, when idle or while waiting for the microphone", () => {
     const hold = setup();
     hold.listen("hold");

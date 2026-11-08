@@ -103,7 +103,7 @@ export interface VoiceEngine {
   stop(): void;
   /** Stop listening and drop the pending utterance. Nothing is submitted. */
   cancel(): void;
-  /** Close the microphone but keep this utterance's words, unsent. Only while listening or transcribing in tap or continuous mode; otherwise does nothing. */
+  /** Close the microphone but keep this utterance's words, unsent. Works whenever the engine is listening in tap or continuous mode, including while Dial works or speaks; otherwise does nothing. */
   pause(): void;
   /** Reopen the microphone in the mode used before the pause and carry on the same utterance. Only while paused. */
   resume(): void;
