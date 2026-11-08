@@ -10,6 +10,7 @@ import { useDialSession } from "../dial/session";
 import { useDialVoice } from "../dial/use-dial-voice";
 import { useSpeaker } from "../dial/use-speaker";
 import { VoiceConsent } from "../dial/voice-consent";
+import { VoiceDiagnostics } from "../dial/voice-diagnostics";
 import { DialMark } from "../wordmark";
 
 const btn = "inline-flex min-h-(--target-min) items-center justify-center gap-2 rounded-full px-4 font-bold";
@@ -284,6 +285,7 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
               {mic.error.message}
             </p>
           )}
+          {mic.supported && <VoiceDiagnostics tone="voice" open={!!mic.error} state={mic.state} backend={mic.backend} error={mic.error} speechInput={mic.speechInput} />}
         </div>
 
         {/* Composer: always visible, type or talk */}

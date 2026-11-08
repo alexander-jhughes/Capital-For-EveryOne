@@ -33,7 +33,12 @@ export function pickVoice<V extends { lang: string }>(voices: V[]): V | null {
 
 /** Plain-English message for a recognition error code (the browser's code, or the engine's VoiceErrorCode). */
 export function voiceErrorMessage(code: string): string {
-  if (code === "not-allowed" || code === "service-not-allowed") return "Microphone access is blocked. You can type your question instead.";
+  if (code === "not-allowed" || code === "service-not-allowed") {
+    return "Microphone access is blocked. In Chrome, click the icon at the left of the address bar and allow the microphone. On a Mac, also check System Settings, Privacy and Security, Microphone. You can type instead.";
+  }
+  if (code === "not-started") {
+    return "The microphone didn't start. If your browser is asking for permission, choose Allow. Otherwise check the microphone icon in the address bar, then tap the microphone again. You can type instead.";
+  }
   if (code === "no-speech") return "I didn't hear anything. Try again, or type your question.";
   if (code === "aborted") return "";
   if (code === "audio-capture" || code === "no-microphone") return "I can't find a microphone. Check one is connected, or type your question instead.";
@@ -107,7 +112,7 @@ const ERROR_CODES: Record<string, VoiceErrorCode> = {
 
 /** A VoiceError for one of our codes, with its plain-English message. */
 export function voiceError(code: VoiceErrorCode): VoiceError {
-  return { code, message: voiceErrorMessage(code), recoverable: code === "network" || code === "no-speech" || code === "failed" };
+  return { code, message: voiceErrorMessage(code), recoverable: code === "network" || code === "no-speech" || code === "failed" || code === "not-started" };
 }
 
 /** Maps the browser's recognition error code to a VoiceError. Null for "aborted", which is never shown. */

@@ -188,6 +188,15 @@ export function visibleWidgets(mode: Mode, layout: Layout): WidgetId[] {
   return layout.density === "calm" ? ordered.slice(0, 3) : ordered;
 }
 
+/**
+ * Whether a widget is on Home in this view, before the "calm" cut to three. This is what the settings tick means:
+ * Simple view leaves some widgets off by default, so "not hidden" is not the same as "shown".
+ */
+export function isWidgetShown(mode: Mode, layout: Layout, w: WidgetId): boolean {
+  if (layout.hidden.includes(w)) return false;
+  return VIEW_DEFAULTS[mode].visible.includes(w) || layout.shown.includes(w);
+}
+
 export function stepTextSize(current: TextSize, dir: 1 | -1): TextSize {
   const i = TEXT_SIZES.indexOf(current) + dir;
   return TEXT_SIZES[Math.min(Math.max(i, 0), TEXT_SIZES.length - 1)];

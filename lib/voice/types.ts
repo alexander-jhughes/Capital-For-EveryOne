@@ -71,6 +71,8 @@ export type VoiceErrorCode =
   | "language-unavailable" // on-device pack not installed and cloud not allowed
   | "no-speech"
   | "aborted"
+  /** start() was called but the browser never reported starting, an error or an end within the time limit. */
+  | "not-started"
   | "failed";
 
 export interface VoiceError {

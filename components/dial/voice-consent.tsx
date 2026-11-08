@@ -26,8 +26,8 @@ export function VoiceConsent({ tone, notice, onChoose, onDismiss }: { tone: "lig
       <button type="button" className={option} onClick={() => onChoose("on-device")}>
         <Laptop aria-hidden className="size-[1.2em] shrink-0" />
         <span>
-          On this device only
-          <span className={`block text-sm font-normal ${muted}`}>Private. Works in recent Chrome and Edge once the language pack is installed.</span>
+          On this device only (experimental)
+          <span className={`block text-sm font-normal ${muted}`}>Private: audio stays on this device. Needs Chrome 139 or newer with the language pack installed, and may not work yet.</span>
         </span>
       </button>
       <button type="button" className={option} onClick={() => onChoose("typing")}>

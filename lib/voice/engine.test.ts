@@ -516,6 +516,47 @@ describe("errors", () => {
     expect(engine.state).toBe("listening");
   });
 
+  it("a recogniser that never reports anything after start() fails as 'not-started' instead of waiting for ever", () => {
+    // Seen with the real recogniser in headless Chromium: start() returns, then no start, error or end event ever
+    // arrives. A permission prompt the person hasn't answered looks the same from here.
+    const { engine, log, clock, world, rec } = setup({ allowCloud: true });
+    engine.start("tap");
+    expect(engine.state).toBe("requesting-permission");
+    clock.tick(6999);
+    expect(log.errors).toEqual([]);
+    clock.tick(1);
+    expect(log.errors).toEqual([expect.objectContaining({ code: "not-started", recoverable: true })]);
+    expect(log.errors[0].message).toMatch(/permission|address bar/i);
+    expect(engine.state).toBe("failed");
+    expect(rec().aborted).toBe(true);
+    expect(world.recs).toHaveLength(1);
+  });
+
+  it("the start timeout is cancelled as soon as the browser says anything", () => {
+    const { engine, log, clock, rec, listen } = setup({ allowCloud: true });
+    listen("tap"); // begin() fires onstart
+    clock.tick(7500); // past the 7s start timeout, before tap mode's 8s no-speech timer
+    expect(log.errors).toEqual([]);
+    expect(engine.state).toBe("listening");
+    // An early error, before onstart, also cancels it: one error, not two.
+    const second = setup({ allowCloud: true });
+    second.engine.start("tap");
+    second.rec().error("not-allowed");
+    second.clock.tick(10_000);
+    expect(second.log.errors).toHaveLength(1);
+    expect(second.log.errors[0].code).toBe("not-allowed");
+    void rec;
+  });
+
+  it("stop() or cancel() during the wait clears the timeout", () => {
+    const { engine, log, clock } = setup({ allowCloud: true });
+    engine.start("tap");
+    engine.cancel();
+    clock.tick(10_000);
+    expect(log.errors).toEqual([]);
+    expect(engine.state).toBe("idle");
+  });
+
   it("a fresh start() clears a failure", () => {
     const { engine, rec, listen } = setup();
     listen("tap");

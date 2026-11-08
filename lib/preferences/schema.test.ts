@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { isWidgetShown } from "./schema";
 import {
   applyAction,
   applyActions,
@@ -127,5 +128,24 @@ describe("Dial upgrade preferences (answer style, listening, speech consent)", (
     const p = applyActions(DEFAULT_PREFS, [{ type: "answerStyle", value: "brief" }, { type: "listenMode", value: "hold" }]);
     expect(p).toMatchObject({ answerStyle: "brief", listenMode: "hold" });
     expect(describeActions([{ type: "answerStyle", value: "brief" }])).toBe("keep my answers short");
+  });
+});
+
+describe("isWidgetShown (the settings tick)", () => {
+  const layout = { ...DEFAULT_PREFS.layout };
+  it("follows the view's defaults, not just the hidden list", () => {
+    expect(isWidgetShown("simple", layout, "balance")).toBe(false); // Simple leaves it off by default
+    expect(isWidgetShown("complex", layout, "balance")).toBe(true);
+    expect(isWidgetShown("simple", layout, "bill")).toBe(true);
+  });
+  it("a shown widget is ticked in Simple, a hidden one is not ticked in Detailed, and calm density doesn't change ticks", () => {
+    expect(isWidgetShown("simple", { ...layout, shown: ["balance"] }, "balance")).toBe(true);
+    expect(isWidgetShown("complex", { ...layout, hidden: ["chart"] }, "chart")).toBe(false);
+    expect(isWidgetShown("complex", { ...layout, density: "calm" }, "recent")).toBe(true);
+  });
+  it("ticking an unticked Simple widget is a show action that puts it on Home", () => {
+    const next = applyActions(DEFAULT_PREFS, [{ type: "show", widget: "balance" }]);
+    expect(visibleWidgets("simple", next.layout)).toContain("balance");
+    expect(isWidgetShown("simple", next.layout, "balance")).toBe(true);
   });
 });

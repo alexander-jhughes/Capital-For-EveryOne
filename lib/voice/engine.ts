@@ -36,11 +36,13 @@ export interface VoiceEngineOptions {
     maxRestarts: number;
     /** Tap mode: give up when nothing is heard for this long. */
     noSpeechMs: number;
+    /** After start(), how long to wait for the browser to report starting, an error or an end before giving up. */
+    startTimeoutMs: number;
   }>;
   clock?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout; now(): number };
 }
 
-const DEFAULT_TIMING = { pauseMs: 1100, longPauseMs: 2000, maxRestarts: 6, noSpeechMs: 8000 };
+const DEFAULT_TIMING = { pauseMs: 1100, longPauseMs: 2000, maxRestarts: 6, noSpeechMs: 8000, startTimeoutMs: 7000 };
 /** First restart delay; doubles each time (200, 400, 800...). */
 const BACKOFF_MS = 200;
 /** A session that ran this long ended normally (silence), not in a failure loop, so it doesn't use up a restart. */
@@ -146,6 +148,9 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   let restartTimer: Timer | null = null;
   let noSpeechTimer: Timer | null = null;
   let interruptTimer: Timer | null = null;
+  /** Running from start() until the browser says anything at all. A permission prompt left open, or a recogniser
+   *  that silently never starts (seen in headless Chromium), would otherwise show "waiting" for ever. */
+  let startTimer: Timer | null = null;
 
   function later(fn: () => void, ms: number): Timer {
     const set = clock.setTimeout;
@@ -222,13 +227,34 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
     const live = () => token === instance && !disposed;
     r.onstart = r.onaudiostart = () => {
       if (!live()) return;
+      startTimer = clear(startTimer);
       micReady = true;
       armNoSpeech();
       emit();
     };
-    r.onresult = (e) => live() && handleResults(e.results);
-    r.onerror = (e) => live() && handleError(e.error);
-    r.onend = () => live() && handleEnd();
+    r.onresult = (e) => {
+      if (!live()) return;
+      startTimer = clear(startTimer);
+      handleResults(e.results);
+    };
+    r.onerror = (e) => {
+      if (!live()) return;
+      startTimer = clear(startTimer);
+      handleError(e.error);
+    };
+    r.onend = () => {
+      if (!live()) return;
+      startTimer = clear(startTimer);
+      handleEnd();
+    };
+    // Only the first session of a start() is timed: restarts after a healthy session already proved the browser works.
+    if (!micReady) {
+      startTimer = clear(startTimer);
+      startTimer = later(() => {
+        startTimer = null;
+        if (active && !micReady) fail(voiceError("not-started"));
+      }, timing.startTimeoutMs);
+    }
     rec = r;
     boundary = seen = 0;
     sessionWords = "";
@@ -254,6 +280,7 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
     pauseTimer = clear(pauseTimer);
     restartTimer = clear(restartTimer);
     noSpeechTimer = clear(noSpeechTimer);
+    startTimer = clear(startTimer);
     abortRecogniser();
     resetUtterance();
   }

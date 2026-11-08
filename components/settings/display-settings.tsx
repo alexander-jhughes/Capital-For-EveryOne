@@ -7,7 +7,7 @@ import { useAskDial } from "@/components/assistant/ask-dial";
 import { useAnnounce } from "@/components/live-region";
 import { usePersonalisation } from "@/lib/personalisation/provider";
 import { usePreferences } from "@/lib/preferences/provider";
-import { describeActions, TEXT_SIZES, WIDGET_LABELS, WIDGETS, type Preferences, type UiAction, type WidgetId } from "@/lib/preferences/schema";
+import { describeActions, isWidgetShown, TEXT_SIZES, WIDGET_LABELS, WIDGETS, type Preferences, type UiAction, type WidgetId } from "@/lib/preferences/schema";
 import { useMode } from "@/lib/state/mode-context";
 
 const pill = "inline-flex min-h-(--target-min) max-w-full items-center justify-center gap-2 rounded-[1.4em] px-[1em] text-left font-bold";
@@ -157,9 +157,9 @@ export function DisplaySettings() {
         />
         <Segmented
           legend="Turning your voice into text"
-          hint="On this device only keeps your voice on this device, where your browser supports it. Your browser's online speech service sends your voice to the browser maker (for example Google in Chrome). Typing always works."
+          hint="Your browser's speech service sends your voice to the browser maker (for example Google in Chrome) and works in Chrome and Edge. On this device keeps your voice here, but needs Chrome 139 or newer with the language pack and may not work yet. Typing always works."
           value={prefs.speechInput}
-          options={[{ value: "unset", label: "Ask me first" }, { value: "on-device", label: "On this device only" }, { value: "cloud", label: "Allow online service" }, { value: "typing", label: "I'll type" }]}
+          options={[{ value: "cloud", label: "Browser speech service" }, { value: "on-device", label: "On this device (experimental)" }, { value: "typing", label: "I'll type" }, { value: "unset", label: "Ask me first" }]}
           onChange={set("speechInput")}
         />
         <Link href="/account/personalise" className={`${pill} self-start bg-accent text-accent-foreground`}>
@@ -213,7 +213,9 @@ export function DisplaySettings() {
           <h2 id="s-layout" className="text-lg font-bold">
             Home screen
           </h2>
-          <p className="text-muted-foreground">Choose what appears on your home screen and what comes first. This applies to both views.</p>
+          <p className="text-muted-foreground">
+            Choose what appears on your home screen and what comes first. Ticked sections are on Home in {mode === "simple" ? "Simple" : "Detailed"} view now. Simple view starts with fewer sections; tick one to add it.
+          </p>
         </div>
         <label className="flex min-h-(--target-min) cursor-pointer items-center gap-3 font-bold">
           <input type="checkbox" checked={l.density === "calm"} onChange={(e) => change([{ type: "density", value: e.target.checked ? "calm" : "standard" }])} className="size-6 accent-[var(--primary)]" />
@@ -221,7 +223,7 @@ export function DisplaySettings() {
         </label>
         <ul className="flex flex-col">
           {WIDGETS.map((w: WidgetId) => {
-            const hidden = l.hidden.includes(w);
+            const hidden = !isWidgetShown(mode, l, w);
             const first = l.pinned[0] === w;
             const highlighted = l.emphasis === w;
             return (
