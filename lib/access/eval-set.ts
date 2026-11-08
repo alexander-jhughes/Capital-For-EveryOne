@@ -104,11 +104,11 @@ export const EVAL_SET: EvalCase[] = [
   s("since my stroke I forget stuff", ["memory"]),
   s("I can't keep things in my head", ["memory"]),
   // Money anxiety
-  s("checking my balance gives me anxiety", ["money_anxiety"]),
-  s("I panic when I see how much I owe", ["money_anxiety"]),
-  s("money stuff makes me really stressed", ["money_anxiety"]),
-  s("I'm scared to look at my account", ["money_anxiety"]),
-  s("financial things make me nervous", ["money_anxiety"]),
+  s("checking my balance gives me anxiety", ["money_worry"]),
+  s("I panic when I see how much I owe", ["money_worry"]),
+  s("money stuff makes me really stressed", ["money_worry"]),
+  s("I'm scared to look at my account", ["money_worry"]),
+  s("financial things make me nervous", ["money_worry"]),
   // Hearing
   s("I am deaf", ["hearing"]),
   s("I can't hear what you say", ["hearing"]),
@@ -130,7 +130,7 @@ export const EVAL_SET: EvalCase[] = [
 
   // More than one thing at once
   s("I have arthritis and I struggle to see at night", ["dexterity", "night_vision"], "night", "mixed"),
-  s("I'm dyslexic and numbers make me anxious", ["reading", "money_anxiety"], undefined, "mixed"),
+  s("I'm dyslexic and numbers make me anxious", ["reading", "money_worry"], undefined, "mixed"),
   s("I'm colour blind, and I also get distracted easily", ["colour_vision", "focus"], undefined, "mixed"),
   s("my hands shake and you talk too fast", ["dexterity", "slow_speech"], undefined, "mixed"),
   s("I'm deaf and I have ADHD", ["hearing", "focus"], undefined, "mixed"),
@@ -185,6 +185,16 @@ export const EVAL_SET: EvalCase[] = [
   none("thanks Dial", "chat"),
   none("what's the weather like", "chat"),
   none("tell me a joke", "chat"),
+  // Added with the navigation, key_info and voice_preference situations (accessibility engine), before evaluating.
+  s("the tab key is how I get around", ["navigation"]),
+  s("I have no mouse, just a keyboard", ["navigation"]),
+  s("I lose my place on the screen when I tab through it", ["navigation"]),
+  s("the important stuff should jump out at me", ["key_info"]),
+  s("I want the main things to be obvious", ["key_info"]),
+  s("I'd much rather say things than type them", ["voice_preference"]),
+  s("talking suits me better than typing", ["voice_preference"]),
+  none("make the screen orange", "command"),
+  none("turn the buttons gold", "command"),
 ];
 
 /**
@@ -227,9 +237,9 @@ export const TEST_SET: EvalCase[] = [
   s("my memory's not what it was", ["memory"]),
   s("I have early dementia", ["memory"]),
   s("I tend to forget what I've just done", ["memory"]),
-  s("money makes me so anxious", ["money_anxiety"]),
-  s("I'm frightened of seeing my balance", ["money_anxiety"]),
-  s("I get stressed out by numbers", ["money_anxiety"]),
+  s("money makes me so anxious", ["money_worry"]),
+  s("I'm frightened of seeing my balance", ["money_worry"]),
+  s("I get stressed out by numbers", ["money_worry"]),
   s("I'm hard of hearing", ["hearing"]),
   s("I can't hear the speaker very well", ["hearing"]),
   s("I'm deaf in both ears", ["hearing"]),
@@ -238,7 +248,7 @@ export const TEST_SET: EvalCase[] = [
   s("my first language is Polish", ["second_language"]),
   s("I don't understand English very well", ["second_language"]),
   s("I'm dyslexic and I also have a tremor", ["reading", "dexterity"], undefined, "mixed"),
-  s("I can't see well at night and I get anxious about money", ["night_vision", "money_anxiety"], "night", "mixed"),
+  s("I can't see well at night and I get anxious about money", ["night_vision", "money_worry"], "night", "mixed"),
   s("I'm hard of hearing and colour blind", ["hearing", "colour_vision"], undefined, "mixed"),
   s("i got shaky hands", ["dexterity"], undefined, "typo"),
   s("im dislexic", ["reading"], undefined, "typo"),
@@ -260,4 +270,14 @@ export const TEST_SET: EvalCase[] = [
   none("I don't have arthritis", "negated"),
   none("good morning", "chat"),
   none("who made you", "chat"),
+  // Added with the navigation, key_info and voice_preference situations, written before the first evaluation run.
+  s("I move through pages with my keyboard", ["navigation"]),
+  s("getting from one screen to another is confusing", ["navigation"]),
+  s("I control my phone with a head switch", ["navigation"]),
+  s("what matters gets lost among everything else", ["key_info"]),
+  s("make sure I notice the important things", ["key_info"]),
+  s("I'd prefer to just speak my requests", ["voice_preference"]),
+  s("can I talk to it rather than typing", ["voice_preference"]),
+  none("paint the app blue", "command"),
+  none("make the font cursive", "command"),
 ];

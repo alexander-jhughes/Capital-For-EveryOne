@@ -94,7 +94,7 @@ describe("route: rules first for commands and money", () => {
   });
   it("leaves money remarks to the money code, but not money worries", () => {
     expect(decide("my balance is giving me a headache", sure(["light_sensitivity"]))).toBe("rules");
-    expect(decide("checking my balance gives me anxiety", sure(["money_anxiety"]))).toBe("adapt");
+    expect(decide("checking my balance gives me anxiety", sure(["money_worry"]))).toBe("adapt");
   });
   it("leaves direct commands to the precise rules", () => {
     expect(decide("make the writing larger", sure(["low_vision"]))).toBe("rules");

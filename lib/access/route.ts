@@ -3,6 +3,7 @@
 // The precise rules (lib/voice/interpret.ts) are exact for commands: "undo", "go to settings", "read it out loud",
 // "make the text bigger". The situation model is for people describing themselves. This decides between them without
 // either one hijacking the other, and keeps money questions with the money code.
+import { splitCorrection } from "../voice/correction";
 import { interpret, isQuestionText } from "../voice/interpret";
 import type { Understanding } from "./understand";
 
@@ -22,6 +23,8 @@ export function worthUnderstanding(text: string): boolean {
   if (s.trim().length === 0 || s.length > 300) return false;
   const exact = interpret(text);
   if (exact.kind === "control" || exact.kind === "navigate" || exact.kind === "mode") return false;
+  // "Bigger, no I meant smaller" corrects a command; the "I" in it isn't the person describing themselves.
+  if (splitCorrection(text)) return false;
   // A plain question ("how much did I spend at night?") belongs to the money code.
   if (isQuestionText(text) && MONEY.test(s)) return false;
   return true;
@@ -36,7 +39,7 @@ export function worthUnderstanding(text: string): boolean {
 export function decide(text: string, u: Understanding): "adapt" | "maybe" | "rules" {
   if (u.kind !== "situations") return "rules";
   const s = norm(text);
-  const aboutMoneyWorries = u.situations.includes("money_anxiety");
+  const aboutMoneyWorries = u.situations.includes("money_worry");
   // "My balance is giving me a headache" is about the balance, not about migraines.
   if (MONEY.test(s) && !aboutMoneyWorries) return "rules";
   // "Make the writing larger" is a command the precise rules do exactly; a situation would change more than asked.

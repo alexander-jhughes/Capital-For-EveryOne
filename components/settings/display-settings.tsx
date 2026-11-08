@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowUpToLine, Check, RotateCcw, Save, Star, Undo2 } from "lucide-react";
+import { ArrowUpToLine, Check, Pause, Play, RotateCcw, Save, Star, Undo2 } from "lucide-react";
+import { activeChanges, turnOff } from "@/lib/access/active";
 import Link from "next/link";
 import { useId, useState } from "react";
 import { useAskDial } from "@/components/assistant/ask-dial";
@@ -43,6 +44,70 @@ function Segmented<T extends string | number>({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+/**
+ * Every adaptation that is on, in plain words, each with its own "Turn off", and a way to set them all aside for this
+ * visit without losing them. Whatever Dial or Settings changed shows up here the same way.
+ */
+function YourChanges() {
+  const { kept, apply, paused, setPaused } = usePreferences();
+  const announce = useAnnounce();
+  const active = activeChanges(kept);
+  const sentence = (a: UiAction) => {
+    const s = describeActions([a]);
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+  return (
+    <section aria-labelledby="s-yours" className="elevated flex flex-col gap-4 rounded-xl bg-card p-(--space)">
+      <h2 id="s-yours" className="text-lg font-bold">
+        Your changes
+      </h2>
+      {active.length === 0 ? (
+        <p className="text-muted-foreground">You&apos;re using the standard look. Change anything below, or tell Dial what would help.</p>
+      ) : (
+        <>
+          <p role="status" className="font-bold">
+            {paused ? "Paused: you're seeing the standard look for this visit. Your changes are kept." : `${active.length} ${active.length === 1 ? "change is" : "changes are"} on.`}
+          </p>
+          <ul className="flex flex-col" aria-label="Changes that are on">
+            {active.map((a) => {
+              const off = turnOff(a);
+              return (
+                <li key={JSON.stringify(a)} className="flex flex-wrap items-center justify-between gap-2 border-b py-2 last:border-0">
+                  <span className={`min-w-0 ${paused ? "text-muted-foreground" : ""}`}>{sentence(a)}</span>
+                  {off && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        apply([off], { source: "settings" });
+                        announce(`Done: ${describeActions([off])}.`);
+                      }}
+                      className={`${pill} hairline bg-card`}
+                    >
+                      Turn off<span className="sr-only">: {sentence(a)}</span>
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button"
+            aria-pressed={paused}
+            onClick={() => {
+              setPaused(!paused);
+              announce(paused ? "Your changes are back on." : "Showing the standard look for this visit. Your changes are kept.");
+            }}
+            className={`${pill} self-start ${paused ? "bg-primary text-primary-foreground" : "hairline bg-card"}`}
+          >
+            {paused ? <Play aria-hidden className="size-[1em]" /> : <Pause aria-hidden className="size-[1em]" />}
+            {paused ? "Turn my changes back on" : "Pause my changes for this visit"}
+          </button>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -106,6 +171,8 @@ export function DisplaySettings() {
           )}
         </div>
       </div>
+      <YourChanges />
+
       <section aria-labelledby="s-look" className="elevated flex flex-col gap-6 rounded-xl bg-card p-(--space)">
         <h2 id="s-look" className="sr-only">
           Text and colour
@@ -176,6 +243,13 @@ export function DisplaySettings() {
           value={prefs.tapGuard ? "on" : "off"}
           options={[{ value: "off", label: "Count every tap" }, { value: "on", label: "Ignore double taps" }]}
           onChange={(v) => change([{ type: "tapGuard", value: v === "on" }])}
+        />
+        <Segmented
+          legend="Keyboard focus"
+          hint="A thick outline around whatever you're on when you move with the Tab key or a switch."
+          value={prefs.focusRing}
+          options={[{ value: "standard", label: "Standard" }, { value: "strong", label: "Thick outline" }]}
+          onChange={set("focusRing")}
         />
         <Segmented
           legend="One-handed use"

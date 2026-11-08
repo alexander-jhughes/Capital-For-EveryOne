@@ -75,6 +75,8 @@ export interface Preferences {
   tapGuard: boolean;
   /** A short vibration when Dial replies or Spend Pause steps in, for people who can't rely on sound. */
   vibrate: boolean;
+  /** A thick, high-contrast outline around whatever has keyboard or switch focus, so it's always clear where you are. */
+  focusRing: "standard" | "strong";
   /** The night look: display changes applied only between NIGHT_WINDOW.from and NIGHT_WINDOW.to. Empty means off. */
   night: NightAction[];
   layout: Layout;
@@ -115,6 +117,7 @@ export const DEFAULT_PREFS: Preferences = {
   reach: "standard",
   tapGuard: false,
   vibrate: false,
+  focusRing: "standard",
   night: [],
   layout: { pinned: [], shown: [], hidden: [], emphasis: null, density: "standard" },
 };
@@ -154,6 +157,7 @@ export type UiAction =
   | { type: "reach"; value: Preferences["reach"] }
   | { type: "tapGuard"; value: boolean }
   | { type: "vibrate"; value: boolean }
+  | { type: "focusRing"; value: Preferences["focusRing"] }
   | { type: "nightLook"; actions: NightAction[] }
   | { type: "nightOff" }
   | { type: "moveToTop"; widget: WidgetId }
@@ -194,6 +198,7 @@ export function sanitize(input: unknown): Preferences {
     reach: oneOf(o.reach, ["standard", "thumb"] as const, d.reach),
     tapGuard: o.tapGuard === true,
     vibrate: o.vibrate === true,
+    focusRing: oneOf(o.focusRing, ["standard", "strong"] as const, d.focusRing),
     night: nightList(o.night),
     layout: {
       pinned: widgetList(l.pinned),
@@ -251,6 +256,7 @@ export function applyAction(p: Preferences, a: UiAction): Preferences {
     case "reach":
     case "tapGuard":
     case "vibrate":
+    case "focusRing":
       return { ...p, [a.type]: a.value };
     case "nightLook":
       return { ...p, night: nightList(a.actions) };
@@ -281,13 +287,27 @@ export function effectivePrefs(p: Preferences, hour: number): Preferences {
   return p.night.length > 0 && inNightWindow(hour) ? applyActions(p, p.night) : p;
 }
 
+/**
+ * Sections a calmer or simpler home screen never drops by itself: what is due and when. Only the person's own explicit
+ * "hide" removes it, and the Pay tab still shows it. (Spend Pause keeps its own tab in the main navigation.)
+ */
+export const ESSENTIAL_WIDGETS: readonly WidgetId[] = ["bill"];
+
 /** The widgets a view shows, in order, after the person's layout. */
 export function visibleWidgets(mode: Mode, layout: Layout): WidgetId[] {
   const { order, visible } = VIEW_DEFAULTS[mode];
   const set = new Set([...visible, ...layout.shown].filter((w) => !layout.hidden.includes(w)));
   const ordered = [...layout.pinned.filter((w) => set.has(w)), ...order.filter((w) => set.has(w) && !layout.pinned.includes(w))];
-  return layout.density === "calm" ? ordered.slice(0, 3) : ordered;
+  if (layout.density !== "calm") return ordered;
+  const calm = ordered.slice(0, 3);
+  return [...calm, ...ordered.filter((w) => ESSENTIAL_WIDGETS.includes(w) && !calm.includes(w))];
 }
+
+/**
+ * The standard look, for "pause my changes": every adaptation is set aside for this visit and nothing kept is lost.
+ * Consent and setup choices (microphone, onboarding, listening) are not adaptations, so they stay as they are.
+ */
+export const pausedLook = (p: Preferences): Preferences => ({ ...DEFAULT_PREFS, onboarding: p.onboarding, speechInput: p.speechInput, listenMode: p.listenMode });
 
 /**
  * Whether a widget is on Home in this view, before the "calm" cut to three. This is what the settings tick means:
@@ -371,6 +391,8 @@ export function describeActions(actions: UiAction[]): string {
         return a.value ? "ignore accidental double taps" : "count every tap";
       case "vibrate":
         return a.value ? "vibrate when Dial replies or Spend Pause steps in" : "stop vibrating";
+      case "focusRing":
+        return a.value === "strong" ? "show a thick outline around whatever you're on when you use a keyboard" : "use the standard focus outline";
       case "nightLook":
         return a.actions.length ? `from ${NIGHT_WINDOW.from - 12}pm to ${NIGHT_WINDOW.to}am, ${describeActions(a.actions)}` : "turn off the night look";
       case "nightOff":
@@ -407,5 +429,6 @@ export function prefAttributes(p: Preferences): Record<string, string> {
     "data-colours": p.colours,
     "data-reach": p.reach,
     "data-tap-guard": String(p.tapGuard),
+    "data-focus-ring": p.focusRing,
   };
 }

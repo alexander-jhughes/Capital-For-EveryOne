@@ -118,7 +118,8 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
     else out.items.push({ kind: "failed", text: "I couldn't do part of that." });
   }
 
-  const answersPending = steps.length === 1 && steps[0].type === "control" && (steps[0].command === "yes" || steps[0].command === "no");
+  // "Undo" (or "I've changed my mind") with a preview showing means "no": only the preview goes, not the change before it.
+  const answersPending = steps.length === 1 && steps[0].type === "control" && (steps[0].command === "yes" || steps[0].command === "no" || (steps[0].command === "undo" && !!pending));
   if (pending && !answersPending) deps.settle(pending, false);
 
   for (const step of steps) {
@@ -181,7 +182,7 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
         break;
       }
       case "control": {
-        if (step.command === "yes" || step.command === "no") {
+        if (step.command === "yes" || step.command === "no" || (step.command === "undo" && answersPending)) {
           if (!pending) {
             out.items.push({ kind: "say", text: "There's nothing waiting for an answer. What would you like to do?" });
             break;

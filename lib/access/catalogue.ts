@@ -19,10 +19,13 @@ export const SITUATION_IDS = [
   "light_sensitivity",
   "focus",
   "memory",
-  "money_anxiety",
+  "money_worry",
   "hearing",
   "slow_speech",
   "second_language",
+  "navigation",
+  "key_info",
+  "voice_preference",
 ] as const;
 export type SituationId = (typeof SITUATION_IDS)[number];
 
@@ -341,7 +344,7 @@ export const SITUATIONS: readonly Situation[] = [
     ],
   },
   {
-    id: "money_anxiety",
+    id: "money_worry",
     heard: "Looking at money can feel stressful",
     defaultScope: "always",
     changes: [
@@ -431,6 +434,75 @@ export const SITUATIONS: readonly Situation[] = [
       "can you use easier words, my English is weak",
     ],
   },
+  {
+    id: "navigation",
+    heard: "Getting around the app is hard",
+    defaultScope: "always",
+    changes: [
+      { action: { type: "focusRing", value: "strong" }, why: "A thick outline shows exactly where you are when you move with a keyboard or switch." },
+      { action: { type: "targets", value: "large" }, why: "Bigger buttons and links are easier to reach and land on." },
+      { action: { type: "density", value: "calm" }, why: "Fewer sections on Home, so there's less to move through. Your bill always stays." },
+    ],
+    examples: [
+      "I can't use a mouse",
+      "I only use the keyboard",
+      "I get around with the tab key",
+      "I use a switch to control my computer",
+      "I can't tell where I am on the page when I press tab",
+      "it's hard to find my way around the app",
+      "I keep getting lost in the app",
+      "make it easier to navigate",
+      "navigating this app is difficult",
+      "I need to move around without a mouse",
+      "I lose track of which button is selected",
+      "make the app easier to get around",
+    ],
+  },
+  {
+    id: "key_info",
+    heard: "You want the important things to stand out",
+    defaultScope: "always",
+    changes: [
+      { action: { type: "moveToTop", widget: "bill" }, why: "What you owe and when it's due comes first." },
+      { action: { type: "emphasize", widget: "bill" }, why: "Your bill is highlighted, so it's the first thing you see." },
+      { action: { type: "contrast", value: "high" }, why: "Stronger contrast makes the key words and figures stand out." },
+    ],
+    examples: [
+      "make the important information stand out",
+      "I want to see what matters first",
+      "highlight the important stuff",
+      "I keep missing the important bits",
+      "the key figures get lost on the screen",
+      "show me what's important first",
+      "I can't tell what's important here",
+      "make the main things more obvious",
+      "important things should be easier to spot",
+      "I want the most important details at the top",
+      "the things I need are buried",
+    ],
+  },
+  {
+    id: "voice_preference",
+    heard: "You'd rather talk than tap or type",
+    defaultScope: "always",
+    changes: [
+      { action: { type: "voiceFirst", value: true }, why: "Talking to Dial becomes the first option, on Home and in the Dial button." },
+      { action: { type: "listenMode", value: "tap" }, why: "One tap starts listening for one sentence, so the microphone is never left on." },
+    ],
+    examples: [
+      "I want to use voice instead",
+      "I'd rather talk than type",
+      "I prefer speaking to typing",
+      "typing is hard for me, I'd rather just talk",
+      "I want to use my voice",
+      "can I just talk to it",
+      "give me a voice first experience",
+      "I'd rather speak to the app",
+      "talking is easier for me than tapping",
+      "let me talk instead of pressing buttons",
+      "I want to control the app with my voice",
+    ],
+  },
 ] as const;
 
 /**
@@ -459,6 +531,10 @@ export const NOT_A_SITUATION: Record<"money" | "command", string[]> = {
     "turn on spend pause",
     "I can't remember what I bought last week",
     "what's my credit limit",
+    // A summary is about the account, not about how the screen looks (added with the key_info situation).
+    "give me a summary of my account",
+    "I just want the main points of my spending",
+    "can I have a quick summary",
   ],
   command: [
     "make the text bigger",
@@ -479,6 +555,15 @@ export const NOT_A_SITUATION: Record<"money" | "command", string[]> = {
     "go back",
     "show me the detailed view",
     "read this page aloud",
+    // Look changes the app doesn't offer: these are said back as "I can't do that", never turned into a situation.
+    "make the background purple",
+    "change the colours to pink",
+    "make the app green",
+    "use comic sans",
+    "put a picture on the home screen",
+    "make the logo bigger",
+    "make the buttons round",
+    "change the colour of the buttons",
   ],
 };
 

@@ -11,39 +11,39 @@ small talk as a situation.
 **How it was built and tested:**
 
 - The model compares meaning, not keywords: each sentence is turned into a 384-number vector and compared with the
-  catalogue's example sentences (`lib/access/catalogue.ts`, 240 examples).
+  catalogue's example sentences (`lib/access/catalogue.ts`, 285 examples).
 - Thresholds (accept 0.5, gap 0.1; "maybe" 0.4, gap 0.05) were chosen by
   leave-one-out over the catalogue's own examples, never on these sets.
 - The **development set** was used while building. The **blind test set** was written afterwards and nothing was
   changed after seeing its results. Quote the blind test numbers.
 - None of these sentences appear in the catalogue.
 
-## Blind test set (68 sentences)
+## Blind test set (77 sentences)
 
 | Measure | Result |
 |---|---|
-| Described situations recognised (exactly right) | 88% (46/52) |
-| Main situation right | 88% (46/52) |
-| Offered anything for a described situation | 96% (50/52) |
-| Offered the wrong situation | 4% (2/52) |
-| Money questions, commands, denials and chat wrongly treated as a situation | 0% (0/16) |
+| Described situations recognised (exactly right) | 83% (49/59) |
+| Main situation right | 85% (50/59) |
+| Offered anything for a described situation | 93% (55/59) |
+| Offered the wrong situation | 5% (3/59) |
+| Money questions, commands, denials and chat wrongly treated as a situation | 0% (0/18) |
 | "When" right (night, now, always), where the sentence says | 100% (4/4) |
-| Old keyword rules: changed anything for a described situation | 15% (8/52) |
-| Old keyword rules: changed the look for a money question, denial or small talk | 18% (2/11) |
-| Median time per sentence (Node, one CPU thread) | 3 ms |
+| Old keyword rules: changed anything for a described situation | 15% (9/59) |
+| Old keyword rules: changed the look for a money question, denial or small talk | 9% (1/11) |
+| Median time per sentence (Node, one CPU thread) | 2 ms |
 
-## Development set (141 sentences)
+## Development set (150 sentences)
 
 | Measure | Result |
 |---|---|
-| Described situations recognised (exactly right) | 83% (91/109) |
-| Main situation right | 84% (92/109) |
-| Offered anything for a described situation | 90% (98/109) |
-| Offered the wrong situation | 6% (6/109) |
-| Money questions, commands, denials and chat wrongly treated as a situation | 0% (0/32) |
+| Described situations recognised (exactly right) | 84% (97/116) |
+| Main situation right | 84% (98/116) |
+| Offered anything for a described situation | 91% (106/116) |
+| Offered the wrong situation | 7% (8/116) |
+| Money questions, commands, denials and chat wrongly treated as a situation | 0% (0/34) |
 | "When" right (night, now, always), where the sentence says | 100% (8/8) |
-| Old keyword rules: changed anything for a described situation | 21% (23/109) |
-| Old keyword rules: changed the look for a money question, denial or small talk | 23% (5/22) |
+| Old keyword rules: changed anything for a described situation | 20% (23/116) |
+| Old keyword rules: changed the look for a money question, denial or small talk | 18% (4/22) |
 | Median time per sentence (Node, one CPU thread) | 2 ms |
 
 ## What it got wrong (blind test set)
@@ -54,8 +54,12 @@ small talk as a situation.
 | in the dark the app is impossible to read | night_vision | nothing |
 | I've got really bad eyes | low_vision | night_vision |
 | I can't read small fonts | low_vision | nothing |
+| I use voice over on my iPhone | screen_reader | voice_preference |
+| I can't see, so please talk to me | screen_reader | screen_reader + voice_preference |
 | bright colours hurt my eyes and give me headaches | light_sensitivity | night_vision + light_sensitivity |
 | cant see at nite | night_vision | screen_reader |
+| getting from one screen to another is confusing | navigation | nothing |
+| what matters gets lost among everything else | key_info | nothing |
 
 ## What it got wrong (development set)
 
@@ -67,16 +71,17 @@ small talk as a situation.
 | I need everything much bigger, my eyes are bad | low_vision | night_vision |
 | I can barely make out the text | low_vision | nothing |
 | I have no vision at all | screen_reader | low_vision |
+| I need the app to talk to me because I can't see it | screen_reader | navigation |
 | the words blur together into a mess | reading | low_vision |
 | I'm outside and the screen is unreadable | bright_light | bright_light + low_vision |
 | the glare is awful | bright_light | nothing |
 | the moving bits make me nauseous | light_sensitivity | nothing |
 | this screen is way too busy | focus | nothing |
 | there's so much stuff I don't know where to look | focus | nothing |
-| I get overwhelmed with too much information | focus | nothing |
+| I get overwhelmed with too much information | focus | key_info |
 | I'm neurodivergent and busy layouts are hard | focus | nothing |
 | I can't keep things in my head | memory | focus (asked) |
-| I panic when I see how much I owe | money_anxiety | nothing |
+| I panic when I see how much I owe | money_worry | nothing |
 | eyes r bad | low_vision | night_vision |
 | im deff | hearing | nothing |
 

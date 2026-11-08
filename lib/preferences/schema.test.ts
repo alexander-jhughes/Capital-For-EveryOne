@@ -88,6 +88,7 @@ describe("describeActions and attributes", () => {
       "data-colours": "standard",
       "data-reach": "standard",
       "data-tap-guard": "false",
+      "data-focus-ring": "standard",
     });
   });
 });

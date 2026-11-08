@@ -74,6 +74,18 @@ describe("runSteps", () => {
     expect(d2.settle).toHaveBeenCalledWith(pending, false);
   });
 
+  it("undo with a preview showing only withdraws the preview, never the change kept before it", async () => {
+    const pending: PendingOffer = { step: { type: "preferences", actions: [{ type: "contrast", value: "high" }] }, description: "x" };
+    const d = deps();
+    await run([{ type: "control", command: "undo" }], d, pending);
+    expect(d.settle).toHaveBeenCalledTimes(1);
+    expect(d.settle).toHaveBeenCalledWith(pending, false);
+    expect(d.control).not.toHaveBeenCalled();
+    const d2 = deps();
+    await run([{ type: "control", command: "undo" }], d2, null);
+    expect(d2.control).toHaveBeenCalledWith("undo");
+  });
+
   it("treats reset as a previewed display change", async () => {
     const d = deps();
     const out = await run([{ type: "control", command: "reset" }], d);

@@ -2,11 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type ChangeSource, emit, type PrefsListener } from "./events";
-import { applyActions, DEFAULT_PREFS, effectivePrefs, encodePrefs, inNightWindow, prefAttributes, PREFS_COOKIE, sanitize, type Preferences, type UiAction } from "./schema";
+import { applyActions, DEFAULT_PREFS, pausedLook, effectivePrefs, encodePrefs, inNightWindow, prefAttributes, PREFS_COOKIE, sanitize, type Preferences, type UiAction } from "./schema";
 
 const SESSION_KEY = "cfe-prefs-session";
 /** A demo-only clock override ("?hour=21" in the address, or "See it now" in Settings), kept for this tab only. */
 const HOUR_KEY = "cfe-demo-hour";
+const PAUSED_KEY = "cfe-prefs-paused";
 /** Two taps on the same control closer together than this count as one when the tap guard is on. */
 export const TAP_GUARD_MS = 700;
 
@@ -52,6 +53,10 @@ interface PrefsApi {
   nightActive: boolean;
   /** Demo: show the app as it looks at night (true), or follow the real clock again (false). This tab only. */
   showNightNow: (on: boolean) => void;
+  /** True while every adaptation is set aside for this tab ("pause my changes"). Nothing kept or saved is lost. */
+  paused: boolean;
+  /** Pause (true) or bring back (false) the person's changes. Any new preview or change brings them back. */
+  setPaused: (on: boolean) => void;
 }
 
 const PrefsContext = createContext<PrefsApi | null>(null);
@@ -107,10 +112,25 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
     return () => clearInterval(t);
   }, []);
   const effectiveHour = forcedHour ?? hour;
+
+  // "Pause my changes": the standard look for this tab only, so it can never get stuck across visits.
+  const [paused, setPausedState] = useState(false);
+  useEffect(() => {
+    try {
+      setPausedState(sessionStorage.getItem(PAUSED_KEY) === "1");
+    } catch {}
+  }, []);
+  const setPaused = useCallback((on: boolean) => {
+    setPausedState(on);
+    try {
+      if (on) sessionStorage.setItem(PAUSED_KEY, "1");
+      else sessionStorage.removeItem(PAUSED_KEY);
+    } catch {}
+  }, []);
   const nightActive = kept.night.length > 0 && inNightWindow(effectiveHour);
 
   // A preview shows exactly what is being offered; otherwise the kept look, with the night look on top at night.
-  const prefs = preview?.result ?? effectivePrefs(kept, effectiveHour);
+  const prefs = preview?.result ?? (paused ? pausedLook(kept) : effectivePrefs(kept, effectiveHour));
 
   // Layout effect: the attributes change in the same frame as the render, so a view transition captures the new look.
   useLayoutEffect(() => {
@@ -144,7 +164,11 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
       preview: preview?.actions ?? null,
       canUndo: historyLength > 0,
       unsaved: JSON.stringify(kept) !== JSON.stringify(saved),
-      startPreview: (actions, opts) => setPreview({ actions, result: applyActions(kept, actions), source: opts?.source ?? "other" }),
+      startPreview: (actions, opts) => {
+        // A preview is shown on top of the person's own look, so it brings their changes back first.
+        setPaused(false);
+        setPreview({ actions, result: applyActions(kept, actions), source: opts?.source ?? "other" });
+      },
       acceptPreview: (opts) => {
         if (!preview) return;
         keep(preview.result, kept, preview.source);
@@ -157,6 +181,7 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
       },
       rejectPreview: () => setPreview(null),
       apply: (actions, opts) => {
+        setPaused(false);
         const next = applyActions(kept, actions);
         const source = opts?.source ?? "other";
         keep(next, kept, source);
@@ -192,6 +217,8 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
       subscribe,
       kept,
       nightActive,
+      paused,
+      setPaused,
       showNightNow: (on) => {
         try {
           if (on) sessionStorage.setItem(HOUR_KEY, "21");
@@ -200,7 +227,7 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
         setForcedHour(on ? 21 : null);
       },
     }),
-    [prefs, preview, historyLength, kept, saved, keep, subscribe, nightActive],
+    [prefs, preview, historyLength, kept, saved, keep, subscribe, nightActive, paused, setPaused],
   );
 
   return <PrefsContext.Provider value={api}>{children}</PrefsContext.Provider>;

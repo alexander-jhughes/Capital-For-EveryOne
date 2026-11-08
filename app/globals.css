@@ -297,6 +297,12 @@ html { font-size: calc(16px * var(--ui-scale)); }
     outline: 3px solid var(--ring);
     outline-offset: 2px;
   }
+  /* Strong focus ring (keyboard and switch users): a thick ring plus a halo in the page colour, visible on any surface. */
+  :root[data-focus-ring="strong"] :focus-visible {
+    outline: 5px solid var(--foreground);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 9px var(--background);
+  }
 }
 
 /* Side gutter that also clears notches in landscape. */

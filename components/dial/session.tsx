@@ -13,6 +13,8 @@ import { brainWithin, loadBrain } from "@/lib/access/brain";
 import { adaptationFor, offeredAdaptation, type Adaptation } from "@/lib/access/pipeline";
 import { changesFor, planKeep } from "@/lib/access/understand";
 import { prefersReducedMotion, reveal } from "@/lib/access/reveal";
+import { clarify } from "@/lib/access/clarify";
+import { PROTECTED_NOTE, withoutProtectedHides } from "@/lib/access/safety";
 import { liveState } from "@/lib/assistant/live-state";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
@@ -168,6 +170,16 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const id = ++turnId.current;
       const L = live.current;
 
+      // A contradictory or vague request gets a question back, never a guess (lib/access/clarify.ts). A correction
+      // ("no, I meant bigger") is already a clear choice, so it skips this.
+      const question = opts.replaces || splitCorrection(input) ? null : clarify(input);
+      if (question) {
+        const asked: DialTurn = { id, input, understood: "", corrected: false, status: "done", items: [{ kind: "say", text: question }], local: true };
+        setStats((s) => ({ ...s, turns: s.turns + 1, local: s.local + 1 }));
+        setTurn(asked);
+        return asked;
+      }
+
       // Someone describing their situation ("I have trouble seeing at night") is understood on this device by meaning,
       // before the precise rules run. Commands, page names and money questions skip this (lib/access/route.ts).
       // The model is given up to 4 seconds the first time it loads; after that it answers in milliseconds.
@@ -211,7 +223,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       let usedModel = false;
       const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
       const corrected = !!opts.replaces || splitCorrection(input) !== null;
-      const working: DialTurn = { id, input, understood: gaveUp ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
+      // When the situation layer took the sentence, its card says what it heard, so the rules' reading isn't shown too.
+      const working: DialTurn = { id, input, understood: gaveUp || adaptation ? "" : planned.understood, corrected, status: "working", items: [], local: adaptation ? true : planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
@@ -219,7 +232,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         if (id !== turnId.current) return null; // a newer turn replaced this one
         if (fromModel === "busy") steps = [{ type: "unsupported", say: "Groq is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
         else if (fromModel && fromModel.length > 0) {
-          steps = fromModel;
+          // A model may suggest "less on screen" by hiding sections; the bill, Spend Pause and warnings are never hidden that way.
+          const safe = withoutProtectedHides(fromModel);
+          steps = safe.steps.length > 0 ? safe.steps : [{ type: "unsupported", say: PROTECTED_NOTE }];
           usedModel = true;
         }
       }

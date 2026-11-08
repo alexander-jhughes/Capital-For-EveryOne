@@ -132,7 +132,7 @@ function filters(x: unknown): SpendingFilters | null {
 
 const SCALAR_ACTIONS = [
   "textSize", "contrast", "spacing", "motion", "theme", "targets", "explanations", "voiceFirst", "onboarding", "answerStyle", "listenMode", "speechInput",
-  "reading", "colours", "voiceRate", "autoRead", "reach", "tapGuard", "vibrate",
+  "reading", "colours", "voiceRate", "autoRead", "reach", "tapGuard", "vibrate", "focusRing",
 ] as const;
 
 /** One display action, checked against the preferences schema's own allowlists (sanitize keeps only allowed values). */
