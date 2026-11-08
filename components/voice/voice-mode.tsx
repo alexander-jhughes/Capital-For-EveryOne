@@ -253,7 +253,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
           </p>
         )}
 
-        {(typing || mic.speechInput === "typing" || !mic.supported) && (
+        {(typing || !mic.supported) && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -286,7 +286,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
               <Keyboard aria-hidden className="size-[1.1em]" />
               <span className="max-[359px]:sr-only">Type</span>
             </button>
-            {mic.supported && mic.speechInput !== "typing" ? (
+            {mic.supported ? (
               <button
                 type="button"
                 {...(hold
@@ -305,7 +305,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
                 {listening ? <Square aria-hidden className="size-7 fill-[#d03027] text-[#d03027]" /> : <Mic aria-hidden className="size-8" />}
               </button>
             ) : (
-              <p className="text-center text-sm text-[#aab4c8]">{mic.supported ? "Voice input is off. You chose typing in Display and voice." : "Voice input isn't available in this browser."}</p>
+              <p className="text-center text-sm text-[#aab4c8]">Voice input isn&apos;t available in this browser. You can type instead.</p>
             )}
             {speaker.supported && (
               <button

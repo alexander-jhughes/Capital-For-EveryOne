@@ -180,7 +180,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
                 autoComplete="off"
                 className="min-h-(--target-min) min-w-0 flex-1 basis-48 rounded-xl hairline bg-background px-3"
               />
-              {mic.supported && mic.speechInput !== "typing" && (
+              {mic.supported && (
                 <button type="button" onClick={listening ? mic.stop : mic.start} aria-pressed={listening} className={secondary}>
                   {listening ? <Square aria-hidden className="size-[1em]" /> : <Mic aria-hidden className="size-[1em]" />}
                   {listening ? "Stop listening" : "Speak"}

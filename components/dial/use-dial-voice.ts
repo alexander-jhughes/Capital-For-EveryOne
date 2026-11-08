@@ -23,8 +23,9 @@ export function useDialVoice(opts: { listenMode?: ListenMode; onUtterance(u: Utt
   const { start: engineStart } = engine;
 
   const start = useCallback(() => {
-    if (prefs.speechInput === "unset") return setAskingConsent(true);
-    if (prefs.speechInput === "typing") return;
+    // "typing" is a choice the person can change their mind about: tapping the microphone offers the choice again
+    // instead of leaving voice switched off with no way back.
+    if (prefs.speechInput === "unset" || prefs.speechInput === "typing") return setAskingConsent(true);
     engineStart();
   }, [prefs.speechInput, engineStart]);
 
