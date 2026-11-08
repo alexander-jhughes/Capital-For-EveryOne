@@ -11,6 +11,7 @@ import { billQuestion, namedMerchants } from "./intent";
 import { interpretQuestion, periodLabelFor } from "./interpreter";
 import { contextFromState, parseClientState, type ClientState } from "./live-state";
 import { describeError, type AskModel } from "./model";
+import { isRateLimit } from "./model-chain";
 import { allowModelCall, clientKey } from "./rate-limit";
 import { templateAnswer } from "./templates";
 import { foundNothing, validateResponse } from "./validator";
@@ -22,6 +23,9 @@ const TIMEOUT_MS = 4000;
 /** Below this a model call can't finish, so go straight to the fallback. */
 const MIN_CALL_MS = 250;
 const DEFAULT_QUESTION = "What did I spend this month?";
+/** An open question like "how am I doing?" isn't a lookup, so the model is told to summarise instead of giving up. */
+const OVERVIEW_TASK =
+  "Summarise this card account in two short sentences using only the facts: the bill and when it is due, the minimum payment, the total owed, and what has been spent so far this month.";
 
 const MESSAGES = {
   empty: "Please type a question first.",
@@ -62,6 +66,7 @@ function fromCache(question: string, facts: AnswerFactSet): AskResponse | null {
  */
 export async function answerQuestion(question: string | undefined, options: AskOptions): Promise<OrchestratedResponse> {
   const { model, ctx = seedContext(), timeoutMs = TIMEOUT_MS, previousQuestion } = options;
+  let busy = false;
   const deadline = Date.now() + timeoutMs;
   const remaining = () => deadline - Date.now();
 
@@ -72,7 +77,10 @@ export async function answerQuestion(question: string | undefined, options: AskO
   };
   const asked = resolveFollowUp(question ?? DEFAULT_QUESTION, previousQuestion, names);
 
-  const reading = await interpretQuestion(asked, names, model, timeoutMs, (error) => log("classify failed", error));
+  const reading = await interpretQuestion(asked, names, model, timeoutMs, (error) => {
+    log("classify failed", error);
+    busy ||= isRateLimit(error);
+  });
   if (reading.kind === "clarify") return { answer: reading.message, evidenceIds: [], source: "template", experience: selectExperience("general", "low") };
   if (reading.kind === "unsupported") return { ...unanswered(), experience: selectExperience("general", reading.confidence) };
 
@@ -86,7 +94,7 @@ export async function answerQuestion(question: string | undefined, options: AskO
   const finish = (response: AskResponse): OrchestratedResponse => {
     const verdict = validateResponse(response.answer, response.evidenceIds, facts, ctx, asked);
     // "I can't tell" never opens a specialist screen, whichever path it came from.
-    if (verdict.ok) return { ...response, experience: isCantTell(response.answer) ? selectExperience("general", confidence) : experience };
+    if (verdict.ok) return { ...response, ...(busy ? { modelBusy: true } : {}), experience: isCantTell(response.answer) ? selectExperience("general", confidence) : experience };
     console.warn(`[ask] response rejected: ${verdict.reason}`);
     return { ...unanswered(), experience: selectExperience("general", "low") };
   };
@@ -110,9 +118,10 @@ export async function answerQuestion(question: string | undefined, options: AskO
 
   let reply: string | null;
   try {
-    reply = await model.phrase(asked, facts, remaining());
+    reply = await model.phrase(factIntent === "account_overview" ? OVERVIEW_TASK : asked, facts, remaining());
   } catch (error) {
     log("phrasing failed", error);
+    busy ||= isRateLimit(error);
     return finish(fromTemplate(facts, asked));
   }
 

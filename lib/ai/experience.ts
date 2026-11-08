@@ -18,7 +18,8 @@ export interface Experience {
   periodLabel?: string;
 }
 
-export type OrchestratedResponse = AskResponse & { experience?: Experience };
+/** `modelBusy`: Gemini was out of quota (HTTP 429) on every model tried, so this wording came from the account checks. */
+export type OrchestratedResponse = AskResponse & { experience?: Experience; modelBusy?: boolean };
 
 /**
  * Agent 2. A fixed table, not a model decision: each intent has exactly one template, so nothing a model says can

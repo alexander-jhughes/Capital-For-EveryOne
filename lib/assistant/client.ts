@@ -16,7 +16,7 @@ export const SUGGESTED_QUESTIONS: { question: string; intent: Intent }[] = [
 
 export type AskOutcome =
   /** The backend answered. `resolvedQuestion` is what the backend understood (send it back as previousQuestion). */
-  | { kind: "answer"; response: AskResponse; experience: Experience; resolvedQuestion?: string; followUps: string[] }
+  | { kind: "answer"; response: AskResponse; experience: Experience; resolvedQuestion?: string; followUps: string[]; /** Gemini was out of quota, so this is the verified account wording. */ modelBusy?: boolean }
   /** The caller cancelled the request (a newer question replaced it). Show nothing for it. */
   | { kind: "cancelled" }
   /** The backend rejected the question (HTTP 400); `message` is its friendly text. */
@@ -84,8 +84,8 @@ export async function askDial(
     // `experience` is optional and validated separately: a bad one never costs the answer itself.
     const experience = parseExperience((body as { experience?: unknown } | null)?.experience);
     if (!response) return { kind: "unavailable" };
-    const extra = body as { resolvedQuestion?: unknown; followUps?: unknown };
-    return { kind: "answer", response, experience, resolvedQuestion: parseResolvedQuestion(extra.resolvedQuestion), followUps: parseFollowUps(extra.followUps) };
+    const extra = body as { resolvedQuestion?: unknown; followUps?: unknown; modelBusy?: unknown };
+    return { kind: "answer", response, experience, resolvedQuestion: parseResolvedQuestion(extra.resolvedQuestion), followUps: parseFollowUps(extra.followUps), ...(extra.modelBusy === true ? { modelBusy: true } : {}) };
   } catch {
     return signal?.aborted ? { kind: "cancelled" } : { kind: "unavailable" };
   } finally {

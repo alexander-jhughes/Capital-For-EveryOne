@@ -4,9 +4,9 @@ import type { Intent } from "../types";
 import type { AnswerFactSet } from "./answer-facts";
 import { CONFIDENCE_LEVELS, type Confidence } from "./experience";
 import { INTENTS } from "./facts";
+import { DEFAULT_MODEL, modelChain, withModelFallback } from "./model-chain";
 import { CANT_TELL } from "./guard";
 
-const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 const CLASSIFY_MAX_TOKENS = 1024;
 const PHRASE_MAX_TOKENS = 2048;
 
@@ -112,7 +112,7 @@ let warnedNoKey = false;
 
 /** The model this server is set up to use. Never includes the key itself. */
 export function modelStatus() {
-  return { gemini: process.env.GEMINI_API_KEY?.trim() ? "configured" : "not configured", model: process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL };
+  return { gemini: process.env.GEMINI_API_KEY?.trim() ? "configured" : "not configured", model: modelChain()[0], backups: modelChain().slice(1) };
 }
 
 /** A model client, or null with no key: the endpoint then answers from the cache and templates. */
@@ -127,22 +127,27 @@ export function createModel(): AskModel | null {
 
   // One attempt only: the SDK's default of 5 would run straight past the time limit.
   const client = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
-  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  const models = modelChain();
 
-  const send = (systemInstruction: string, contents: string, schema: object, maxOutputTokens: number, timeoutMs: number) =>
-    client.models.generateContent({
-      model,
-      contents,
-      config: {
-        systemInstruction,
-        maxOutputTokens,
-        responseMimeType: "application/json",
-        responseJsonSchema: schema,
-        // Thinking counts toward maxOutputTokens and adds delay, and these tasks don't need it.
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-        abortSignal: AbortSignal.timeout(timeoutMs),
-      },
-    });
+  // Each model has its own quota: a rate limit on the first moves on to the next instead of a fixed sentence.
+  const send = (systemInstruction: string, contents: string, schema: object, maxOutputTokens: number, timeoutMs: number) => {
+    const abortSignal = AbortSignal.timeout(timeoutMs);
+    return withModelFallback(models, (model) =>
+      client.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction,
+          maxOutputTokens,
+          responseMimeType: "application/json",
+          responseJsonSchema: schema,
+          // Thinking counts toward maxOutputTokens and adds delay, and these tasks don't need it.
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          abortSignal,
+        },
+      }),
+    );
+  };
 
   return {
     async classify(question, timeoutMs) {

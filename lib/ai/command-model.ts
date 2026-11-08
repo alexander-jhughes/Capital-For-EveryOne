@@ -13,8 +13,8 @@ import { stepTextSize, TEXT_SIZES, WIDGETS, type TextSize, type UiAction, type W
 import { SPENDING_CATEGORIES } from "../dial/spending-filters";
 import { validateStep } from "../dial/registry";
 import { DIAL_ROUTES, HOME_SECTIONS, MONTH_KEY, VISUAL_KINDS, type DialStep } from "../dial/types";
+import { isRateLimit, modelChain, withModelFallback } from "./model-chain";
 
-const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 export const MAX_COMMAND_LENGTH = 300;
 const MAX_ACTIONS = 3;
 const MAX_OUTPUT_TOKENS = 512;
@@ -225,6 +225,8 @@ export interface CommandResult {
   steps: DialStep[];
   /** "model": Gemini was asked. "none": no key or over the limit, so nothing was sent. "failed": it was asked and gave nothing usable. */
   source: "model" | "none" | "failed";
+  /** With "failed": true when Gemini was out of quota (HTTP 429) on every model tried, so the person can be told. */
+  busy?: boolean;
 }
 
 /** Interprets one request. Never throws: a model problem is an empty result and the caller says it didn't understand. */
@@ -235,7 +237,7 @@ export async function interpretCommand(text: string, screen: ScreenInfo, model: 
     return { steps: toSteps(reply?.actions, screen), source: "model" };
   } catch (error) {
     console.warn(`[dial] interpret failed: ${describe(error)}`);
-    return { steps: [], source: "failed" };
+    return { steps: [], source: "failed", ...(isRateLimit(error) ? { busy: true } : {}) };
   }
 }
 
@@ -250,22 +252,26 @@ export function createCommandModel(): CommandModel | null {
     return null;
   }
   const client = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
-  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  const models = modelChain();
   return {
     async interpret(text, screen, timeoutMs) {
       const contents = `<screen page="${screen.route ?? "unknown"}" view="${screen.mode}" textSize="${screen.textSize}"/>\n<request>${text}</request>`;
-      const response: GenerateContentResponse = await client.models.generateContent({
-        model,
-        contents,
-        config: {
-          systemInstruction: SYSTEM,
-          maxOutputTokens: MAX_OUTPUT_TOKENS,
-          responseMimeType: "application/json",
-          responseJsonSchema: SCHEMA,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          abortSignal: AbortSignal.timeout(timeoutMs),
-        },
-      });
+      const abortSignal = AbortSignal.timeout(timeoutMs);
+      // Each model has its own quota: a rate limit on the first moves on to the next.
+      const response: GenerateContentResponse = await withModelFallback(models, (model) =>
+        client.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction: SYSTEM,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+            responseMimeType: "application/json",
+            responseJsonSchema: SCHEMA,
+            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+            abortSignal,
+          },
+        }),
+      );
       // A blocked or cut-off reply is not an answer, whatever text came with it.
       if (response.candidates?.[0]?.finishReason !== "STOP") return null;
       try {

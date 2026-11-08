@@ -170,7 +170,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
         const fromModel = await askGeminiForSteps(input, { route, mode: L.mode, textSize: L.prefsApi.prefs.textSize }, { signal: controller.signal });
         if (id !== turnId.current) return null; // a newer turn replaced this one
-        if (fromModel && fromModel.length > 0) {
+        if (fromModel === "busy") steps = [{ type: "unsupported", say: "Gemini is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
+        else if (fromModel && fromModel.length > 0) {
           steps = fromModel;
           usedModel = true;
         }

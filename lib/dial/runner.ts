@@ -20,7 +20,7 @@ export type ReplyItem =
   | { kind: "say"; text: string }
   | { kind: "visual"; visual: Visual }
   | { kind: "whatIf"; result: WhatIfResult }
-  | { kind: "answer"; text: string; evidenceIds: string[]; source: AskResponse["source"]; template: ExperienceTemplate; followUps: string[] }
+  | { kind: "answer"; text: string; evidenceIds: string[]; source: AskResponse["source"]; template: ExperienceTemplate; followUps: string[]; modelBusy?: boolean }
   | { kind: "offline"; facts: Fact[]; evidenceIds: string[] }
   /** A change waiting for "Keep it" or "No". */
   | { kind: "offer"; text: string }
@@ -198,7 +198,7 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
             ? "I can only answer questions about this card: your bill, spending, shops, subscriptions and payments. Try asking where your money goes, or if a subscription has gone up."
             : outcome.response.answer;
           out.resolvedQuestion = outcome.resolvedQuestion;
-          out.items.push({ kind: "answer", text: answer, evidenceIds, source, template: outcome.experience.template, followUps: outcome.followUps });
+          out.items.push({ kind: "answer", text: answer, evidenceIds, source, template: outcome.experience.template, followUps: outcome.followUps, ...(outcome.modelBusy ? { modelBusy: true } : {}) });
         } else if (outcome.kind === "invalid") {
           out.items.push({ kind: "failed", text: outcome.message });
         } else {

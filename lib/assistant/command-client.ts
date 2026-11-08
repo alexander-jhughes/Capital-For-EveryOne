@@ -14,7 +14,7 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ").replace(
 
 /** Per tab, in memory only: the same words on the same screen are answered once. Failures are never kept. */
 const recent = new Map<string, DialStep[]>();
-const inFlight = new Map<string, Promise<DialStep[] | null>>();
+const inFlight = new Map<string, Promise<DialStep[] | null | "busy">>();
 const MAX_KEPT = 30;
 
 export const clearCommandCache = () => {
@@ -26,14 +26,14 @@ export async function askGeminiForSteps(
   text: string,
   screen: CommandScreen,
   { fetchImpl = fetch, timeoutMs = 6000, signal }: { fetchImpl?: typeof fetch; timeoutMs?: number; signal?: AbortSignal } = {},
-): Promise<DialStep[] | null> {
+): Promise<DialStep[] | null | "busy"> {
   const key = `${norm(text)}|${screen.route}|${screen.mode}|${screen.textSize}`;
   const hit = recent.get(key);
   if (hit) return hit;
   const running = inFlight.get(key);
   if (running) return running;
 
-  const run = (async (): Promise<DialStep[] | null> => {
+  const run = (async (): Promise<DialStep[] | null | "busy"> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const onCancel = () => controller.abort();
@@ -50,6 +50,7 @@ export async function askGeminiForSteps(
       const body: unknown = await res.json().catch(() => null);
       const raw = (body as { steps?: unknown } | null)?.steps;
       const source = (body as { source?: unknown } | null)?.source;
+      if ((body as { busy?: unknown } | null)?.busy === true) return "busy";
       if (!Array.isArray(raw) || source !== "model") return null;
       const steps = raw.slice(0, 3).map(validateStep).filter((s): s is DialStep => s !== null);
       if (steps.length > 0) {
