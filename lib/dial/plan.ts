@@ -31,7 +31,7 @@ import {
   type SpendCategory,
   type TxnSummary,
 } from "./entities";
-import { findPlace, LEARN_CUE, LEARN_NOTE, LEARN_TOPICS, OPENABLE, PAY_NOTE, PLACES, ROUTE_INFO, ROUTE_WORDS, SECTION_INFO, validateStep } from "./registry";
+import { findPlace, LEARN_CUE, LEARN_NOTE, LEARN_TOPICS, OPENABLE, PAY_NOTE, PLACES, ROUTE_INFO, ROUTE_WORDS, SECTION_INFO, SECTION_PLACES, validateStep } from "./registry";
 import { segment } from "./segment";
 import type { ControlCommand, DialContext, DialPlan, DialRoute, DialStep, DialSubject, GoalSpec, HomeSection, MonthKey, PlanEnv, SpendingFilters, VisualRequest, WhatIfScenario } from "./types";
 
@@ -273,6 +273,24 @@ function learnTurn(said: Said, ir: Interpretation, env: PlanEnv): Turn | null {
   if (!has(s, LEARN_HUB)) return null;
   const named = has(s, / (learning lab|learn lab|credit learning lab|lessons) /);
   return navTurn("/account/learn", named ? {} : { say: LEARN_NOTE }, env);
+}
+
+/** "What's coming up?" asks for the section, not for a figure. */
+const COMING_UP_QUESTION = /^ (?:so |and |ok |okay )?what(?:'s| is| are)? (?:my )?(?:payments? |bills? |charges? )?(?:coming up|due soon) /;
+
+/**
+ * "Show me my progress", "show my upcoming payments", "open my spending categories": focus that section on Home.
+ * Only when the request is just the section: anything naming a month, category, shop or amount is a chart or a
+ * filter, handled by the rules after this one ("show my grocery spending in October" still draws a chart).
+ */
+function sectionTurn(said: Said, env: PlanEnv, strong: boolean): Turn | null {
+  const { s } = said;
+  const place = SECTION_PLACES.find((p) => p.re.test(s));
+  if (!place) return null;
+  const bare = s.trim().split(" ").every((w) => SECTION_WORDS.has(w));
+  const asked = strong || has(s, WEAK_NAV) || has(s, COMING_UP_QUESTION) || bare;
+  if (!asked || said.months.length || said.categories.length || said.food || said.merchants.length || said.amount) return null;
+  return navTurn(place.to, { focus: place.focus }, env);
 }
 
 function goalTurn(said: Said, env: PlanEnv): Turn | null {
@@ -622,8 +640,15 @@ function placeTurn(said: Said, env: PlanEnvWithTransactions, strong: boolean): T
 const KNOWN_LIST_WORDS = new Set(["recent", "latest", "last", "biggest", "largest", "card", "other", "pending", "past", "previous", "monthly", "new", "old", "own", "online", "refunded", "november", "october", "september"]);
 
 const BARE_FILLER = ["my", "the", "our", "please", "page", "screen", "section", "tab", "information", "info", "details", "dial", "now"];
-/** Every word used in a place name, so "my credit limit" or "accessibility preferences" reads as just a name. */
-const PLACE_WORDS = new Set([...BARE_FILLER, ...PLACES.flatMap((p) => p.re.source.match(/[a-z']+/g) ?? [])]);
+const wordsOf = (places: { re: RegExp }[]) => places.flatMap((p) => p.re.source.match(/[a-z']+/g) ?? []);
+/**
+ * Every word used in a place name, so "my credit limit" or "accessibility preferences" reads as just a name. The Home
+ * section names are kept out: their phrasing ("what is coming up", "progress on my goals") would otherwise make
+ * everyday words like "is" and "on" count as place words, and "Is Spend Pause on?" would read as a bare place.
+ */
+const PLACE_WORDS = new Set([...BARE_FILLER, ...wordsOf(PLACES.filter((p) => !SECTION_PLACES.includes(p)))]);
+/** The same idea for the Home section names alone, used only by sectionTurn. */
+const SECTION_WORDS = new Set([...BARE_FILLER, ...wordsOf(SECTION_PLACES)]);
 
 /** Just the name of a place ("credit information", "my savings goal", "budgets"), with nothing else asked. */
 function isBarePlace(s: string): boolean {
@@ -665,6 +690,8 @@ function classify(text: string, env: PlanEnvWithTransactions): Turn {
   const learn = learnTurn(said, ir, env);
   if (learn) return learn;
   const strong = has(s, STRONG_NAV);
+  const section = sectionTurn(said, env, strong);
+  if (section) return section;
   if (strong) {
     const nav = placeTurn(said, env, true);
     if (nav) return nav;

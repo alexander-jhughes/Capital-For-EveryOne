@@ -42,14 +42,17 @@ export const SECTION_INFO: Record<HomeSection, { name: string; spoken: string }>
   balance: { name: "Balance and credit", spoken: "your balance and credit" },
   insights: { name: "Dial noticed", spoken: "what Dial has noticed" },
   budget: { name: "Spending this month", spoken: "your spending this month" },
+  categories: { name: "Spending by category", spoken: "your spending by category" },
+  upcoming: { name: "Coming up", spoken: "what's coming up before your bill" },
   chart: { name: "Daily spending chart", spoken: "your daily spending chart" },
   recent: { name: "Recent transactions", spoken: "your recent transactions" },
+  progress: { name: "Your progress", spoken: "your progress on your goals" },
   pause: { name: "Spend Pause", spoken: "Spend Pause" },
 };
 
 /** Said when someone asks for a place that doesn't exist. Lists only real screens. */
 export const OPENABLE =
-  "I can open Home, Spending, Pay, Spend Pause, Goals, the Learning Lab, Settings, Personalise and More, or show your bill, balance and credit, budget or what Dial has noticed on Home.";
+  "I can open Home, Spending, Pay, Spend Pause, Goals, the Learning Lab, Settings, Personalise and More, or show your bill, balance and credit, budget, spending categories, what's coming up, your progress or what Dial has noticed on Home.";
 
 export interface Place {
   /** Matched against the normalised text (lower case, padded with spaces). */
@@ -67,10 +70,21 @@ export const LEARN_NOTE = "The Learning Lab explains credit utilisation, minimum
 export const PAY_NOTE = "Dial never makes a payment for you. Choose the amount and confirm it here.";
 
 /**
+ * Home sections that share words with other places ("upcoming payments" isn't Pay, "spending categories" isn't the
+ * category chart). Matched first, and only when the request is just the section's name: see sectionTurn in plan.ts.
+ */
+export const SECTION_PLACES: Place[] = [
+  { re: / (upcoming (payments?|bills?|charges|costs)|payments? coming up|what('s| is| are)? coming up|coming up|due soon|due before (my|the) bill|before (my|the) (next )?bill) /, to: "/account", focus: "upcoming" },
+  { re: / (my progress|progress|goals? progress|progress (on|with|towards?) (my )?goals?) /, to: "/account", focus: "progress" },
+  { re: / (spending categories|my categories|the categories|categories section|category section|spending by category) /, to: "/account", focus: "categories" },
+];
+
+/**
  * Everyday names for every place Dial can open, most specific first: "pay my bill" is Pay, "my bill" is the bill on
  * Home, "next payment" is the bill too, and "payments" is Pay. Only routes in DIAL_ROUTES appear here.
  */
 export const PLACES: Place[] = [
+  ...SECTION_PLACES,
   { re: / (set|change|edit|update|adjust|raise|lower) (my |the )?(monthly )?budget /, to: "/account/spend-pause", say: BUDGET_NOTE },
   { re: / (spend pause|pause page|pause settings) /, to: "/account/spend-pause" },
   { re: / (personali[sz]e|personali[sz]ation|personali[sz]ing|make it (mine|yours|my own)|make the app (mine|my own)) /, to: "/account/personalise" },
