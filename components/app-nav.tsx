@@ -16,7 +16,7 @@ const LINKS = [
 
 const tab =
   "group relative flex min-h-(--target-min) flex-col items-center justify-end gap-1 pt-2 text-sm aria-[current=page]:font-bold aria-[current=page]:text-primary " +
-  "lg:flex-row lg:justify-start lg:gap-3 lg:rounded-xl lg:px-3 lg:pt-0 lg:text-base lg:aria-[current=page]:bg-accent lg:aria-[current=page]:text-accent-foreground";
+  "lg:flex-row lg:justify-start lg:gap-3 lg:rounded-xl lg:px-3 lg:pt-0 lg:text-base lg:text-white lg:hover:bg-white/10 lg:aria-[current=page]:bg-white lg:aria-[current=page]:text-[#00304f]";
 
 /**
  * One navigation landmark: a bottom tab bar on phones (Dial raised in the middle), a side rail from 1024px.
@@ -43,7 +43,7 @@ export function AppNav() {
   return (
     <nav
       aria-label="Main"
-      className="z-40 bg-card px-1 pb-[env(safe-area-inset-bottom)] lg:px-5 shadow-[0_-1px_0_var(--border)] [@media(min-height:480px)]:sticky [@media(min-height:480px)]:bottom-0 lg:order-first lg:flex lg:h-dvh lg:w-64 lg:shrink-0 lg:flex-col lg:p-5 lg:shadow-[1px_0_0_var(--border)] lg:[@media(min-height:480px)]:top-0"
+      className="z-40 bg-card px-1 lg:bg-[#00304f] lg:text-white pb-[env(safe-area-inset-bottom)] lg:px-5 shadow-[0_-1px_0_var(--border)] [@media(min-height:480px)]:sticky [@media(min-height:480px)]:bottom-0 lg:order-first lg:flex lg:h-dvh lg:w-64 lg:shrink-0 lg:flex-col lg:p-5 lg:shadow-[1px_0_0_var(--border)] lg:[@media(min-height:480px)]:top-0"
     >
       <div className="mb-6 hidden lg:block">
         <Wordmark />
@@ -56,7 +56,7 @@ export function AppNav() {
             onClick={() => (prefs.voiceFirst ? openVoice() : openAsk())}
             aria-label={prefs.voiceFirst ? "Talk to Dial" : undefined}
             aria-haspopup="dialog"
-            className="flex min-h-(--target-min) w-full flex-col items-center justify-end gap-1 text-sm font-bold lg:flex-row lg:justify-center lg:gap-2 lg:rounded-xl lg:bg-primary lg:text-base lg:text-primary-foreground"
+            className="flex min-h-(--target-min) w-full flex-col items-center justify-end gap-1 text-sm font-bold lg:flex-row lg:justify-center lg:gap-2 lg:rounded-xl lg:bg-[#a8231c] lg:text-base lg:text-white lg:hover:bg-[#8a1f18]"
           >
             <span className="elevated -mt-6 flex size-(--target-min) items-center justify-center rounded-full bg-primary lg:mt-0 lg:size-auto lg:bg-transparent lg:shadow-none">
               <DialMark className="size-[1.75em] lg:size-[1.4em]" />
@@ -80,7 +80,7 @@ export function AppNav() {
           </Link>
         </li>
       </ul>
-      <p className="mt-auto hidden pt-6 text-sm text-muted-foreground lg:block">
+      <p className="mt-auto hidden pt-6 text-sm text-[#cfe0f0] lg:block">
         Independent hackathon concept. Not an official Capital One product.
       </p>
     </nav>

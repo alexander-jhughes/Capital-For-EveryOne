@@ -41,15 +41,22 @@
   --base-space: 20px;
   --radius: 20px;
 }
-:root[data-text="125"] { --scale: 1.25; }
-:root[data-text="150"] { --scale: 1.5; }
-:root[data-text="200"] { --scale: 2; }
+/*
+  Text size scales the type fully (--scale) and everything measured in rem (side rail, gutters, card widths, gaps) by
+  a gentler --ui-scale, so "make everything bigger" changes the whole page without pushing it past the screen.
+  Media queries ignore the root font size, so the phone and desktop layouts still switch at the same widths.
+*/
+:root { --ui-scale: 1; }
+:root[data-text="125"] { --scale: 1.25; --ui-scale: 1.12; }
+:root[data-text="150"] { --scale: 1.5; --ui-scale: 1.25; }
+:root[data-text="200"] { --scale: 2; --ui-scale: 1.5; }
+html { font-size: calc(16px * var(--ui-scale)); }
 :root[data-spacing="roomy"] { --space-scale: 1.5; }
 :root[data-targets="large"] { --target-boost: 16px; }
 
 /* Colour. Light is the default; every text pair is 7:1 or better (see the concept board's token sheet). */
 :root {
-  --background: #f5f5f2;
+  --background: #f1f4f8;
   --foreground: #1c2640;
   --card: #ffffff;
   --card-foreground: #1c2640;
@@ -57,9 +64,9 @@
   --popover-foreground: #1c2640;
   --primary: #004977;
   --primary-foreground: #ffffff;
-  --secondary: #eeeeea;
+  --secondary: #e8edf3;
   --secondary-foreground: #1c2640;
-  --muted: #eeeeea;
+  --muted: #e8edf3;
   --muted-foreground: #434a58;
   --accent: #e6f0f7;
   --accent-foreground: #004977;
@@ -74,14 +81,14 @@
   --warning-surface: #fff4e0;
   --success: #17572f;
   --destructive: #a8231c;
-  --border: #e3e3e0;
-  --input: #8c8c88;
+  --border: #d9e1ea;
+  --input: #78838f;
   --ring: #007b90;
   --chart: #004977;
   --chart-2: #6ca6cc;
   --chart-track: #e6f0f7;
   --live: #d03027;
-  --shadow-color: 28 38 64;
+  --shadow-color: 0 48 79;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -270,6 +277,13 @@
 @utility elevated {
   box-shadow: 0 1px 2px rgb(var(--shadow-color) / 0.06), 0 8px 24px rgb(var(--shadow-color) / 0.07);
 }
+/* The balance card: a deep Capital One navy with a soft sheen, in both themes. */
+.bg-hero {
+  background-image: linear-gradient(145deg, color-mix(in srgb, var(--hero) 88%, white) 0%, var(--hero) 45%, color-mix(in srgb, var(--hero) 82%, black) 100%);
+}
+:root[data-contrast="high"] .bg-hero {
+  background-image: none;
+}
 @utility hairline {
   box-shadow: 0 0 0 1px var(--border);
 }
@@ -335,31 +349,50 @@
   animation: sheet-in 220ms ease-out;
 }
 
-/* Voice Mode: full screen, or docked to the bottom while a preview is shown. */
+/*
+  Voice Mode is a panel on top of the page, not a screen: it is a non-modal <dialog>, so the page behind stays
+  visible, scrollable and clickable. Phone: a bottom sheet. Desktop: a card in the bottom right corner.
+  The page gets bottom padding equal to the panel's height (--voice-h, set by VoiceMode) so nothing is hidden under it.
+*/
 .voice-mode {
   position: fixed;
-  inset: 0;
+  inset: auto 0 0 0;
+  z-index: 60;
   width: 100%;
-  max-width: none;
-  height: 100dvh;
-  max-height: none;
-  margin: 0;
+  max-width: 34rem;
+  height: auto;
+  max-height: min(60dvh, 40rem);
+  margin: 0 auto;
   padding: 0;
   border: 0;
+  border-radius: 24px 24px 0 0;
   background: #0e1626;
   color: #f5f5f2;
+  box-shadow: 0 -10px 40px rgb(14 22 38 / 0.35), 0 0 0 1px rgb(255 255 255 / 0.08);
+  overflow: hidden;
 }
 .voice-mode[data-docked="true"] {
-  inset: auto 0 0 0;
-  height: auto;
-  max-height: 62dvh;
-  border-radius: 28px 28px 0 0;
+  max-height: min(34dvh, 22rem);
 }
-.voice-mode::backdrop {
-  background: rgb(14 22 38 / 0.35);
+@media (min-width: 1024px) {
+  .voice-mode {
+    inset: auto 1.5rem 1.5rem auto;
+    margin: 0;
+    width: 26rem;
+    max-height: calc(100dvh - 3rem);
+    border-radius: 24px;
+  }
+  .voice-mode[data-docked="true"] {
+    max-height: min(44dvh, 26rem);
+  }
 }
-.voice-mode[data-docked="true"]::backdrop {
-  background: transparent;
+html[data-voice-open="true"] body {
+  padding-bottom: var(--voice-h, 0px);
+}
+@media (min-width: 1024px) {
+  html[data-voice-open="true"] body {
+    padding-bottom: 0;
+  }
 }
 .voice-mode[open] {
   animation: sheet-in 240ms ease-out;

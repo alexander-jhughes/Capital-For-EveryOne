@@ -15,7 +15,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
       <DialSessionProvider>
       <AskDialProvider>
         <StylePreviewProvider>
-          <div className="flex min-h-dvh flex-col lg:flex-row">
+          <div className="flex min-h-dvh flex-col border-t-4 border-t-[#d03027] lg:flex-row">
             <a
               href="#main"
               className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground"

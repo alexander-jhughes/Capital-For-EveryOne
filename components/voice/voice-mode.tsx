@@ -34,6 +34,7 @@ const STATUS: Record<string, string> = {
  */
 export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const inputId = useId();
   const session = useDialSession();
@@ -101,10 +102,29 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
     if (!d) return;
     if (open && !d.open) {
       returnFocus.current = document.activeElement as HTMLElement | null;
-      d.showModal();
+      // Not showModal(): the page behind must stay visible and usable while Dial listens.
+      d.show();
       setDocked(false);
       setHeard("");
+      titleRef.current?.focus();
     } else if (!open && d.open) d.close();
+  }, [open]);
+
+  // Tell the page how tall the panel is, so its last content can scroll clear of it.
+  useEffect(() => {
+    const d = ref.current;
+    if (!open || !d) return;
+    const root = document.documentElement;
+    const measure = () => root.style.setProperty("--voice-h", `${Math.ceil(d.getBoundingClientRect().height)}px`);
+    root.dataset.voiceOpen = "true";
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(d);
+    return () => {
+      ro.disconnect();
+      delete root.dataset.voiceOpen;
+      root.style.removeProperty("--voice-h");
+    };
   }, [open]);
 
   // Closing with a preview showing withdraws it: nothing changes silently.
@@ -129,15 +149,28 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
   const wave = listening ? "listening" : speaker.speaking ? "speaking" : "idle";
 
   return (
-    <dialog ref={ref} className="voice-mode" data-docked={docked} aria-labelledby={`${inputId}-t`} onClose={handleClosed}>
-      <div className={`gutter mx-auto flex h-full w-full max-w-[40rem] flex-col gap-(--space) pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] ${docked ? "max-h-[62dvh] overflow-y-auto" : "overflow-y-auto"}`}>
+    <dialog
+      ref={ref}
+      className="voice-mode"
+      data-docked={docked}
+      aria-labelledby={`${inputId}-t`}
+      onClose={handleClosed}
+      onKeyDown={(e) => {
+        // Non-modal dialogs don't close on Escape by themselves.
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          ref.current?.close();
+        }
+      }}
+    >
+      <div className="flex max-h-[inherit] w-full flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
         <div className="flex items-center justify-between gap-2">
-          <h2 id={`${inputId}-t`} className="flex items-center gap-2 text-lg font-bold">
+          <h2 id={`${inputId}-t`} ref={titleRef} tabIndex={-1} className="flex items-center gap-2 text-lg font-bold focus:outline-none">
             <DialMark tone="onDark" className="size-[1.5em]" />
             Dial Voice
           </h2>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setDocked((x) => !x)} className={`${btn} border border-[#aab4c8] px-3`} aria-label={docked ? "Expand Voice Mode" : "Show the screen behind"}>
+            <button type="button" onClick={() => setDocked((x) => !x)} className={`${btn} border border-[#aab4c8] px-3`} aria-label={docked ? "Make the panel bigger" : "Make the panel smaller"}>
               {docked ? <ChevronUp aria-hidden className="size-[1.1em]" /> : <ChevronDown aria-hidden className="size-[1.1em]" />}
             </button>
             <button type="button" onClick={() => ref.current?.close()} className={`${btn} border border-[#aab4c8]`}>

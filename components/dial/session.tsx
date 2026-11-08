@@ -8,6 +8,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { askDial, intentForQuestion, offlineFacts } from "@/lib/assistant/client";
+import { askGeminiForSteps } from "@/lib/assistant/command-client";
 import { liveState } from "@/lib/assistant/live-state";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
@@ -157,9 +158,23 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         },
       );
       context.current = planned.context;
+      // The on-device rules come first. Gemini is only asked when they found nothing they could do with the request,
+      // so common commands never cost a call. Its answer is a list of steps that pass the same validation as ours.
+      let steps = planned.steps;
+      let usedModel = false;
+      const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
       const corrected = !!opts.replaces || splitCorrection(input) !== null;
       const working: DialTurn = { id, input, understood: planned.understood, corrected, status: "working", items: [], local: planned.local };
-      setTurn(working);
+      setTurn(gaveUp ? { ...working, local: false } : working);
+      if (gaveUp) {
+        const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
+        const fromModel = await askGeminiForSteps(input, { route, mode: L.mode, textSize: L.prefsApi.prefs.textSize }, { signal: controller.signal });
+        if (id !== turnId.current) return null; // a newer turn replaced this one
+        if (fromModel && fromModel.length > 0) {
+          steps = fromModel;
+          usedModel = true;
+        }
+      }
 
       const insightCtx = () => ({ account: live.current.account, txns: live.current.transactions, settings: live.current.settings, today: DEMO_TODAY });
       const state = liveState(L.transactions, L.settings);
@@ -168,7 +183,7 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       const reusedBefore = cache.stats.reused + cache.stats.joined;
 
       const out = await runSteps(
-        planned.steps,
+        steps,
         {
           mode: L.mode,
           navigate: async (href) => {
@@ -246,8 +261,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       if (out.asked) context.current = afterAnswer(context.current, { question: out.asked, resolvedQuestion: out.resolvedQuestion });
       if (out.offer) setPending(out.offer);
       const reused = cache.stats.reused + cache.stats.joined - reusedBefore;
-      setStats((s) => ({ turns: s.turns + 1, local: s.local + (out.network === 0 ? 1 : 0), network: s.network + out.network - reused, reused: s.reused + reused }));
-      const done: DialTurn = { ...working, status: "done", items: out.items };
+      const network = out.network + (gaveUp ? 1 : 0);
+      setStats((s) => ({ turns: s.turns + 1, local: s.local + (network === 0 ? 1 : 0), network: s.network + network - reused, reused: s.reused + reused }));
+      const done: DialTurn = { ...working, local: working.local && !gaveUp && !usedModel, status: "done", items: out.items };
       setTurn(done);
       return done;
     },
