@@ -15,7 +15,8 @@ export type Interpretation =
 
 const has = (s: string, re: RegExp) => re.test(s);
 
-const normalise = (s: string) =>
+/** Lower case, plain words, padded with a space at each end so every pattern can use " word " boundaries. */
+export const normaliseUtterance = (s: string) =>
   ` ${s
     .toLowerCase()
     .replace(/[’‘]/g, "'")
@@ -23,16 +24,22 @@ const normalise = (s: string) =>
     .replace(/\s+/g, " ")
     .trim()} `;
 
+/** Words that make "reset" or "help" about money or a goal, not about the app. */
+const ABOUT_MONEY = / (budget|goal|goals|spend pause|payment|payments|bill|card|spending|save|saving) /;
+
 /** Short replies only: "no" inside a longer sentence is not a "no". */
 function control(s: string, words: number): Interpretation | null {
   const short = words <= 5;
   if (has(s, / (stop (talking|speaking|reading)|be quiet|quiet please|shush|stop it) /) || (words <= 2 && has(s, / stop /))) return { kind: "control", command: "stop" };
   if (short && has(s, / (undo|undo that|put it back|change it back|go back to how it was|revert) /)) return { kind: "control", command: "undo" };
-  if (has(s, / (reset|start again|default (look|settings)|original look) /) || has(s, / (everything|it all|all of it|it) back to (normal|default|the default|how it was) /) || has(s, /^ (go )?back to normal $/))
+  // "Reset my budget" is about Spend Pause, not the look of the app.
+  if ((has(s, / (reset|start again|default (look|settings)|original look) /) && !has(s, ABOUT_MONEY)) || has(s, / (everything|it all|all of it|it) back to (normal|default|the default|how it was) /) || has(s, /^ (go )?back to normal $/))
     return { kind: "control", command: "reset" };
   if (short && has(s, / (save it|save (that|this|them|my settings)|remember (that|this|it)|keep it for next time) /)) return { kind: "control", command: "save" };
   if (short && has(s, / (exit|close|leave( voice)?|goodbye|bye|that's all|i'm done|finish) /)) return { kind: "control", command: "exit" };
-  if (has(s, / (help|what can i say|what can you do|how does this work) /)) return { kind: "control", command: "help" };
+  // "Help" on its own, not "help me stay within my budget", which is a request in its own right.
+  if ((words <= 3 && has(s, / help /) && !has(s, ABOUT_MONEY)) || has(s, / (what can i say|what can you do|what can dial do|how does this work|what can i ask) /))
+    return { kind: "control", command: "help" };
   if (has(s, / read [a-z ]*(aloud|out loud) /) || has(s, /^ (please )?(can you )?read (this|the page|the screen|everything|it|all of it|this page)( to me)?( please)? $/))
     return { kind: "control", command: "readPage" };
   if (has(s, / (read|tell me|say) (out )?my balance /)) return { kind: "control", command: "readBalance" };
@@ -63,9 +70,11 @@ const HIDE = / (hide|remove|get rid of|take away|take off|don't (need|want|care 
 const SHOW = / (show|bring back|add|display|i want to see|i'd like to see|put back) /;
 
 function navigate(s: string): Interpretation | null {
-  if (has(s, /^ (go back|back|previous page|take me back) $/)) return { kind: "navigate", to: "back" };
+  if (has(s, /^ (please )?(go back|back|previous page|the previous page|previous screen|take me back|go back a page|back a page|go to the previous (page|screen)|last page)( please)? $/))
+    return { kind: "navigate", to: "back" };
   if (has(s, PLACE) || has(s, HIDE)) return null;
-  if (!has(s, / (go to|take me|open|navigate to|show me the|switch to|bring up|i want to go to|let me see the) /) && !has(s, /^ (home|settings|payments|spending) $/)) return null;
+  // "Go back to the dashboard" is a place, not the browser's back button.
+  if (!has(s, / (go to|go back to|take me|open|navigate to|show me the|switch to|bring up|i want to go to|let me see the) /) && !has(s, /^ (home|settings|payments|spending) $/)) return null;
   for (const [re, to] of PAGES) if (has(s, re)) return { kind: "navigate", to };
   return null;
 }
@@ -107,10 +116,18 @@ function ui(s: string, textSize: TextSize): UiAction[] {
   if (has(s, / (animation|animations|motion|moving|movement|dizzy|distracting|sliding|jumping) /)) actions.push({ type: "motion", value: "reduced" });
 
   if (has(s, / (step by step|one step at a time|in steps|walk me through|break it down) /)) actions.push({ type: "explanations", value: "stepByStep" });
+  // "Make this easier to understand": plainer explanations and less on screen, with everything still a tap away.
+  const easier = has(s, / (easier to (understand|follow)|hard to (understand|follow)|plain english|plainer|simpler words|too complicated|too complex) /) && !has(s, ABOUT_MONEY);
+  if (easier && !actions.some((a) => a.type === "explanations")) actions.push({ type: "explanations", value: "stepByStep" });
+  // Fewer numbers means shorter answers (the key figure first) and a calmer home screen.
+  const fewerNumbers = has(s, / (fewer|less|not so many|not as many|too many) (numbers|figures|digits) /);
+  if (fewerNumbers || has(s, / (shorter|brief|briefer|short|quicker|concise) (answers?|explanations?|replies|responses)|keep (it|things|them|answers|your answers|my answers|explanations|your explanations) (short|shorter|brief)|be (brief|briefer|concise|quicker)|fewer words|less wordy|too wordy|too long winded|get to the point /))
+    actions.push({ type: "answerStyle", value: "brief" });
+  else if (has(s, / (longer|fuller|full|more detailed|normal|standard) (answers|explanations|replies) /)) actions.push({ type: "answerStyle", value: "standard" });
   if (has(s, / (rather talk|prefer talking|prefer to talk|talk instead|voice first|use my voice|speak instead|talking first) /)) actions.push({ type: "voiceFirst", value: true });
   else if (has(s, / (rather tap|prefer tapping|tapping first|stop voice first) /)) actions.push({ type: "voiceFirst", value: false });
 
-  if (!target && has(s, / (too much|overwhelm|overwhelming|overwhelmed|busy|clutter|cluttered|less information|less info|less on (the|my) screen|simpler|simplify|calmer|going on|confusing|confused|a lot) /))
+  if ((!target && has(s, / (too much|overwhelm|overwhelming|overwhelmed|busy|clutter|cluttered|less information|less info|less on (the|my) screen|simpler|simplify|calmer|going on|confusing|confused|a lot) /)) || fewerNumbers || easier)
     actions.push({ type: "density", value: "calm" });
   else if (has(s, / (show everything|all the sections|everything back|full dashboard) /)) actions.push({ type: "density", value: "standard" });
 
@@ -127,9 +144,15 @@ function ui(s: string, textSize: TextSize): UiAction[] {
 const isQuestion = (s: string) =>
   has(s, /^ (how|what|what's|whats|when|when's|did|do|does|is|are|was|were|have|has|had|can i|could i|which|why|where|who|will|am i|tell me) /);
 
+/** True for a question, in the sense the planner needs: question words first, a question mark, or "explain". */
+export function isQuestionText(text: string): boolean {
+  const s = normaliseUtterance(text);
+  return isQuestion(s) || text.trim().endsWith("?") || has(s, /^ (explain|tell me|help me understand|show me why|i want to know|i'd like to know|do you know|can you tell me|could you tell me) /);
+}
+
 /** Interprets one utterance. `textSize` lets "bigger" and "smaller" step from the current size. */
 export function interpret(utterance: string, ctx: { textSize: TextSize } = { textSize: 100 }): Interpretation {
-  const s = normalise(utterance);
+  const s = normaliseUtterance(utterance);
   const words = s.trim() ? s.trim().split(" ").length : 0;
   if (words === 0) return { kind: "unknown" };
 

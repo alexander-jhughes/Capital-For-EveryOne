@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { interpret, type Interpretation } from "./interpret";
+import { interpret, isQuestionText, normaliseUtterance, type Interpretation } from "./interpret";
 
 type Case = [string, Partial<Interpretation> | ((r: Interpretation) => boolean)];
 const ui = (...types: string[]) => (r: Interpretation) => r.kind === "ui" && types.every((t) => r.actions.some((a) => `${a.type}${"widget" in a ? `:${a.widget}` : ""}${"value" in a ? `=${a.value}` : ""}`.startsWith(t)));
@@ -55,6 +55,14 @@ const CASES: Case[] = [
   ["Can you walk me through it in steps", ui("explanations=stepByStep")],
   ["I'd rather talk than tap", ui("voiceFirst=true")],
   ["I prefer tapping first", ui("voiceFirst=false")],
+  ["Switch to voice-first mode", ui("voiceFirst=true")],
+  ["Use fewer numbers", ui("answerStyle=brief", "density=calm")],
+  ["Shorter explanations", ui("answerStyle=brief")],
+  ["Keep your answers short", ui("answerStyle=brief")],
+  ["Make this easier to understand", ui("explanations=stepByStep", "density=calm")],
+  ["Larger buttons", ui("targets=large")],
+  ["High contrast", ui("contrast=high")],
+  ["Reduce motion", ui("motion=reduced")],
   // View (mode)
   ["Switch to simple view", { kind: "mode", mode: "simple" }],
   ["Show me more detail", { kind: "mode", mode: "complex" }],
@@ -66,6 +74,9 @@ const CASES: Case[] = [
   ["Go to Spend Pause", { kind: "navigate", to: "/account/spend-pause" }],
   ["Take me home", { kind: "navigate", to: "/account" }],
   ["Go back", { kind: "navigate", to: "back" }],
+  ["Go to the previous page", { kind: "navigate", to: "back" }],
+  // A place, not the browser's back button
+  ["Go back to the dashboard", { kind: "navigate", to: "/account" }],
   // Controls
   ["Yes", { kind: "control", command: "yes" }],
   ["Yes please", { kind: "control", command: "yes" }],
@@ -78,6 +89,8 @@ const CASES: Case[] = [
   ["Put everything back to normal", { kind: "control", command: "reset" }],
   ["Save it", { kind: "control", command: "save" }],
   ["What can I say?", { kind: "control", command: "help" }],
+  ["Help", { kind: "control", command: "help" }],
+  ["I need help", { kind: "control", command: "help" }],
   ["Read everything aloud", { kind: "control", command: "readPage" }],
   ["Read my balance", { kind: "control", command: "readBalance" }],
   ["Close", { kind: "control", command: "exit" }],
@@ -116,8 +129,33 @@ describe("interpret: safety", () => {
     const r = interpret("pay my bill of £486.20 now and delete my account");
     expect(["question", "unknown", "navigate"]).toContain(r.kind);
   });
+  it("'help' and 'reset' inside a money request are not app controls", () => {
+    expect(interpret("Help me stay within my budget").kind).not.toBe("control");
+    expect(interpret("Can you help me understand my bill?")).toMatchObject({ kind: "question" });
+    expect(interpret("Reset my budget").kind).not.toBe("control");
+    expect(interpret("Reset")).toMatchObject({ kind: "control", command: "reset" });
+  });
+  it("money words keep 'easier to understand' a question", () => {
+    expect(interpret("Make my bill easier to understand").kind).not.toBe("ui");
+  });
   it("text size stops at the largest and smallest steps", () => {
     expect(interpret("bigger", { textSize: 200 })).toMatchObject({ kind: "ui", actions: [{ type: "textSize", value: 200 }] });
     expect(interpret("smaller", { textSize: 100 })).toMatchObject({ kind: "ui", actions: [{ type: "textSize", value: 100 }] });
+  });
+});
+
+describe("interpret: helpers for the planner", () => {
+  it("normalises to padded plain words", () => {
+    expect(normaliseUtterance("  Take me to Sainsbury’s!  ")).toBe(" take me to sainsbury's ");
+  });
+  it.each([
+    ["How much did I spend?", true],
+    ["Explain my statement", true],
+    ["Tell me about my bill", true],
+    ["my bill?", true],
+    ["Make everything bigger", false],
+    ["Take me to spending", false],
+  ])("isQuestionText(%s)", (text, expected) => {
+    expect(isQuestionText(text)).toBe(expected);
   });
 });
