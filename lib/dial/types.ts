@@ -23,11 +23,19 @@ export const DIAL_ROUTES = [
   "/account/settings",
   "/account/personalise",
   "/account/goals",
+  // The Credit Learning Lab, its topic pages (one per slug in lib/learn/topics.ts; a test keeps them in step) and More.
+  "/account/learn",
+  "/account/learn/utilisation",
+  "/account/learn/minimum-payments",
+  "/account/learn/interest",
+  "/account/learn/statement",
+  "/account/learn/quiz",
+  "/account/more",
 ] as const;
 export type DialRoute = (typeof DIAL_ROUTES)[number];
 
 /** Sections on Home that a navigation can scroll to and focus. Match the `data-widget` values on Home. */
-export const HOME_SECTIONS = ["bill", "balance", "insights", "budget", "chart", "recent", "pause"] as const;
+export const HOME_SECTIONS = ["bill", "balance", "insights", "budget", "categories", "upcoming", "chart", "recent", "progress", "pause"] as const;
 export type HomeSection = (typeof HOME_SECTIONS)[number];
 
 /** A calendar month, "YYYY-MM". */
