@@ -65,9 +65,17 @@ interface Said {
   unavailable: MonthKey[];
   /** "the last three months" or "September to November". */
   span: boolean;
+  /**
+   * "Compared with last month", "up on last month", "more than last month": the only month named is the relative
+   * "last month", and it is what this month is measured against, not the month being asked about.
+   */
+  lastAsBaseline: boolean;
   question: boolean;
   amount: AmountMatch | null;
 }
+
+/** A comparison word right before "last month" makes it the baseline: "compare to last month", "vs last month". */
+const LAST_AS_BASELINE = /\b(?:to|with|than|against|versus|vs|from|since|over|on)\s+(?:the\s+)?(?:last|previous)\s+month\b/;
 
 function read(text: string, env: PlanEnvWithTransactions): Said {
   const cats = findCategories(text);
@@ -83,6 +91,11 @@ function read(text: string, env: PlanEnvWithTransactions): Said {
     months: months.months,
     unavailable: months.unavailable,
     span: months.lastN,
+    lastAsBaseline:
+      months.matches.length === 1 &&
+      months.matches[0].kind === "last" &&
+      !/before last/i.test(months.matches[0].text) &&
+      LAST_AS_BASELINE.test(lowerSame(text)),
     question: isQuestionText(text),
     amount: findAmount(text),
   };
@@ -131,7 +144,7 @@ const ANAPHORA = / (that|it|this|those|these|them) /;
 const SHOW = /^ (?:(?:please|ok|okay|now|so) )*(?:can you |could you )?(?:please )?(?:show|see|view|display|let me see|i want to see|i'd like to see|give me|pull up|open|take me to|go to) /;
 const SPEND = / (spend|spent|spending|money|costs?|outgoings|expenses?) /;
 const COMPARE =
-  / (compare|comparison|compared|comparing|versus|vs|against|changed?|changing|difference|different|gone up|gone down|went up|went down|go up|go down|going up|going down|rising|falling|more than|less than|higher|lower|increased?|decreased?|up or down) /;
+  / (compare|comparison|compared|comparing|versus|vs|against|changed?|changing|difference|different|gone up|gone down|went up|went down|go up|go down|going up|going down|rising|falling|more than|less than|higher|lower|increased?|decreased?|up or down) |(?: (?:more|less) (?:[a-z']+ ){1,4}than )/;
 const TREND = / (over time|month by month|each month|every month|per month|monthly|trend|history|over the (last|past)|across) /;
 const BREAKDOWN =
   / (where (does|did|do) (most of |all of |all )?my money (go|going)|where('s| is| has) (all )?my money (going|gone|been going)|where my money (goes|went)|what (do|did|am) i (spend|spent|spending) (the )?most on|what am i spending (my money )?on|what do i spend my money on|biggest (spending )?categor(y|ies)|by category|categor(y|ies)|breakdown|break down|split of my spending) /;
@@ -389,7 +402,10 @@ function visualsTurn(said: Said, env: PlanEnv): Turn | null {
   if (has(s, BUDGET) && has(s, BUDGET_LEFT)) return visualTurn([{ kind: "budget_progress" }], env);
   if (has(s, COMPARE) && (said.span || (months?.length ?? 0) >= 3)) return visualTurn(each({ kind: "monthly_trend", ...(months ? { months } : {}) }), env, food);
   if (has(s, COMPARE)) {
-    const pair = comparisonMonths(months ?? [current(env)], env);
+    // "How do my groceries compare to last month?" is this month so far against last month, not last month against
+    // the month before. Months are worked out from today, so this holds in any month and across a year boundary.
+    const asked = said.lastAsBaseline ? [current(env), addMonths(current(env), -1)] : (months ?? [current(env)]);
+    const pair = comparisonMonths(asked, env);
     if (!pair) return unsupported(`I only have spending from ${rangeLabel(env)}, so there's nothing to compare that with.`, "Nothing to compare");
     return visualTurn(each({ kind: "month_comparison", months: pair }), env, food);
   }
