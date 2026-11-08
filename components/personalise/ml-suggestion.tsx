@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, Lightbulb } from "lucide-react";
+import { Eye, Info, Lightbulb } from "lucide-react";
 import Link from "next/link";
 import { useAnnounce } from "@/components/live-region";
 import { shouldShowCard } from "@/lib/personalisation/controller";
@@ -11,7 +11,10 @@ import { useStylePreview } from "./style-preview";
 
 const pill = "inline-flex min-h-(--target-min) max-w-full items-center justify-center gap-2 rounded-[1.4em] px-[1.1em] font-bold";
 
-/** One optional display suggestion from Dial. Asks; never changes anything until "Preview it" then "Keep it". */
+/**
+ * "Suggested for you": one optional display suggestion from the on-device model. The reason is in plain sight,
+ * not behind a disclosure. It asks; nothing changes until "Preview it" and then "Keep it" on the preview bar.
+ */
 export function MlSuggestion() {
   const { consent, result, recordOutcome } = usePersonalisation();
   const { prefs, preview } = usePreferences();
@@ -40,13 +43,26 @@ export function MlSuggestion() {
   };
 
   return (
-    <section aria-labelledby="ml-suggestion-h" className="hairline flex flex-col gap-3 rounded-xl bg-card p-(--space)">
-      <h2 id="ml-suggestion-h" className="flex items-center gap-2 font-bold">
-        <Lightbulb aria-hidden className="size-[1.1em] shrink-0 text-primary" />
-        A suggestion from Dial
+    <section aria-labelledby="ml-suggestion-h" className="hairline flex flex-col gap-3 rounded-xl border-l-4 border-l-primary bg-card p-(--space)">
+      <h2 id="ml-suggestion-h" className="flex items-center gap-2 font-bold text-primary">
+        <Lightbulb aria-hidden className="size-[1.1em] shrink-0" />
+        Suggested for you
       </h2>
-      <p className="text-lg">{rec.offer}</p>
-      <p className="text-muted-foreground">Nothing changes unless you preview it and choose Keep it.</p>
+      <p className="text-xl font-bold leading-tight">{rec.title}</p>
+      <p className="text-lg leading-snug">{rec.summary}</p>
+      <p className="text-sm text-muted-foreground">Worked out on this device from display choices you made. Nothing changes unless you preview it and choose Keep it.</p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={previewIt} className={`${pill} bg-primary text-primary-foreground`}>
+          <Eye aria-hidden className="size-[1em]" />
+          Preview it
+        </button>
+        <button type="button" onClick={decline} className={`${pill} hairline bg-card`}>
+          No thanks
+        </button>
+        <button type="button" onClick={later} className={`${pill} hairline bg-card`}>
+          Not now
+        </button>
+      </div>
       <details className="rounded-lg bg-accent px-(--space) py-1 text-accent-foreground">
         <summary className="flex min-h-(--target-min) cursor-pointer items-center gap-2 font-bold">
           <Info aria-hidden className="size-[1.1em] shrink-0" />
@@ -69,17 +85,6 @@ export function MlSuggestion() {
           </Link>
         </div>
       </details>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={previewIt} className={`${pill} bg-primary text-primary-foreground`}>
-          Preview it
-        </button>
-        <button type="button" onClick={decline} className={`${pill} hairline bg-card`}>
-          No thanks
-        </button>
-        <button type="button" onClick={later} className={`${pill} hairline bg-card`}>
-          Not now
-        </button>
-      </div>
     </section>
   );
 }

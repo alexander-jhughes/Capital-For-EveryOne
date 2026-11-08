@@ -5,7 +5,7 @@
 
 - Model: `rf-1.0.0+synthetic.g1.s20261107` (random forest, 30 trees per target, max depth 5, min leaf 30, 6 of 28 features tried per split)
 - Synthetic people: 12000 train, 4000 validation, 4000 test (seed 20261107, label noise 5.0%)
-- Model size: 10758 tree nodes, 204 KB of JSON. Training took 3.5s.
+- Model size: 10758 tree nodes, 204 KB of JSON. Training took 4.6s.
 - Each target is trained and tested only on people who have that setting **off** (you can only be offered what you don't have).
 
 ## 1. Ranking quality against baselines (test set)
@@ -54,7 +54,58 @@ Train AUC minus test AUC. A large positive gap means memorising the training peo
 | `highContrast` | 0.659 | 0.596 | 0.063 | 0.643 | 0.617 | 0.027 |
 | `paymentsProminent` | 0.707 | 0.650 | 0.057 | 0.690 | 0.670 | 0.021 |
 
-## 4. Example predictions (from `lib/personalisation/examples.ts`)
+## 4. What this does and does not measure
+
+- **Measured:** on synthetic people the generator made (`lib/personalisation/synthetic.ts`), how well the forest ranks "would keep this setting" against baselines, how often its offers would be kept at the chosen thresholds, and whether it overfits. The test split was never used for any choice.
+- **Not measured:** whether real people would keep these suggestions. No person's data has been used, and the model has not been validated with real people. The generator encodes assumptions about how display tastes show up in settings and actions, so good scores show the pipeline learns those assumptions back, nothing more.
+- **Not a learning system in the app:** the model is fixed once shipped. It never retrains from what people do. On a device it only adapts through the person's current settings, their counted actions, and their remembered noes.
+- **Verified in a real browser** (`scripts/test-ml-browser.mjs`, against a production build): consent in Display and voice; the demo-path actions below; the "Suggested for you" card on Home in Simple and Detailed view at 100% and 150% text; Preview it; Keep it saved to the `cfe-prefs` cookie and not offered again; No thanks and Not now recorded and not repeated; turning suggestions off deletes the `cfe-personalisation` storage key; the model chunk requested only after consent; nothing about personalisation in the body sent to `/api/ask`.
+
+## 5. Example predictions (from `lib/personalisation/examples.ts`)
+
+The first three are the demo paths from `README.md`. `infer.test.ts` pins their outcomes, so the documented path fails a test if a retrained model stops producing it.
+
+### Demo path: hid one home screen section in Display and voice, Simple view
+
+```json
+{"input":{"preferences":{"textSize":100,"contrast":"standard","spacing":"standard","motion":"system","theme":"system","targets":"standard","explanations":"standard","voiceFirst":false,"layout":{"pinned":[],"shown":[],"hidden":["insights"],"emphasis":null,"density":"standard"}},"view":"simple"},"state":{"consent":"granted","signals":{"lessOnScreen":1}}}
+```
+
+**Status:** `ok`, layout `calm`
+
+**Dial asks:** "Would you like me to show less on your home screen, keeping the most important parts?"
+
+- `calmLayout` at 0.79: You hid a section on your home screen; You asked for less on screen once; You use Simple view
+
+Withheld: `largerText` (low_confidence), `voiceFirst` (low_confidence)
+
+### Demo path: hid one home screen section in Display and voice, Detailed view
+
+```json
+{"input":{"preferences":{"textSize":100,"contrast":"standard","spacing":"standard","motion":"system","theme":"system","targets":"standard","explanations":"standard","voiceFirst":false,"layout":{"pinned":[],"shown":[],"hidden":["recent"],"emphasis":null,"density":"standard"}},"view":"complex"},"state":{"consent":"granted","signals":{"lessOnScreen":1}}}
+```
+
+**Status:** `ok`, layout `calm`
+
+**Dial asks:** "Would you like me to show less on your home screen, keeping the most important parts?"
+
+- `calmLayout` at 0.65: You hid a section on your home screen; You asked for less on screen once
+
+Withheld: `largerText` (low_confidence), `voiceFirst` (low_confidence)
+
+### Demo path: chose bigger buttons, then opened Dial three times, Simple view
+
+```json
+{"input":{"preferences":{"textSize":100,"contrast":"standard","spacing":"standard","motion":"system","theme":"system","targets":"large","explanations":"standard","voiceFirst":false,"layout":{"pinned":[],"shown":[],"hidden":[],"emphasis":null,"density":"standard"}},"view":"simple"},"state":{"consent":"granted","signals":{"voiceSessions":3}}}
+```
+
+**Status:** `ok`, layout `voice`
+
+**Dial asks:** "Would you like talking to Dial to be the first option?"
+
+- `voiceFirst` at 0.68: You've talked to Dial 3 times; You chose bigger buttons; You use Simple view
+
+Withheld: `largerText` (low_confidence), `calmLayout` (low_confidence)
 
 ### Keeps choosing larger text and less on screen (the brief's example)
 

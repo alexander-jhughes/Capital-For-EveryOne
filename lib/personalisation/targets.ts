@@ -44,6 +44,8 @@ export interface TargetDef {
   title: string;
   /** What Dial asks. A question, never a statement about the person. */
   offer: string;
+  /** The change, as a noun phrase that follows "so Dial suggests ...". Used for the card's one-sentence reason. */
+  suggests: string;
   actions: SuggestedAction[];
   layout?: LayoutStyle;
   /** Groups used for the combined offer ("easier to read"). */
@@ -63,6 +65,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "largerText",
     title: "Larger text",
     offer: "Would you like me to make the text larger?",
+    suggests: "text at 125%",
     actions: [{ type: "textSize", value: 125 }],
     readability: true,
     status: (p) => (typeof p.textSize !== "number" ? "unsupported" : p.textSize >= 125 ? "on" : "off"),
@@ -71,6 +74,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "calmLayout",
     title: "A calmer home screen",
     offer: "Would you like me to show less on your home screen, keeping the most important parts?",
+    suggests: "a calmer home screen that shows only the first three sections",
     actions: [{ type: "density", value: "calm" }],
     layout: "calm",
     readability: true,
@@ -80,6 +84,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "visualSummary",
     title: "Your spending chart near the top",
     offer: "Would you like me to put your spending chart near the top?",
+    suggests: "your spending chart near the top of your home screen",
     actions: [
       { type: "show", widget: "chart" },
       { type: "moveToTop", widget: "chart" },
@@ -95,6 +100,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "stepByStep",
     title: "Step-by-step explanations",
     offer: "Would you like Dial to explain things step by step?",
+    suggests: "step-by-step explanations",
     actions: [{ type: "explanations", value: "stepByStep" }],
     readability: false,
     status: (p) => two(p.explanations, "stepByStep", ["standard"]),
@@ -103,6 +109,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "voiceFirst",
     title: "Talking to Dial first",
     offer: "Would you like talking to Dial to be the first option?",
+    suggests: "a Talk to Dial button at the top of your home screen",
     actions: [{ type: "voiceFirst", value: true }],
     layout: "voice",
     readability: false,
@@ -112,6 +119,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "reducedMotion",
     title: "Less animation",
     offer: "Would you like me to turn off animations?",
+    suggests: "turning off animations",
     actions: [{ type: "motion", value: "reduced" }],
     readability: true,
     status: (p) => two(p.motion, "reduced", ["system"]),
@@ -120,6 +128,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "highContrast",
     title: "Stronger contrast",
     offer: "Would you like me to use stronger contrast?",
+    suggests: "stronger contrast",
     actions: [{ type: "contrast", value: "high" }],
     readability: true,
     status: (p) => two(p.contrast, "high", ["standard"]),
@@ -128,6 +137,7 @@ export const TARGETS: Record<TargetId, TargetDef> = {
     id: "paymentsProminent",
     title: "Your next payment at the top",
     offer: "Would you like me to put your bill and next payment at the top?",
+    suggests: "your bill and next payment at the top of your home screen",
     actions: [
       { type: "moveToTop", widget: "bill" },
       { type: "emphasize", widget: "bill" },

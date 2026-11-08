@@ -50,6 +50,32 @@ describe("inference: recommendations", () => {
     }
   });
 
+  it("gives every suggestion a one-sentence summary: its strongest reason, then what Dial suggests", () => {
+    for (const e of EXAMPLES) {
+      for (const p of recommendPreferences(e.input, e.state, model).preferences) {
+        expect(p.summary).toBe(`${p.reasons[0]}, so Dial suggests ${TARGETS[p.target].suggests}.`);
+        expect(p.summary).toMatch(/^You/);
+      }
+    }
+    const r = recommendPreferences(TALKER.input, TALKER.state, model);
+    expect(r.preferences[0].summary).toBe("You've talked to Dial 6 times, so Dial suggests a Talk to Dial button at the top of your home screen.");
+  });
+
+  it("the documented demo paths each produce the suggestion the README promises", () => {
+    const demo = (name: string) => recommendPreferences(example(name).input, example(name).state, model, { maxSuggestions: 1 });
+    const simpleCalm = demo("Demo path: hid one home screen section in Display and voice, Simple view");
+    expect(simpleCalm.status).toBe("ok");
+    expect(simpleCalm.preferences[0].target).toBe("calmLayout");
+    expect(simpleCalm.preferences[0].summary).toBe("You hid a section on your home screen, so Dial suggests a calmer home screen that shows only the first three sections.");
+    const detailedCalm = demo("Demo path: hid one home screen section in Display and voice, Detailed view");
+    expect(detailedCalm.status).toBe("ok");
+    expect(detailedCalm.preferences[0].target).toBe("calmLayout");
+    const voice = demo("Demo path: chose bigger buttons, then opened Dial three times, Simple view");
+    expect(voice.status).toBe("ok");
+    expect(voice.preferences[0].target).toBe("voiceFirst");
+    expect(voice.preferences[0].reasons).toContain("You've talked to Dial 3 times");
+  });
+
   it("never suggests a setting the person already has", () => {
     const r = recommendPreferences({ ...TALKER.input, preferences: { ...DEFAULTS, targets: "large", voiceFirst: true } }, TALKER.state, model);
     expect(r.preferences.map((p) => p.target)).not.toContain("voiceFirst");
@@ -268,11 +294,11 @@ describe("privacy and safety", () => {
 
   it("never uses diagnostic, condition, age or vulnerability language in anything a person can see", () => {
     const text = [
-      ...Object.values(TARGETS).flatMap((t) => [t.title, t.offer]),
+      ...Object.values(TARGETS).flatMap((t) => [t.title, t.offer, t.suggests]),
       ...FEATURES.flatMap((f) => [0, 1, 2, 3, 5].map((v) => f.describe(v) ?? "")),
       ...EXAMPLES.flatMap((e) => {
         const r = recommendPreferences(e.input, e.state, model);
-        return [r.offer ?? "", ...r.reasons, ...r.preferences.flatMap((p) => p.reasons)];
+        return [r.offer ?? "", ...r.reasons, ...r.preferences.flatMap((p) => [p.summary, ...p.reasons])];
       }),
     ].join("\n");
     expect(text).not.toMatch(BANNED);

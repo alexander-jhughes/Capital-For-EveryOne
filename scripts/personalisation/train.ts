@@ -127,7 +127,16 @@ Train AUC minus test AUC. A large positive gap means memorising the training peo
 
 ${overfitTable(report)}
 
-## 4. Example predictions (from \`lib/personalisation/examples.ts\`)
+## 4. What this does and does not measure
+
+- **Measured:** on synthetic people the generator made (\`lib/personalisation/synthetic.ts\`), how well the forest ranks "would keep this setting" against baselines, how often its offers would be kept at the chosen thresholds, and whether it overfits. The test split was never used for any choice.
+- **Not measured:** whether real people would keep these suggestions. No person's data has been used, and the model has not been validated with real people. The generator encodes assumptions about how display tastes show up in settings and actions, so good scores show the pipeline learns those assumptions back, nothing more.
+- **Not a learning system in the app:** the model is fixed once shipped. It never retrains from what people do. On a device it only adapts through the person's current settings, their counted actions, and their remembered noes.
+- **Verified in a real browser** (\`scripts/test-ml-browser.mjs\`, against a production build): consent in Display and voice; the demo-path actions below; the "Suggested for you" card on Home in Simple and Detailed view at 100% and 150% text; Preview it; Keep it saved to the \`cfe-prefs\` cookie and not offered again; No thanks and Not now recorded and not repeated; turning suggestions off deletes the \`cfe-personalisation\` storage key; the model chunk requested only after consent; nothing about personalisation in the body sent to \`/api/ask\`.
+
+## 5. Example predictions (from \`lib/personalisation/examples.ts\`)
+
+The first three are the demo paths from \`README.md\`. \`infer.test.ts\` pins their outcomes, so the documented path fails a test if a retrained model stops producing it.
 
 ${examples()}
 `;

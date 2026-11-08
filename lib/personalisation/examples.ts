@@ -35,6 +35,23 @@ export interface Example {
 }
 
 export const EXAMPLES: Example[] = [
+  // The three demo paths in docs/ml-personalisation/README.md ("Demo path"). Each is a short sequence of explicit
+  // actions in Display and voice, counted by the controller exactly as written here. A test pins their outcomes.
+  {
+    name: "Demo path: hid one home screen section in Display and voice, Simple view",
+    input: { preferences: { ...DEFAULTS, layout: { ...DEFAULT_LAYOUT, hidden: ["insights"] } }, view: "simple" },
+    state: granted({ lessOnScreen: 1 }),
+  },
+  {
+    name: "Demo path: hid one home screen section in Display and voice, Detailed view",
+    input: { preferences: { ...DEFAULTS, layout: { ...DEFAULT_LAYOUT, hidden: ["recent"] } }, view: "complex" },
+    state: granted({ lessOnScreen: 1 }),
+  },
+  {
+    name: "Demo path: chose bigger buttons, then opened Dial three times, Simple view",
+    input: { preferences: { ...DEFAULTS, targets: "large" }, view: "simple" },
+    state: granted({ voiceSessions: 3 }),
+  },
   {
     name: "Keeps choosing larger text and less on screen (the brief's example)",
     input: { preferences: { ...DEFAULTS, textSize: 150 }, view: "simple" },

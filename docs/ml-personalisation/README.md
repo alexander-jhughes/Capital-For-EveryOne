@@ -2,13 +2,35 @@
 
 A small, trained machine-learning model that works in the background. It looks at the display settings a person has **explicitly** chosen, and (with their consent) at counts of explicit display actions, and predicts which *other* presentation settings they might like. Dial can then **ask**: "Would you like me to make the text larger?" The person can say yes, no, or ignore it. **The model never changes the interface by itself.**
 
-> **Status: prototype, trained on synthetic data only.** It is a working, tested ML pipeline. It has not been validated on real people (see [Limitations](#limitations)).
-> **Integration:** wired into the adaptive UI behind explicit consent. See [Integration on the adaptive UI](#integration-on-the-adaptive-ui-agreed).
+> **Status: prototype, trained on synthetic data only.** It is a working, tested ML pipeline. It has not been validated on real people, and it does not learn from real users (see [Limitations](#limitations)).
+> **Integration:** wired into the adaptive UI behind explicit consent and verified end to end in a real browser. See [Demo path](#demo-path) and [Integration on the adaptive UI](#integration-on-the-adaptive-ui-agreed).
 
 - Generated metrics and example predictions: [`EVALUATION.md`](./EVALUATION.md)
-- Code: `lib/personalisation/` · Training script: `scripts/personalisation/train.ts`
+- Code: `lib/personalisation/` · Training script: `scripts/personalisation/train.ts` · Browser check: `scripts/test-ml-browser.mjs`
 
 ---
+
+## Demo path
+
+Everything below is a real inference from the trained model: nothing is seeded or faked, and the same steps are what `scripts/test-ml-browser.mjs` drives in Chromium against `npx next build && npx next start -p 3600`.
+
+**Calmer home screen (works in Simple and Detailed view, at any text size).**
+
+1. On Home, answer the "Make it yours" invitation ("Not now" is enough). The suggestion card never competes with it.
+2. Go to **Display and voice**. Under **Suggestions from Dial**, choose **On**. (The 204 KB model is fetched now, not before.)
+3. Under **Home screen**, untick one section: "Recent transactions" in Detailed view, "Dial noticed" in Simple view.
+4. Go **Home**. The **Suggested for you** card says: *A calmer home screen. You hid a section on your home screen, so Dial suggests a calmer home screen that shows only the first three sections.* (0.79 in Simple view, 0.65 in Detailed; threshold 0.60.)
+5. **Preview it**: Home drops to three sections and the preview bar appears. **Keep it** saves it (`cfe-prefs` cookie, `layout.density: "calm"`) and the card does not return. **Go back** or **No thanks** records a no and the card does not return either; **Not now** holds it until a setting changes.
+
+**Talking to Dial first (Simple view).**
+
+1. Suggestions **On** as above. Under **Buttons**, choose **Bigger**.
+2. Tap the **Dial** button three times (close it each time). Each tap counts one "opened Voice Mode"; nothing said is recorded.
+3. Go **Home**: *Talking to Dial first. You've talked to Dial 3 times, so Dial suggests a Talk to Dial button at the top of your home screen.* (0.68; threshold 0.65.) Preview it adds the Talk to Dial button.
+
+**Turning suggestions off** (Display and voice) deletes the `cfe-personalisation` key in `localStorage`; display settings are untouched.
+
+Why these two and not "larger text": a setting is only ever offered while it is **off**, and larger text counts as on from 125%. So the person who made the text bigger twice already has it, and the model is only asked about larger text for someone back at 100% (after a reset or after making it smaller), where the synthetic evidence is thinner (0.56 to 0.65 against a 0.65 threshold). None of the thresholds or gates were changed to make the demo work; they are the ones chosen on validation data in [Training](#training). The three demo inputs are the first examples in `examples.ts`, pinned by `infer.test.ts`.
 
 ## Contents
 
@@ -40,13 +62,13 @@ A small, trained machine-learning model that works in the background. It looks a
    gates: consent · already on · supported · trained threshold ·     lib/personalisation/infer.ts
           rejected before · conflicting signals · explainable
                             ▼
-      PersonalisationResult { preferences[], confidence, reasons, offer, modelVersion }
+      PersonalisationResult { preferences[{ title, summary, reasons, actions, confidence }], offer, modelVersion }
                             ▼
-      Dial asks  ──►  yes: PreferencesProvider.startPreview(actions) → keep / undo (existing flow)
-                 ──►  no / ignore: recordOutcome() so it isn't repeated
+      "Suggested for you" card on Home  ──►  Preview it: PreferencesProvider.startPreview(actions) → Keep it / Go back
+                                        ──►  No thanks / Not now: recordOutcome() so it isn't repeated
 ```
 
-**Where it runs: in the browser, on the device.** Inference is a pure TypeScript function (measured at about 0.006 ms per call, after a one-off ~3 ms model check). The trained model is a JSON file loaded with a dynamic `import()`, so the bundler can split it out of the first page load (not yet observed in a build, because no page imports the engine until the frontend wires it in). I chose this over a server route because:
+**Where it runs: in the browser, on the device.** Inference is a pure TypeScript function (measured at about 0.006 ms per call, after a one-off ~3 ms model check). The trained model is a JSON file loaded with a dynamic `import()`, so the bundler splits it out of the first page load: in the browser run it is a separate chunk that is requested only after consent. I chose this over a server route because:
 
 - preferences already live in the browser (cookie plus `sessionStorage`), so nothing has to leave the device;
 - the app has no database or user accounts to store server-side profiles in;
@@ -116,7 +138,7 @@ How a synthetic person is made:
 4. **Action counts.** 60% consented. Counts are Poisson, with rates rising with the related taste. They depend only weakly on engagement, because people ask Dial for bigger text in a session without ever saving a setting. "Undid a change" is pure noise.
 5. **Labels.** "Would keep setting X if offered" ~ Bernoulli(`sigmoid(10 × (taste − 0.55))`), then 5% of labels are flipped to model people changing their minds.
 
-The model only ever sees steps 2–4. It is never given the tastes or the formulas.
+The model only ever sees steps 2 to 4. It is never given the tastes or the formulas.
 
 **Generator decision to know about:** the first version tied action counts strongly to settings engagement. That made the people who still had a setting *off* (the only ones who can be offered it) almost silent, and the model could rarely be confident. Weakening that link (step 4) was a modelling assumption about real behaviour. It was not tuned on test data, but it does shape the results.
 
@@ -131,7 +153,7 @@ The model only ever sees steps 2–4. It is never given the tastes or the formul
 3. **Choose a threshold on validation data:** the lowest of 0.60, 0.65 … 0.95 at which at least 80% of people offered the suggestion would keep it, with at least 20 offers. **If none qualifies, the target gets no threshold and is never offered.**
 4. Evaluate everything on the untouched test set and write `model.json` and `EVALUATION.md`.
 
-Hyperparameters were compared on **validation** AUC (feature subsets of 6/10/15, depth 5–7, min leaf 15–30). All were within 0.002 of each other, so the smallest model was kept.
+Hyperparameters were compared on **validation** AUC (feature subsets of 6/10/15, depth 5 to 7, min leaf 15 to 30). All were within 0.002 of each other, so the smallest model was kept.
 
 ## Evaluation
 
@@ -152,8 +174,9 @@ How to read this:
 
 - **The forest beats every baseline on every target**, for both ranking (AUC) and probability quality (Brier).
 - **No meaningful overfitting.** Forest train-minus-test AUC is between −0.013 and 0.035. The single tree's is up to 0.074.
-- **It is deliberately cautious.** Only 3 of 8 settings clear the 80% bar, and those are offered to 1–7% of eligible people. **Recall is low (5–21%) by design**: a suggestion nobody wanted costs more than a missed one, because the person can always change settings themselves. The other 5 settings exist in the code and are reported, but the model withholds them (`not_reliable`) until better data says otherwise.
+- **It is deliberately cautious.** Only 3 of 8 settings clear the 80% bar, and those are offered to 1 to 7% of eligible people. **Recall is low (5 to 21%) by design**: a suggestion nobody wanted costs more than a missed one, because the person can always change settings themselves. The other 5 settings exist in the code and are reported, but the model withholds them (`not_reliable`) until better data says otherwise.
 - Motion and contrast are hardest because, in the generator, their tastes leave weak traces in the other signals. That's a property of the synthetic data, not a finding about people.
+- **What the numbers do not say:** nothing here measures real people. There has been no study, pilot or collection of real accept/reject answers. `EVALUATION.md` section 4 states this next to the tables.
 
 ### Example predictions
 
@@ -161,6 +184,9 @@ From `lib/personalisation/examples.ts`. Full inputs are in `EVALUATION.md`.
 
 | Person | Result |
 |---|---|
+| **Demo path:** hid one home screen section, Simple view | **Offers a calmer home screen (0.79).** "You hid a section on your home screen; You asked for less on screen once; You use Simple view" |
+| **Demo path:** hid one home screen section, Detailed view | **Offers a calmer home screen (0.65).** |
+| **Demo path:** bigger buttons, opened Dial three times, Simple view | **Offers talking first (0.68).** |
 | Text at 150%, made text bigger ×3, asked for less on screen ×3 (**the brief's example**) | `no_recommendation`. Calm layout scores 0.53, below its 0.60 threshold. In the synthetic data, people who ask for less usually also hide something, so this exact pattern is thin evidence. |
 | Same, and also **hid a section** | **Offers a calmer home screen (0.78).** "You hid a section on your home screen; You asked for less on screen 3 times; You use Simple view" |
 | Bigger buttons, talked to Dial ×6 | **Offers talking first (0.68).** "You've talked to Dial 6 times; You chose bigger buttons; You use Simple view" |
@@ -179,7 +205,7 @@ From `lib/personalisation/examples.ts`. Full inputs are in `EVALUATION.md`.
 3. No preferences, or nothing beyond the defaults → `insufficient_data`.
 4. For each setting, it is withheld if: already on · not in this app's schema · no trained threshold · rejected (same settings, or twice) · ignored (same settings) · conflicting explicit signals · probability not finite · below `max(threshold, 0.6)` · **no reason based on something the person did**.
 5. Calm layout and chart-at-top both reshape the home screen, so only the more confident one is offered.
-6. At most 3 suggestions are returned, most confident first, with one combined question for Dial.
+6. At most 3 suggestions are returned, most confident first, with one combined question for Dial. Each carries a one-sentence `summary` for the card: its strongest reason, then what Dial suggests ("You hid a section on your home screen, so Dial suggests a calmer home screen that shows only the first three sections.").
 
 Measured on a laptop (Node 24): about 0.006 ms per call on the full recommendation path. The model is structurally validated once per loaded model (about 3 ms) and then cached. The test allows 2 ms per call.
 
@@ -192,7 +218,7 @@ Wired into `feat/hackathon-adaptive-ui` (PR #9) on `feat/ml-personalisation-inte
 - Off deletes the key. Display settings are left alone.
 - "Reset suggestions" forgets counts and answers but keeps consent.
 - The display "Reset to default" resets display settings only.
-- The 204 KB model is fetched with a dynamic `import()` **only after consent**. In the browser run, it was never requested without consent; with consent it was fetched about 50 ms after "On".
+- The 204 KB model is fetched with a dynamic `import()` **only after consent**. `scripts/test-ml-browser.mjs` recognises the model chunk by its content and checks it is never requested before "On" and is requested after.
 
 **Signals.** `PreferencesProvider` tags every change with a `ChangeSource` and, after a change is kept, undone or reset, emits a `PrefsEvent` (`lib/preferences/events.ts`). Previews emit nothing and don't touch undo history. `lib/personalisation/controller.ts` counts:
 - only kept changes from `settings` or `voice`;
@@ -201,7 +227,7 @@ Wired into `feat/hackathon-adaptive-ui` (PR #9) on `feat/ml-personalisation-inte
 `style` (Make it yours), `ml`, `other` (the default), view switches and resets are never counted.
 
 **Lifecycle.**
-- The Home card (`components/personalise/ml-suggestion.tsx`) shows one suggestion. It appears only when consent is on, Make it yours has been done or skipped, no preview is active, and the model returned `ok`.
+- The Home card (`components/personalise/ml-suggestion.tsx`, "Suggested for you") shows one suggestion in both Simple and Detailed view: the setting's name, the one-sentence reason in plain sight, a short line saying it was worked out on this device and changes nothing by itself, then **Preview it** (primary), **No thanks**, **Not now**. The full reasons, the privacy wording and a "Turn suggestions off" link sit behind "Why am I seeing this?". It appears only when consent is on, Make it yours has been done or skipped, no preview is active, and the model returned `ok`.
 - **Preview it** uses the existing preview bar (`StylePreviewProvider.startRequest`, `source: "ml"`).
 - **Keep it** saves the change. **Go back** and **No thanks** count as a no. **Not now** holds the suggestion until settings change.
 - Undoing, resetting or changing back a kept suggestion counts as a no (`reconcile`).
@@ -213,7 +239,12 @@ Wired into `feat/hackathon-adaptive-ui` (PR #9) on `feat/ml-personalisation-inte
 - `liveState()` (sent with `/api/ask`) carries only Spend Pause, purchases and payments.
 - Ask Dial uses only `noteVoiceOpened()`.
 
-All of this is covered by `lib/personalisation/integration.test.ts`.
+All of this is covered by `lib/personalisation/integration.test.ts` (unit level, with a stand-in for the providers) and by `scripts/test-ml-browser.mjs` (the real production build in Chromium: both views, 100% and 150% text, phone and desktop widths, plus the `/api/ask` request body and the storage key).
+
+```bash
+npx next build
+node scripts/test-ml-browser.mjs --shots=/tmp/ml-shots   # starts next start -p 3600 itself; --shots is optional
+```
 
 ## Reproducing the model
 
@@ -236,9 +267,10 @@ To change the model, edit `DEFAULT_CONFIG` (`train.ts`) or the generator (and bu
 
 ## Limitations
 
-- **Synthetic data proves the pipeline, not the predictions.** The generator encodes my assumptions about how display tastes show up in behaviour, so the model largely learns those assumptions back. Before anyone relies on it, it needs real, consented outcome data, i.e. the accept/reject answers this engine records, collected with clear consent and an approved retention policy, plus a re-evaluation.
-- **Cautious by design, so it rarely speaks.** It covers 1–7% of eligible people for 3 settings and never suggests the other 5. The brief's exact example (larger text and less on screen, with nothing hidden) is withheld at 0.53.
-- **No per-person online learning.** The model is trained offline. It adapts to a person only through their changing settings and counts, and through remembering their noes. Retraining from real outcomes would be a separate, consented pipeline.
+- **Synthetic data proves the pipeline, not the predictions.** The generator encodes my assumptions about how display tastes show up in behaviour, so the model largely learns those assumptions back. It has not been validated with real people: no study, no pilot, no real accept/reject data. Before anyone relies on it, it needs real, consented outcome data, i.e. the accept/reject answers this engine records, collected with clear consent and an approved retention policy, plus a re-evaluation.
+- **Cautious by design, so it rarely speaks.** It covers 1 to 7% of eligible people for 3 settings and never suggests the other 5. The brief's exact example (larger text and less on screen, with nothing hidden) is withheld at 0.53. In a short demo only two suggestions are reachable (see [Demo path](#demo-path)); larger text is not, because it is already on from 125%.
+- **It does not learn from real users.** The model is trained offline and shipped fixed. It adapts to a person only through their changing settings and counts, and through remembering their noes. Retraining from real outcomes would be a separate, consented pipeline.
+- **Thin evidence can be enough.** One hidden section (plus the count of hiding it) clears the calm-layout threshold. That follows from the synthetic data, where hiding anything is a strong marker of the "calm" taste. Whether one real person hiding one section wants a calmer screen is exactly the kind of thing that has not been tested.
 - **Feature set is fixed.** If `lib/preferences/schema.ts` gains settings, `features.ts` must be updated and the model retrained. `isValidModel` refuses a model whose feature list doesn't match.
 - **Probabilities are only roughly calibrated.** Brier beats the baseline, but there is no separate calibration step, so read "0.7" as "fairly confident", not exactly 70%.
 - **Explanations are based on contributions.** They show which of the person's own actions pushed the prediction up. They are not causal claims.
@@ -253,21 +285,22 @@ The engine files below are new. The integration also makes small, agreed changes
 | File | Purpose |
 |---|---|
 | `lib/personalisation/features.ts` | Allowlisted feature extraction, reason wording, fingerprint |
-| `lib/personalisation/targets.ts` | The 8 predicted settings, their `UiAction`-shaped changes and Dial's questions |
+| `lib/personalisation/targets.ts` | The 8 predicted settings, their `UiAction`-shaped changes, Dial's questions and the "so Dial suggests ..." phrases |
 | `lib/personalisation/forest.ts` | CART / random forest training, prediction, contributions, tree validation |
 | `lib/personalisation/synthetic.ts` | Seeded synthetic data generator and splits |
 | `lib/personalisation/metrics.ts` | AUC, precision/recall/F1, Brier, keep rate |
 | `lib/personalisation/train.ts` | Training and evaluation pipeline |
 | `lib/personalisation/artifact.ts` | Model file format and validation |
 | `lib/personalisation/model.json` | **The trained model** |
-| `lib/personalisation/infer.ts` | Background inference and the result contract |
+| `lib/personalisation/infer.ts` | Background inference, the one-sentence summary and the result contract |
 | `lib/personalisation/state.ts` | Consent, signals, outcomes, reset, storage |
 | `lib/personalisation/index.ts` | Public entry point (lazy model loading) |
-| `lib/personalisation/examples.ts` | Example people for docs and tests |
+| `lib/personalisation/examples.ts` | Example people for docs and tests, the three demo paths first |
 | `lib/personalisation/controller.ts` | Events → signals, `reconcile`, card visibility |
 | `lib/personalisation/provider.tsx` | React provider: consent, storage, lazy model, evaluation |
 | `lib/preferences/events.ts` | `ChangeSource` and `PrefsEvent` emitted by the preferences provider |
-| `components/personalise/ml-suggestion.tsx` | The Home suggestion card |
-| `lib/personalisation/*.test.ts` | 96 tests, including `integration.test.ts` |
+| `components/personalise/ml-suggestion.tsx` | The "Suggested for you" card on Home |
+| `lib/personalisation/*.test.ts` | About 100 tests, including `integration.test.ts` and the pinned demo paths |
 | `scripts/personalisation/train.ts`, `ts-resolve.mjs` | Reproducible training script |
+| `scripts/test-ml-browser.mjs` | End-to-end check in Chromium against the production build |
 | `docs/ml-personalisation/README.md`, `EVALUATION.md` | This document and the generated report |

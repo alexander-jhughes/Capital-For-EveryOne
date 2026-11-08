@@ -19,6 +19,8 @@ export interface PreferenceRecommendation {
   confidence: number;
   /** Plain-English reasons, each about something the person explicitly did. Never empty. */
   reasons: string[];
+  /** One sentence for the card: the strongest reason and what Dial suggests because of it. */
+  summary: string;
 }
 
 export type WithheldReason =
@@ -122,6 +124,11 @@ function explain(target: TargetId, model: ModelArtifact, x: number[]): string[] 
     .map((r) => r.text);
 }
 
+/** "You hid a section on your home screen, so Dial suggests a calmer home screen that shows only the first three sections." */
+export function summarise(target: TargetId, reasons: string[]): string {
+  return `${reasons[0]}, so Dial suggests ${TARGETS[target].suggests}.`;
+}
+
 function combinedOffer(recs: PreferenceRecommendation[]): string | null {
   if (recs.length === 0) return null;
   if (recs.length === 1) return recs[0].offer;
@@ -174,7 +181,15 @@ export function recommendPreferences(
           if (reasons.length === 0) hold("no_explanation");
           else {
             const def = TARGETS[target];
-            candidates.push({ target, title: def.title, offer: def.offer, actions: def.actions.map((x) => ({ ...x })), confidence: Math.round(p * 100) / 100, reasons });
+            candidates.push({
+              target,
+              title: def.title,
+              offer: def.offer,
+              actions: def.actions.map((x) => ({ ...x })),
+              confidence: Math.round(p * 100) / 100,
+              reasons,
+              summary: summarise(target, reasons),
+            });
           }
         }
       }
