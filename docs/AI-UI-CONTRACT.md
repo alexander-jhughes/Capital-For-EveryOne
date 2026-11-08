@@ -9,8 +9,12 @@
   question?: string;   // Up to 300 characters. Missing means the default spending summary.
   state?: ClientState; // Optional. What has happened in the app. See "Live app state".
   previousQuestion?: string; // Optional, up to 300 characters. The question asked just before. See "Follow-ups".
+  style?: "standard" | "brief" | "stepByStep"; // Optional. The person's own Dial answer style from Display and voice. An unknown value is ignored.
 }
 ```
+
+The person's saved "About you" profile is **not** sent in the body. The server reads it from its own signed, HttpOnly
+`cfe-profile` cookie (only with consent) and uses it for wording and signposting only. See `docs/profile-model/README.md`.
 
 `GET /api/ask` returns `{ gemini: "configured" | "not configured", model: string }`, so you can see whether answers can come from Gemini. It never includes the key.
 
@@ -45,12 +49,14 @@ interface OrchestratedResponse {
   evidenceIds: string[];
   source: "model" | "template" | "cache";
   experience?: Experience;
+  signposted?: true; // The answer mentions free, impartial money advice (MoneyHelper, National Debtline, StepChange). Never carries a figure.
+  tailored?: true;   // The person's saved profile changed something: the model's wording, or the signpost.
 }
 ```
 
 The types are exported from `lib/ai/experience.ts`, with a validator, `parseExperience`. `AskResponse` in `lib/types.ts` is unchanged.
 
-**Compatibility:** `answer`, `evidenceIds` and `source` mean what they always did. `experience` is optional, so treat it as possibly missing and fall back to the general chat view.
+**Compatibility:** `answer`, `evidenceIds` and `source` mean what they always did. `signposted` and `tailored` are optional and can be ignored. A request for help with money worries ("Where can I get free help?", "I can't afford my bill") gets a fixed, figure-free answer with `source: "template"` and no evidence, with or without a profile. `experience` is optional, so treat it as possibly missing and fall back to the general chat view.
 
 ### Errors
 

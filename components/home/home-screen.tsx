@@ -18,6 +18,7 @@ import {
 import { formatDate, formatLongDate, formatMonth, formatPence, formatShortDate } from "@/lib/format";
 import { usePreferences } from "@/lib/preferences/provider";
 import { MlSuggestion } from "../personalise/ml-suggestion";
+import { TailoredCard } from "../profile/tailored-card";
 import { DEFAULT_PREFS, VIEW_DEFAULTS, visibleWidgets, WIDGET_LABELS, type Layout, type WidgetId } from "@/lib/preferences/schema";
 import type { HomeSection } from "@/lib/dial/types";
 import { activeSince } from "@/lib/spend-pause/dial";
@@ -604,6 +605,7 @@ export function HomeScreen({ focus }: { focus?: HomeSection }) {
           <strong>We couldn&apos;t reach the account server.</strong> You&apos;re seeing the demo&apos;s starting figures, and changes won&apos;t be kept.
         </p>
       )}
+      <TailoredCard />
       <MlSuggestion />
       {personalised && (
         <p className="rounded-lg bg-accent px-(--space) py-2 text-sm text-accent-foreground">

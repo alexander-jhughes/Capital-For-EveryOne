@@ -11,6 +11,9 @@ import { billQuestion, namedMerchants } from "./intent";
 import { interpretQuestion, periodLabelFor } from "./interpreter";
 import { contextFromState, parseClientState, type ClientState } from "./live-state";
 import { describeError, type AskModel } from "./model";
+import { HELP_ANSWER, isHelpRequest, SIGNPOST_SENTENCE } from "./answer-style";
+import { hasStyle, NO_STYLE, type AnswerStyle } from "../profile/infer";
+import { profileContext, profileStore, type ProfileStore } from "../server/profile";
 import { isRateLimit } from "./model-chain";
 import { allowModelCall, clientKey } from "./rate-limit";
 import { contextFromSession } from "../server/account";
@@ -44,7 +47,12 @@ interface AskOptions {
   timeoutMs?: number;
   /** The question asked just before, so "What about Argos?" can be read as a follow-up. */
   previousQuestion?: string;
+  /** How the person asked Dial to word answers. Only reaches the model's wording; figures are checked the same way. */
+  style?: AnswerStyle;
 }
+
+/** `signposted`: the answer mentions free, impartial money advice. `tailored`: the person's saved profile shaped the wording. */
+export type AskReply = OrchestratedResponse & { signposted?: true; tailored?: true };
 
 const log = (step: string, error: unknown) => console.warn(`[ask] ${step}: ${describeError(error)}`);
 
@@ -67,8 +75,8 @@ function fromCache(question: string, facts: AnswerFactSet): AskResponse | null {
  * Answers one question through the three agents: interpret it, choose its template, then validate the result.
  * Never throws for a model problem; the worst case is a safe sentence.
  */
-export async function answerQuestion(question: string | undefined, options: AskOptions): Promise<OrchestratedResponse> {
-  const { model, ctx = seedContext(), timeoutMs = TIMEOUT_MS, previousQuestion } = options;
+export async function answerQuestion(question: string | undefined, options: AskOptions): Promise<AskReply> {
+  const { model, ctx = seedContext(), timeoutMs = TIMEOUT_MS, previousQuestion, style } = options;
   let busy = false;
   const deadline = Date.now() + timeoutMs;
   const remaining = () => deadline - Date.now();
@@ -79,6 +87,8 @@ export async function answerQuestion(question: string | undefined, options: AskO
     ids: ctx.txns.map((t) => t.id),
   };
   const asked = resolveFollowUp(question ?? DEFAULT_QUESTION, previousQuestion, names);
+  // Someone asking for help with money worries gets the same fixed, figure-free answer every time, whoever they are.
+  if (isHelpRequest(asked)) return { answer: HELP_ANSWER, evidenceIds: [], source: "template", experience: selectExperience("general", "high"), signposted: true };
 
   const reading = await interpretQuestion(asked, names, model, timeoutMs, (error) => {
     log("classify failed", error);
@@ -121,7 +131,7 @@ export async function answerQuestion(question: string | undefined, options: AskO
 
   let reply: string | null;
   try {
-    reply = await model.phrase(factIntent === "account_overview" ? OVERVIEW_TASK : asked, facts, remaining());
+    reply = await model.phrase(factIntent === "account_overview" ? OVERVIEW_TASK : asked, facts, remaining(), style && hasStyle(style) ? style : undefined);
   } catch (error) {
     log("phrasing failed", error);
     busy ||= isRateLimit(error);
@@ -163,7 +173,11 @@ async function readBody(request: Request): Promise<string | null> {
   }
 }
 
-type ParsedQuestion = { question: string | undefined; state?: ClientState; previousQuestion?: string } | { error: string };
+type ParsedQuestion = { question: string | undefined; state?: ClientState; previousQuestion?: string; bodyStyle?: BodyStyle } | { error: string };
+
+/** The answer style the browser sends from the person's own display settings (lib/preferences/schema.ts dialStyle). */
+type BodyStyle = "standard" | "brief" | "stepByStep";
+const BODY_STYLES: BodyStyle[] = ["standard", "brief", "stepByStep"];
 
 /**
  * A missing question means the default summary. An empty one is a mistake to tell the person about.
@@ -180,12 +194,14 @@ function parseQuestion(body: string, ignoreState = false): ParsedQuestion {
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { error: MESSAGES.unreadable };
 
-  const { question, state: rawState, previousQuestion: rawPrevious } = parsed as { question?: unknown; state?: unknown; previousQuestion?: unknown };
+  const { question, state: rawState, previousQuestion: rawPrevious, style: rawStyle } = parsed as { question?: unknown; state?: unknown; previousQuestion?: unknown; style?: unknown };
+  // An unknown style is ignored rather than refused: it only ever affected wording.
+  const bodyStyle = BODY_STYLES.find((s) => s === rawStyle);
   if (rawPrevious !== undefined && rawPrevious !== null && (typeof rawPrevious !== "string" || rawPrevious.length > MAX_QUESTION_LENGTH)) return { error: MESSAGES.unreadable };
   const previousQuestion = typeof rawPrevious === "string" && rawPrevious.trim() !== "" ? rawPrevious.trim() : undefined;
   const state = rawState === undefined || ignoreState ? undefined : parseClientState(rawState, DEMO_TODAY);
   if (state === null) return { error: MESSAGES.badState };
-  const withState = { ...(state ? { state } : {}), ...(previousQuestion ? { previousQuestion } : {}) };
+  const withState = { ...(state ? { state } : {}), ...(previousQuestion ? { previousQuestion } : {}), ...(bodyStyle ? { bodyStyle } : {}) };
   if (question === undefined || question === null) return { question: undefined, ...withState };
   if (typeof question !== "string") return { error: MESSAGES.unreadable };
 
@@ -206,11 +222,25 @@ async function sessionFor(request: Request, store: SessionStore) {
   }
 }
 
+/** The display setting and the saved profile, combined. Either can only add a wording rule, never remove one. */
+export function combineStyle(bodyStyle: BodyStyle | undefined, profile: AnswerStyle | undefined): AnswerStyle {
+  const base = profile ?? NO_STYLE;
+  return { ...base, brief: base.brief || bodyStyle === "brief", stepByStep: base.stepByStep || bodyStyle === "stepByStep" };
+}
+
+const BILL_INTENTS = new Set(["statement_balance", "payment_planning"]);
+
+/** Adds the free-help sentence to an answer about the bill, for someone whose profile asks for it. Figure-free, so the guard's verdict stands. */
+export function withSignpost(reply: AskReply, signpost: boolean): AskReply {
+  if (!signpost || reply.signposted || isCantTell(reply.answer) || !BILL_INTENTS.has(reply.experience?.intent ?? "")) return reply;
+  return { ...reply, answer: `${reply.answer} ${SIGNPOST_SENTENCE}`, signposted: true };
+}
+
 /**
  * The POST /api/ask handler, apart from choosing the model. Every failure is a friendly JSON message.
  * The facts come from the session cookie when there is one this server signed, and only then from the body's `state`.
  */
-export async function handleAsk(request: Request, createModel: () => AskModel | null, store: SessionStore = sessionStore): Promise<Response> {
+export async function handleAsk(request: Request, createModel: () => AskModel | null, store: SessionStore = sessionStore, profiles: ProfileStore = profileStore): Promise<Response> {
   const headers = { "Cache-Control": "no-store" };
   try {
     const body = await readBody(request);
@@ -221,8 +251,14 @@ export async function handleAsk(request: Request, createModel: () => AskModel | 
     // Over the limit still gets an answer. It just doesn't spend a Gemini call.
     const model = allowModelCall(clientKey(request)) ? createModel() : null;
     const ctx = session ? contextFromSession(session) : contextFromState(parsed.state);
-    const answer = await answerQuestion(parsed.question, { model, ctx, previousQuestion: parsed.previousQuestion });
-    return Response.json(answer, { headers });
+    // The saved profile (only with consent) shapes wording and signposting. It never reaches the facts or the guard.
+    const profile = await profileContext(request, { profiles, sessions: store });
+    const adapt = profile?.result?.adaptations;
+    const style = combineStyle(parsed.bodyStyle, adapt?.style);
+    const answer = withSignpost(await answerQuestion(parsed.question, { model, ctx, previousQuestion: parsed.previousQuestion, style }), adapt?.signpost ?? false);
+    // `tailored` only when the profile really changed something: the model's wording, or the signpost.
+    const tailored = adapt && (answer.signposted || (answer.source === "model" && hasStyle(adapt.style)));
+    return Response.json(tailored ? { ...answer, tailored: true } : answer, { headers });
   } catch (error) {
     log("request failed", error);
     return Response.json({ error: MESSAGES.failed }, { status: 500, headers });

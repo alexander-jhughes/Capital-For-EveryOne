@@ -53,6 +53,7 @@ Delete any `.claude/worktrees` folder if you have one, or the test runner picks 
 | Dial panel | `components/voice/voice-mode.tsx`, `components/assistant/ask-dial.tsx`, `components/dial/dial-reply.tsx` |
 | Display preferences | `lib/preferences/*` (one store for text size, contrast, layout, voice settings) |
 | ML personalisation | `lib/personalisation/*`, `docs/ml-personalisation/*` (random forest, on device, needs consent) |
+| Profile model (person types) | `lib/profile/*`, `lib/server/profile*.ts`, `app/api/profile`, `docs/profile-model/*` (server-side, signed cookie, needs consent, tailors Home and Dial wording) |
 | Screens and styling | `app/(dial)/*`, `components/*`, `app/globals.css` |
 
 More detail: `docs/ARCHITECTURE.md`, `docs/AI-UI-CONTRACT.md`, `docs/INTEGRATION.md`.
