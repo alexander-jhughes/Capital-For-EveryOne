@@ -159,3 +159,9 @@ describe("interpret: helpers for the planner", () => {
     expect(isQuestionText(text)).toBe(expected);
   });
 });
+
+describe("identity questions get the help answer", () => {
+  it.each(["are you AI", "Are you an AI?", "who are you", "what are you", "what is Dial", "are you a bot", "introduce yourself"])("%s", (text) => {
+    expect(interpret(text)).toEqual({ kind: "control", command: "help" });
+  });
+});

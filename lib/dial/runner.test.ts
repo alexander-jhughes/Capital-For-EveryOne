@@ -129,6 +129,15 @@ describe("runSteps", () => {
     expect(d.navigate).not.toHaveBeenCalled();
   });
 
+  it("turns the backend's bare \"can't tell\" into a pointer to what Dial can answer, without inventing anything", async () => {
+    const cant = async (): Promise<AskOutcome> => ({ kind: "answer", response: { answer: "I can't tell that from your transactions.", evidenceIds: [], source: "model" }, experience: { template: "general", intent: null }, followUps: [] });
+    const out = await run([{ type: "ask", question: "what is the meaning of life" }], deps({ ask: cant }));
+    const text = spokenText(out.items);
+    expect(text).toMatch(/only answer questions about this card/);
+    expect(text).not.toMatch(/£\d/);
+    expect(out.items[0]).toMatchObject({ kind: "answer", evidenceIds: [] });
+  });
+
   it("says when there's nothing to answer yes to", async () => {
     const out = await run([{ type: "control", command: "yes" }]);
     expect(spokenText(out.items)).toMatch(/nothing waiting/);

@@ -10,6 +10,7 @@
 // - Only "ask" steps reach the network, and a newer turn cancels an older one (the caller passes the signal).
 import type { AskOutcome } from "../assistant/client";
 import type { ExperienceTemplate } from "../assistant/experience";
+import { isCantTell } from "../ai/guard";
 import { describeActions } from "../preferences/schema";
 import type { AskResponse, Fact, Mode } from "../types";
 import { ROUTE_INFO, stepHref, validateStep } from "./registry";
@@ -190,7 +191,12 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
         if (outcome.kind === "cancelled" || signal.aborted) return { ...out, cancelled: true };
         out.asked = step.question;
         if (outcome.kind === "answer") {
-          const { answer, evidenceIds, source } = outcome.response;
+          const { evidenceIds, source } = outcome.response;
+          // "I can't tell that from your transactions" is the safe answer to anything the account can't support. On its
+          // own it reads like a failure, so say what Dial can answer instead (same safety: no figure is invented).
+          const answer = isCantTell(outcome.response.answer)
+            ? "I can only answer questions about this card: your bill, spending, shops, subscriptions and payments. Try asking where your money goes, or if a subscription has gone up."
+            : outcome.response.answer;
           out.resolvedQuestion = outcome.resolvedQuestion;
           out.items.push({ kind: "answer", text: answer, evidenceIds, source, template: outcome.experience.template, followUps: outcome.followUps });
         } else if (outcome.kind === "invalid") {

@@ -66,7 +66,7 @@ interface SessionApi {
 const SessionContext = createContext<SessionApi | null>(null);
 
 const HELP =
-  "You can ask about your money, like where does most of my money go, or compare October with September. You can say take me to spending, show my groceries for October, or open my biggest purchase. You can change how the app looks, like make everything bigger or use fewer numbers. You can ask what if I spend 100 pounds less next month, or set a goal. Say undo, stop, or exit at any time.";
+  "I'm Dial, the assistant for this card. I use Gemini to understand you, but every figure comes from your account, checked on this device. You can ask about your money, like where does most of my money go, or compare October with September. You can say take me to spending or show my groceries for October. You can change how the app looks, like make everything bigger or use fewer numbers. You can ask what if I spend 100 pounds less next month, or set a goal. Say undo, stop, or exit at any time.";
 
 const sameUrl = (href: string) => `${window.location.pathname}${window.location.search}` === href;
 

@@ -38,7 +38,7 @@ function control(s: string, words: number): Interpretation | null {
   if (short && has(s, / (save it|save (that|this|them|my settings)|remember (that|this|it)|keep it for next time) /)) return { kind: "control", command: "save" };
   if (short && has(s, / (exit|close|leave( voice)?|goodbye|bye|that's all|i'm done|finish) /)) return { kind: "control", command: "exit" };
   // "Help" on its own, not "help me stay within my budget", which is a request in its own right.
-  if ((words <= 3 && has(s, / help /) && !has(s, ABOUT_MONEY)) || has(s, / (what can i say|what can you do|what can dial do|how does this work|what can i ask) /))
+  if ((words <= 3 && has(s, / help /) && !has(s, ABOUT_MONEY)) || has(s, / (what can i say|what can you do|what can dial do|how does this work|what can i ask|who are you|what are you|are you (an? )?(ai|bot|robot|human|real|chatbot|assistant)|are you chat ?gpt|what is dial|what's dial|what does dial do|introduce yourself) /))
     return { kind: "control", command: "help" };
   if (has(s, / read [a-z ]*(aloud|out loud) /) || has(s, /^ (please )?(can you )?read (this|the page|the screen|everything|it|all of it|this page)( to me)?( please)? $/))
     return { kind: "control", command: "readPage" };
