@@ -78,5 +78,5 @@ describe("the screens and Dial's backend agree", () => {
       }
     }
     expect(steps).toBe(32000);
-  });
+  }, 30_000); // 2,000 histories take ~6s when the whole suite runs in parallel
 });
