@@ -1,0 +1,227 @@
+{
+  "version": "hybrid-2.0.0+syn.g2.s20261108.mp60",
+  "file": "hybrid-2.0.0+syn.g2.s20261108.mp60.json",
+  "evaluation": "hybrid-2.0.0+syn.g2.s20261108.mp60.evaluation.json",
+  "dataset": {
+    "version": "syn.g2.s20261108",
+    "sourcePeriod": {
+      "from": null,
+      "to": null
+    },
+    "eligibleRecords": 0,
+    "eligibleSubjects": 0,
+    "syntheticRecords": 65396,
+    "excluded": {},
+    "criteria": {
+      "generator": "lib/recommender/synthetic.ts",
+      "generatorVersion": 2,
+      "seed": 20261108,
+      "people": 20000,
+      "split": "people 45/15/20/20 (fit/calibration/validation/test)"
+    },
+    "preprocessingVersion": "features-1c9e0d918742.profile-v1",
+    "contentSha256": "fcbc8c220699e8c766001601da9699a9c9ad300d11725a67be676eae1da2a676",
+    "createdAt": 1794106707104
+  },
+  "metrics": {
+    "synthetic": true,
+    "disclaimer": "All evaluation data is SYNTHETIC. The generator's relationships (which hidden trait drives which answer, setting, signal and benefit) were written by us. These results show that the pipeline works and that the models can recover structure we put into the data. They do NOT show that any model helps real people, and nothing here has been validated with real users.",
+    "evaluatedOn": "held-out synthetic test people (4000), reported once; model chosen on validation people only",
+    "headline": {
+      "ndcg3": 0.547562,
+      "precision3": 0.382208,
+      "recall3": 0.53668,
+      "falseRec3": 0.550458,
+      "benefit3": -0.128668,
+      "loggedAuc": 0.720162,
+      "rejectionAuc": 0.680876,
+      "ece": 0.01259,
+      "brier": 0.171557,
+      "minDisparityRatio": 0.902686,
+      "suggestionRate": 0.09625,
+      "offeredFalseRecRate": 0.128319,
+      "latencyP95Ms": 0.1216
+    },
+    "baselines": {
+      "popularity": {
+        "ndcg3": 0.391193,
+        "falseRec3": 0.655792,
+        "loggedAuc": 0.599381,
+        "ece": 0.00408
+      },
+      "rules": {
+        "ndcg3": 0.417405,
+        "falseRec3": 0.634875,
+        "loggedAuc": 0.64225,
+        "ece": 0.007587
+      },
+      "v1Forest": {
+        "ndcg3": 0.369216,
+        "falseRec3": 0.662875,
+        "loggedAuc": 0.621717,
+        "ece": 0.040443
+      }
+    },
+    "gates": {
+      "passed": true,
+      "evaluatedOn": "held-out synthetic test people (4000), evaluated once after the choice was made on validation",
+      "failed": [],
+      "gates": [
+        {
+          "id": "beats_popularity",
+          "passed": true,
+          "value": 0.547562,
+          "threshold": 0.391193
+        },
+        {
+          "id": "beats_v1",
+          "passed": true,
+          "value": 0.547562,
+          "threshold": 0.369216
+        },
+        {
+          "id": "false_rec_vs_active",
+          "passed": true,
+          "value": 0.128319,
+          "threshold": null
+        },
+        {
+          "id": "calibration",
+          "passed": true,
+          "value": 0.01259,
+          "threshold": 0.05
+        },
+        {
+          "id": "fairness",
+          "passed": true,
+          "value": 0.902686,
+          "threshold": 0.8
+        },
+        {
+          "id": "size",
+          "passed": true,
+          "value": 53643,
+          "threshold": 2000000
+        },
+        {
+          "id": "latency",
+          "passed": true,
+          "value": 0.1216,
+          "threshold": 10
+        }
+      ]
+    },
+    "monitoringReference": {
+      "inputs": {
+        "snapshots": 20987,
+        "answers": {
+          "creditFamiliarity": {
+            "new": 3380,
+            "some": 4624,
+            "confident": 3330,
+            "skipped": 9653
+          },
+          "budgetingFamiliarity": {
+            "new": 3020,
+            "some": 4888,
+            "confident": 2990,
+            "skipped": 10089
+          },
+          "appConfidence": {
+            "low": 2794,
+            "medium": 5261,
+            "high": 2645,
+            "skipped": 10287
+          },
+          "detailLevel": {
+            "keyFacts": 3192,
+            "some": 3926,
+            "everything": 3176,
+            "skipped": 10693
+          },
+          "inputMode": {
+            "voice": 2254,
+            "touch": 4232,
+            "either": 3658,
+            "skipped": 10843
+          },
+          "explanationFormat": {
+            "visual": 3192,
+            "written": 3221,
+            "both": 3514,
+            "skipped": 11060
+          },
+          "answerLength": {
+            "short": 5910,
+            "detailed": 3780,
+            "skipped": 11297
+          },
+          "guidance": {
+            "guided": 4274,
+            "independent": 5417,
+            "skipped": 11296
+          },
+          "screenComplexity": {
+            "minimal": 3010,
+            "balanced": 3872,
+            "everything": 2625,
+            "skipped": 11480
+          },
+          "priority": {
+            "payments": 2468,
+            "spending": 2443,
+            "budget": 2445,
+            "transactions": 2289,
+            "skipped": 11342
+          },
+          "screenReader": {
+            "yes": 369,
+            "no": 9171,
+            "skipped": 11447
+          }
+        },
+        "activeItems": {
+          "view.simple": 8960,
+          "view.detailed": 12027,
+          "density.calm": 2968,
+          "textSize.125": 2356,
+          "textSize.150": 416,
+          "contrast.high": 1818,
+          "spacing.roomy": 2206,
+          "motion.reduced": 2018,
+          "targets.large": 2128,
+          "explanations.stepByStep": 2937,
+          "voiceFirst.on": 2120,
+          "homeFocus.bill": 1705,
+          "homeFocus.chart": 1557,
+          "homeFocus.budget": 1329,
+          "homeFocus.recent": 1169,
+          "homeFocus.insights": 173
+        },
+        "view": {
+          "simple": 8960,
+          "complex": 12027
+        },
+        "explicit": {
+          "view": 7360,
+          "density": 3675,
+          "textSize": 3043,
+          "contrast": 2460,
+          "spacing": 3006,
+          "motion": 2601,
+          "targets": 2798,
+          "explanations": 3661,
+          "voiceFirst": 2760,
+          "homeFocus": 6494
+        }
+      },
+      "keptRate": 0.366054,
+      "keptRateByPosition": [
+        0.375566,
+        0.355059,
+        0.343005,
+        0.439153
+      ]
+    }
+  }
+}
