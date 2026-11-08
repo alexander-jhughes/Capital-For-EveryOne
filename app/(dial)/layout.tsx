@@ -6,12 +6,14 @@ import { ModeSwitch } from "@/components/mode-switch";
 import { MoreButton } from "@/components/more-menu";
 import { StylePreviewProvider } from "@/components/personalise/style-preview";
 import { PersonalisationProvider } from "@/lib/personalisation/provider";
+import { ProfileProvider } from "@/lib/profile/provider";
 import { Wordmark } from "@/components/wordmark";
 
 /** App shell. Phone: header, page, bottom tabs. Desktop (1024px+): side rail, wide page. One component tree for both. */
 export default function DialLayout({ children }: { children: React.ReactNode }) {
   return (
     <PersonalisationProvider>
+      <ProfileProvider>
       <GoalsProvider>
       <DialSessionProvider>
       <AskDialProvider>
@@ -50,6 +52,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
       </AskDialProvider>
       </DialSessionProvider>
       </GoalsProvider>
+      </ProfileProvider>
     </PersonalisationProvider>
   );
 }

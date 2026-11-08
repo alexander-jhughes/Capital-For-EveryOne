@@ -21,6 +21,7 @@ import { MAX_GOAL_AMOUNT, MAX_GOALS, withSaved } from "@/lib/goals/store";
 import { weeklyTrend } from "@/lib/insights";
 import { utilisationPercent } from "@/lib/learn/credit";
 import { usePreferences } from "@/lib/preferences/provider";
+import { useCountUse } from "@/lib/profile/provider";
 import { parsePounds } from "@/lib/spend-pause/settings";
 import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
@@ -567,6 +568,7 @@ function useCelebrations(progress: GoalProgress[]) {
 }
 
 export function GoalsScreen() {
+  useCountUse("goals");
   const { goals, progress, remove, saved, ready, full } = useGoals();
   const announce = useAnnounce();
   const [adding, setAdding] = useState(false);

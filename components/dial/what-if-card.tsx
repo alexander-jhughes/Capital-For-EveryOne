@@ -3,6 +3,7 @@
 import { ArrowRight, Calculator } from "lucide-react";
 import Link from "next/link";
 import { useId } from "react";
+import { useCountUse } from "@/lib/profile/provider";
 import type { WhatIfResult } from "@/lib/dial/types";
 import { ESTIMATE_LINE } from "@/lib/dial/what-if";
 
@@ -30,6 +31,7 @@ const linkFor = (r: WhatIfResult) =>
   r.scenario.kind === "pay_monthly" ? { href: "/account/pay", label: "Go to Pay" } : { href: "/account/goals", label: "Set a goal" };
 
 export function WhatIfCard({ result, onNavigate }: { result: WhatIfResult; onNavigate?: () => void }) {
+  useCountUse("whatIf");
   const titleId = useId();
   const link = linkFor(result);
   const blocked = result.outcome === "not_possible" || result.outcome === "not_enough_data";
