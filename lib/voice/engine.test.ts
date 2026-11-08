@@ -721,3 +721,221 @@ describe("continuous listening stops when it's quiet", () => {
     engine.stop();
   });
 });
+
+describe("pausing and resuming", () => {
+  it("pause keeps the words on screen and delivers nothing, however long it lasts", () => {
+    const { engine, log, clock, rec, listen } = setup();
+    listen("tap");
+    rec().hear(["How much", "final"], " did I spend");
+    engine.pause();
+    expect(engine.state).toBe("paused");
+    // The interim words are kept too: the person saw them, and that session is gone.
+    expect(log.snapshots.at(-1)).toEqual({ utteranceId: 1, finalText: "How much did I spend", interimText: "", text: "How much did I spend", corrected: false });
+    expect(clock.timers.size).toBe(0);
+    clock.tick(600_000);
+    expect(log.utterances).toEqual([]);
+    expect(log.errors).toEqual([]);
+    expect(engine.state).toBe("paused");
+  });
+
+  it("pause releases the microphone, and nothing restarts while paused", () => {
+    const { engine, log, clock, rec, world, listen } = setup();
+    listen("continuous");
+    rec().hear(["how much", "final"]);
+    const first = rec();
+    engine.pause();
+    expect(first.aborted).toBe(true);
+    expect(world.open).toBe(0);
+    // The browser's queued events from that session arrive late: ignored, no back-off restart.
+    first.hear(["late words", "final"]);
+    first.end();
+    clock.tick(60_000);
+    expect(world.recs).toHaveLength(1);
+    expect(log.snapshots.at(-1)?.text).toBe("how much");
+
+    // Paused between a browser end and its restart: the restart doesn't happen either.
+    const other = setup();
+    other.listen("continuous");
+    other.rec().hear(["what's my", "final"]);
+    other.rec().end();
+    other.engine.pause();
+    other.clock.tick(60_000);
+    expect(other.world.recs).toHaveLength(1);
+    expect(other.engine.state).toBe("paused");
+    expect(other.log.snapshots.at(-1)?.text).toBe("what's my");
+  });
+
+  it("resume carries on the same utterance in a new session", () => {
+    const { engine, log, clock, rec, world, listen } = setup();
+    listen("tap");
+    rec().hear(["How much did I spend", "final"]);
+    const id = log.snapshots.at(-1)!.utteranceId;
+    engine.pause();
+    clock.tick(30_000);
+    engine.resume();
+    expect(world.recs).toHaveLength(2);
+    expect(engine.state).toBe("transcribing");
+    rec().begin();
+    rec().hear(["on groceries", "final"]);
+    expect(log.snapshots.at(-1)).toMatchObject({ utteranceId: id, text: "How much did I spend on groceries" });
+    clock.tick(1100);
+    expect(log.utterances).toEqual([{ utteranceId: id, text: "How much did I spend on groceries", corrected: false, origin: "voice" }]);
+    expect(engine.state).toBe("idle"); // tap: one utterance, then the microphone closes
+    expect(world.maxOpen).toBe(1);
+  });
+
+  it("after resume with nothing more said, the kept words go after the longer pause", () => {
+    const { engine, log, clock, rec, listen } = setup();
+    listen("continuous");
+    rec().hear(["what's my balance", "final"]);
+    engine.pause();
+    engine.resume();
+    rec().begin();
+    clock.tick(1999);
+    expect(log.utterances).toEqual([]);
+    clock.tick(1);
+    expect(texts(log.utterances)).toEqual(["what's my balance"]);
+    expect(engine.state).toBe("listening");
+  });
+
+  it("resume with no words yet goes back to listening", () => {
+    const { engine, rec, world, listen } = setup();
+    listen("continuous");
+    engine.pause();
+    expect(engine.state).toBe("paused");
+    expect(world.open).toBe(0);
+    engine.resume();
+    rec().begin();
+    expect(engine.state).toBe("listening");
+    expect(world.recs).toHaveLength(2);
+  });
+
+  it("stop() while paused delivers the kept words", () => {
+    const { engine, log, clock, rec, listen } = setup();
+    listen("tap");
+    rec().hear(["how much", "final"], " do I owe");
+    engine.pause();
+    engine.stop();
+    expect(log.utterances).toEqual([{ utteranceId: 1, text: "how much do I owe", corrected: false, origin: "voice" }]);
+    expect(engine.state).toBe("idle");
+    clock.tick(10_000);
+    expect(log.utterances).toHaveLength(1);
+  });
+
+  it("cancel() while paused drops the words; dispose() delivers nothing", () => {
+    const { engine, log, clock, rec, listen } = setup();
+    listen("tap");
+    rec().hear(["how much do I owe", "final"]);
+    engine.pause();
+    engine.cancel();
+    clock.tick(10_000);
+    expect(log.utterances).toEqual([]);
+    expect(log.snapshots.at(-1)).toEqual({ utteranceId: 1, finalText: "", interimText: "", text: "", corrected: false });
+    expect(engine.state).toBe("idle");
+
+    const other = setup();
+    other.listen("continuous");
+    other.rec().hear(["how much do I owe", "final"]);
+    other.engine.pause();
+    other.engine.dispose();
+    other.clock.tick(10_000);
+    expect(other.log.utterances).toEqual([]);
+  });
+
+  it("the page going to the background while paused stays paused and keeps the words", () => {
+    const { engine, log, clock, rec, listen, doc } = setup();
+    listen("continuous");
+    rec().hear(["how much", "final"]);
+    engine.pause();
+    doc.hide();
+    expect(engine.state).toBe("paused");
+    expect(log.interrupts).toEqual([]);
+    clock.tick(10_000);
+    expect(log.states).not.toContain("interrupted");
+    engine.stop();
+    expect(texts(log.utterances)).toEqual(["how much"]);
+  });
+
+  it("Dial speaking or working doesn't leave paused, and nothing barges in", () => {
+    const { engine, log, rec, listen } = setup();
+    listen("continuous");
+    rec().hear(["how much", "final"]);
+    engine.pause();
+    engine.setSpeaking("Your bill is £120.");
+    engine.setProcessing(true);
+    expect(engine.state).toBe("paused");
+    engine.setSpeaking(null);
+    engine.setProcessing(false);
+    expect(engine.state).toBe("paused");
+    expect(log.interrupts).toEqual([]);
+  });
+
+  it("pause does nothing in push-to-talk, when idle or while waiting for the microphone", () => {
+    const hold = setup();
+    hold.listen("hold");
+    hold.rec().hear(["how much", "final"]);
+    hold.engine.pause();
+    expect(hold.engine.state).toBe("transcribing");
+    expect(hold.rec().aborted).toBe(false);
+    hold.engine.stop();
+    expect(texts(hold.log.utterances)).toEqual(["how much"]);
+
+    const idle = setup();
+    idle.engine.pause();
+    expect(idle.engine.state).toBe("idle");
+    expect(idle.log.states).toEqual([]);
+    idle.engine.start("tap");
+    idle.engine.pause();
+    expect(idle.engine.state).toBe("requesting-permission");
+    expect(idle.rec().aborted).toBe(false);
+  });
+
+  it("resume does nothing unless paused", () => {
+    const { engine, world, listen } = setup();
+    engine.resume();
+    expect(world.recs).toHaveLength(0);
+    expect(engine.state).toBe("idle");
+    listen("continuous");
+    engine.resume();
+    expect(world.recs).toHaveLength(1);
+    engine.pause();
+    engine.resume();
+    engine.resume();
+    expect(world.recs).toHaveLength(2);
+    expect(world.maxOpen).toBe(1);
+  });
+
+  it("start() while paused resumes the same utterance in the given mode", () => {
+    const { engine, log, clock, rec, world, listen } = setup();
+    listen("tap");
+    rec().hear(["how much did I spend", "final"]);
+    engine.pause();
+    engine.start("hold");
+    expect(world.recs).toHaveLength(2);
+    expect(engine.state).toBe("transcribing");
+    rec().begin();
+    rec().hear(["on groceries", "final"]);
+    clock.tick(5000); // push-to-talk ends on release, not on silence
+    expect(log.utterances).toEqual([]);
+    engine.stop();
+    expect(log.utterances.map((u) => [u.utteranceId, u.text])).toEqual([[1, "how much did I spend on groceries"]]);
+  });
+
+  it("delivers each utterance at most once across pauses and resumes", () => {
+    const { engine, log, clock, rec, listen } = setup();
+    listen("continuous");
+    rec().hear(["how much do I owe", "final"]);
+    engine.pause();
+    engine.resume();
+    rec().begin();
+    clock.tick(2000);
+    engine.pause();
+    engine.resume();
+    engine.pause();
+    engine.stop();
+    engine.stop();
+    engine.cancel();
+    clock.tick(10_000);
+    expect(log.utterances.map((u) => [u.utteranceId, u.text])).toEqual([[1, "how much do I owe"]]);
+  });
+});

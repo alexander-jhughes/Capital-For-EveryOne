@@ -39,6 +39,7 @@ const STATE_WORDS: Record<VoiceState, string> = {
   "requesting-permission": "waiting for the browser to start the microphone",
   listening: "listening",
   transcribing: "hearing words",
+  paused: "paused (microphone off)",
   processing: "working on what you said",
   responding: "speaking",
   interrupted: "stopped",

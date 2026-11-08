@@ -21,6 +21,8 @@ export type VoiceState =
   | "listening"
   /** Words are arriving (interim text visible). */
   | "transcribing"
+  /** The person paused listening. The microphone is closed and nothing is captured; the words so far stay on screen and are not sent. */
+  | "paused"
   /** The utterance was handed over and Dial is working on it. */
   | "processing"
   /** Dial is showing or speaking the answer. */
@@ -101,6 +103,10 @@ export interface VoiceEngine {
   stop(): void;
   /** Stop listening and drop the pending utterance. Nothing is submitted. */
   cancel(): void;
+  /** Close the microphone but keep this utterance's words, unsent. Only while listening or transcribing in tap or continuous mode; otherwise does nothing. */
+  pause(): void;
+  /** Reopen the microphone in the mode used before the pause and carry on the same utterance. Only while paused. */
+  resume(): void;
   /** Tell the engine what Dial is saying (null when quiet), for echo filtering and barge-in. */
   setSpeaking(text: string | null): void;
   /** The caller finished handling an utterance (answer shown or failed). */

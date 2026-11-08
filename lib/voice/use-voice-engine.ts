@@ -30,6 +30,8 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   start(override?: { allowCloud?: boolean }): void;
   stop(): void;
   cancel(): void;
+  pause(): void;
+  resume(): void;
   setSpeaking(text: string | null): void;
   setProcessing(active: boolean): void;
 } {
@@ -110,6 +112,8 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
 
   const stop = useCallback(() => engine.current?.stop(), []);
   const cancel = useCallback(() => engine.current?.cancel(), []);
+  const pause = useCallback(() => engine.current?.pause(), []);
+  const resume = useCallback(() => engine.current?.resume(), []);
   const setSpeaking = useCallback(
     (text: string | null) => {
       speaking.current = text;
@@ -127,5 +131,5 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
     [settle],
   );
 
-  return { supported, backend, state, snapshot, error, start, stop, cancel, setSpeaking, setProcessing };
+  return { supported, backend, state, snapshot, error, start, stop, cancel, pause, resume, setSpeaking, setProcessing };
 }
