@@ -14,6 +14,7 @@ import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
 import { afterAnswer, withRoute } from "@/lib/dial/context";
 import { plan } from "@/lib/dial/plan";
+import { smallTalk } from "@/lib/dial/small-talk";
 import { runSteps, type PendingOffer, type ReplyItem } from "@/lib/dial/runner";
 import { DIAL_ROUTES, EMPTY_CONTEXT, type DialContext, type DialRoute } from "@/lib/dial/types";
 import { buildVisual } from "@/lib/dial/visuals";
@@ -162,9 +163,12 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       // so common commands never cost a call. Its answer is a list of steps that pass the same validation as ours.
       let steps = planned.steps;
       let usedModel = false;
+      // Greetings and thanks are answered here, with no network call.
+      const chat = smallTalk(input);
+      if (chat && steps.every((s) => s.type === "unsupported")) steps = [{ type: "local", text: chat }];
       const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
       const corrected = !!opts.replaces || splitCorrection(input) !== null;
-      const working: DialTurn = { id, input, understood: gaveUp ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
+      const working: DialTurn = { id, input, understood: gaveUp || chat ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
@@ -173,6 +177,11 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         if (fromModel === "busy") steps = [{ type: "unsupported", say: "Gemini is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
         else if (fromModel && fromModel.length > 0) {
           steps = fromModel;
+          usedModel = true;
+        } else if (fromModel) {
+          // Gemini read it and found no app action in it. It may still be a question about the card in words the rules
+          // didn't catch, so let the answer path try (it can say it can't tell, and says what Dial can answer).
+          steps = [{ type: "ask", question: input.slice(0, 300), previousQuestion: context.current.lastQuestion ?? undefined }];
           usedModel = true;
         }
       }
