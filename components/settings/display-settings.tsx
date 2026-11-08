@@ -141,6 +141,27 @@ export function DisplaySettings() {
           options={[{ value: "touch", label: "Tapping first" }, { value: "voice", label: "Talking first" }]}
           onChange={(v) => change([{ type: "voiceFirst", value: v === "voice" }])}
         />
+        <Segmented
+          legend="Answer length"
+          hint="Short answers put the key fact first and use fewer numbers."
+          value={prefs.answerStyle}
+          options={[{ value: "standard", label: "Standard" }, { value: "brief", label: "Short" }]}
+          onChange={set("answerStyle")}
+        />
+        <Segmented
+          legend="How Dial listens"
+          hint="Dial never listens in the background. Keep listening stays on until you stop it or leave Voice Mode."
+          value={prefs.listenMode}
+          options={[{ value: "tap", label: "One question per tap" }, { value: "hold", label: "While I hold the button" }, { value: "continuous", label: "Keep listening" }]}
+          onChange={set("listenMode")}
+        />
+        <Segmented
+          legend="Turning your voice into text"
+          hint="On this device only keeps your voice on this device, where your browser supports it. Your browser's online speech service sends your voice to the browser maker (for example Google in Chrome). Typing always works."
+          value={prefs.speechInput}
+          options={[{ value: "unset", label: "Ask me first" }, { value: "on-device", label: "On this device only" }, { value: "cloud", label: "Allow online service" }, { value: "typing", label: "I'll type" }]}
+          onChange={set("speechInput")}
+        />
         <Link href="/account/personalise" className={`${pill} self-start bg-accent text-accent-foreground`}>
           Get a suggested style
         </Link>

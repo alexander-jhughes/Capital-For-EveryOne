@@ -3,28 +3,16 @@
 import { Mic, Square, Volume2, X } from "lucide-react";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
-import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@/lib/assistant/client";
-import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
-import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
-import { paymentReply } from "@/lib/payments/dial";
-import { spendPauseReply, type SpendPauseReply } from "@/lib/spend-pause/dial";
-import { liveState } from "@/lib/assistant/live-state";
+import { SUGGESTED_QUESTIONS } from "@/lib/assistant/client";
+import { spokenText } from "@/lib/dial/runner";
 import { usePersonalisation } from "@/lib/personalisation/provider";
-import { useAccount } from "@/lib/state/account-context";
-import type { AskResponse, Fact } from "@/lib/types";
+import { DialReply } from "../dial/dial-reply";
+import { useDialSession } from "../dial/session";
+import { useDialVoice } from "../dial/use-dial-voice";
+import { useSpeaker } from "../dial/use-speaker";
+import { VoiceConsent } from "../dial/voice-consent";
 import { VoiceMode } from "../voice/voice-mode";
 import { DialMark } from "../wordmark";
-import type { ExperienceTemplate } from "@/lib/assistant/experience";
-import { ExperienceCard } from "../experience/templates";
-import { EvidenceList } from "./evidence-list";
-
-type Answer =
-  | { status: "idle" }
-  | { status: "loading"; question: string }
-  | { status: "answered"; question: string; text: string; evidenceIds: string[]; source: AskResponse["source"]; template: ExperienceTemplate; action?: SpendPauseReply["action"] }
-  | { status: "offline"; question: string; facts: Fact[]; evidenceIds: string[] }
-  | { status: "invalid"; question: string; message: string }
-  | { status: "unavailable"; question: string };
 
 const AskContext = createContext<{ openAsk: (question?: string) => void; openVoice: () => void }>({ openAsk: () => {}, openVoice: () => {} });
 export const useAskDial = () => useContext(AskContext);
@@ -32,71 +20,53 @@ export const useAskDial = () => useContext(AskContext);
 const button = "inline-flex min-h-(--target-min) items-center justify-center gap-2 rounded-full px-[1.1em] font-bold disabled:opacity-60";
 const secondary = `${button} hairline bg-card`;
 
+/** The demo questions first, then a few that show what Dial 2.0 can do on the device. */
+const TRY = [...SUGGESTED_QUESTIONS.map((q) => q.question), "Where does most of my money go?", "Compare October with September", "Show my groceries spending for October"];
+
 /** Ask Dial: one bottom sheet for the whole app. `openAsk(question)` opens it and asks straight away. */
 export function AskDialProvider({ children }: { children: React.ReactNode }) {
-  const { account, transactions, settings, payments, spendPauseActivity } = useAccount();
   // Only used to count "opened Voice Mode" for optional display suggestions. No personalisation data goes to /api/ask.
   const { noteVoiceOpened } = usePersonalisation();
+  const session = useDialSession();
+  const speaker = useSpeaker();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const requestId = useRef(0);
-  const lastQuestion = useRef<string | undefined>(undefined);
-  const recognition = useRef<Recognition | null>(null);
   const inputId = useId();
-
-  const [answer, setAnswer] = useState<Answer>({ status: "idle" });
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [voice, setVoice] = useState<{ Rec: ReturnType<typeof getRecognition>; speak: boolean }>({ Rec: null, speak: false });
-  const [listening, setListening] = useState(false);
-  const [voiceMessage, setVoiceMessage] = useState("");
-  const [speaking, setSpeaking] = useState(false);
-
-  // Feature-detect after mount so server and first client render agree.
-  useEffect(() => setVoice({ Rec: getRecognition(window), speak: canSpeak(window) }), []);
-
-  const stopSpeaking = useCallback(() => {
-    if (canSpeak(window)) window.speechSynthesis.cancel();
-    setSpeaking(false);
-  }, []);
+  const [asked, setAsked] = useState("");
 
   const ask = useCallback(
-    async (question: string) => {
+    async (question: string, replaces?: string) => {
       const q = question.trim();
-      if (!q) {
-        setAnswer({ status: "invalid", question: "", message: "Please type a question first." });
-        return;
-      }
-      stopSpeaking();
-      const id = ++requestId.current;
-      // Spend Pause and payment questions are answered here from live state, so they work with or without the backend.
-      const paid = paymentReply(q, { account, transactions, payments });
-      const local = spendPauseReply(q, settings, spendPauseActivity) ?? (paid ? { text: paid, action: undefined } : null);
-      if (local) {
-        setAnswer({ status: "answered", question: q, text: local.text, evidenceIds: [], source: "template", template: "general", action: local.action });
-        return;
-      }
-      setAnswer({ status: "loading", question: q });
-      const outcome = await askDial(q, { state: liveState(transactions, settings), previousQuestion: lastQuestion.current });
-      lastQuestion.current = q;
-      if (id !== requestId.current) return; // a newer question replaced this one
-      if (outcome.kind === "answer") {
-        const { answer: text, evidenceIds, source } = outcome.response;
-        setAnswer({ status: "answered", question: q, text, evidenceIds, source, template: outcome.experience.template });
-      } else if (outcome.kind === "invalid") {
-        setAnswer({ status: "invalid", question: q, message: outcome.message });
-      } else {
-        const intent = intentForQuestion(q);
-        setAnswer(
-          intent
-            ? { status: "offline", question: q, ...offlineFacts(intent, { account, txns: transactions, settings, today: DEMO_TODAY, now: DEMO_NOW }) }
-            : { status: "unavailable", question: q },
-        );
-      }
+      if (!q) return;
+      speaker.cancel();
+      setAsked(q);
+      await session.submit(q, { replaces });
     },
-    [account, transactions, settings, payments, spendPauseActivity, stopSpeaking],
+    [session, speaker],
   );
+
+  // The sheet's microphone uses the same engine as Voice Mode: one question per tap, shown live, editable.
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  const mic = useDialVoice({
+    listenMode: "tap",
+    onUtterance: (u) => {
+      setInput(u.text);
+      void askRef.current(u.text, u.replaces);
+    },
+  });
+
+  const close = () => dialogRef.current?.close();
+
+  useEffect(() => {
+    if (!sheetOpen || voiceOpen) return;
+    session.setSurface({ onNavigated: close, onExit: close, onStop: () => (speaker.cancel(), mic.cancel()) });
+    return () => session.setSurface(null);
+  }, [sheetOpen, voiceOpen, session, speaker, mic]);
 
   const openAsk = useCallback(
     (question?: string) => {
@@ -104,6 +74,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
       if (dialog && !dialog.open) {
         returnFocus.current = document.activeElement as HTMLElement | null;
         dialog.showModal();
+        setSheetOpen(true);
         titleRef.current?.focus();
       }
       if (question) {
@@ -114,52 +85,14 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
     [ask],
   );
 
-  function close() {
-    dialogRef.current?.close();
-  }
-
-  // Runs for the Close button, Escape and backdrop clicks alike.
+  // Runs for the Close button, Escape and backdrop clicks alike. A preview left showing is withdrawn.
   function onClosed() {
-    stopSpeaking();
-    recognition.current?.stop();
+    speaker.cancel();
+    mic.cancel();
+    setSheetOpen(false);
+    if (session.offer && !voiceOpen) session.decide(false);
     returnFocus.current?.focus?.();
   }
-
-  function startListening() {
-    if (!voice.Rec) return;
-    stopSpeaking();
-    setVoiceMessage("");
-    const r = new voice.Rec();
-    r.lang = "en-GB";
-    r.interimResults = false;
-    r.maxAlternatives = 1;
-    r.onresult = (e) => {
-      const text = e.results[0]?.[0]?.transcript ?? "";
-      setInput(text);
-      void ask(text);
-    };
-    r.onerror = (e) => setVoiceMessage(voiceErrorMessage(e.error));
-    r.onend = () => setListening(false);
-    recognition.current = r;
-    setListening(true);
-    r.start();
-  }
-
-  function readAloud(text: string) {
-    if (speaking) return stopSpeaking();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "en-GB";
-    const v = pickVoice(window.speechSynthesis.getVoices());
-    if (v) u.voice = v;
-    u.onend = () => setSpeaking(false);
-    u.onerror = () => setSpeaking(false);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-    setSpeaking(true);
-  }
-
-  const spoken =
-    answer.status === "answered" ? answer.text : answer.status === "offline" ? answer.facts.map((f) => `${f.label}: ${f.value}.`).join(" ") : "";
 
   const openVoice = () => {
     noteVoiceOpened(); // a count only, and only with suggestions turned on; nothing said is recorded
@@ -167,17 +100,15 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
     setVoiceOpen(true);
   };
 
+  const turn = session.turn;
+  const spoken = turn?.status === "done" ? spokenText(turn.items) : "";
+  const listening = mic.state === "listening" || mic.state === "transcribing" || mic.state === "requesting-permission";
+
   return (
     <AskContext.Provider value={{ openAsk, openVoice }}>
       {children}
       <VoiceMode open={voiceOpen} onClose={() => setVoiceOpen(false)} />
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={`${inputId}-title`}
-        className="ask-sheet"
-        onClose={onClosed}
-        onClick={(e) => e.target === dialogRef.current && close()}
-      >
+      <dialog ref={dialogRef} aria-labelledby={`${inputId}-title`} className="ask-sheet" onClose={onClosed} onClick={(e) => e.target === dialogRef.current && close()}>
         <div className="flex max-h-[85dvh] flex-col gap-(--space) overflow-y-auto p-(--space) pb-[max(var(--space),env(safe-area-inset-bottom))]">
           <div className="flex flex-wrap items-center justify-between gap-(--space)">
             <h2 id={`${inputId}-title`} ref={titleRef} tabIndex={-1} className="flex items-center gap-2 text-xl font-bold">
@@ -194,62 +125,23 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
             Talk to Dial
           </button>
           <p className="-mt-1 text-sm text-muted-foreground">
-            Ask about your money, or ask Dial to change how the app looks. Or change it yourself in{" "}
+            Ask about your money, ask Dial to take you somewhere, or ask it to change how the app looks. Or change it yourself in{" "}
             <Link href="/account/settings" onClick={close} className="font-bold text-primary underline underline-offset-4">
               Display and voice
             </Link>
             .
           </p>
 
-          <div aria-live="polite" aria-busy={answer.status === "loading"} className="flex flex-col gap-(--space)">
-            {answer.status !== "idle" && answer.question && (
-              <p className="text-sm text-muted-foreground">You asked: {answer.question}</p>
-            )}
-            {answer.status === "loading" && (
-              <div>
-                <p>Checking your account...</p>
-                <div aria-hidden className="mt-2 flex flex-col gap-2">
-                  <span className="h-4 w-11/12 animate-pulse rounded bg-muted" />
-                  <span className="h-4 w-2/3 animate-pulse rounded bg-muted" />
-                </div>
-              </div>
-            )}
-            {answer.status === "answered" && <p className="text-lg font-bold">{answer.text}</p>}
-            {answer.status === "answered" && answer.action && (
-              <Link href={answer.action.href} onClick={close} className="inline-flex min-h-(--target-min) items-center self-start font-bold text-primary underline underline-offset-4">
-                {answer.action.label}
-              </Link>
-            )}
-            {answer.status === "answered" && <ExperienceCard template={answer.template} evidenceIds={answer.evidenceIds} onNavigate={close} />}
-            {answer.status === "offline" && (
-              <div className="flex flex-col gap-1">
-                <p className="text-sm">Dial&apos;s assistant isn&apos;t available right now. This is what your account shows:</p>
-                <dl>
-                  {answer.facts.map((f) => (
-                    <div key={f.key}>
-                      <dt className="text-sm text-muted-foreground">{f.label}</dt>
-                      <dd className="text-lg font-bold">{f.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            )}
-            {answer.status === "invalid" && <p className="font-bold">{answer.message}</p>}
-            {answer.status === "unavailable" && (
-              <p className="font-bold">
-                Dial&apos;s assistant isn&apos;t available right now, so it can&apos;t answer typed questions. The suggested questions below still work.
-              </p>
-            )}
-            {spoken && voice.speak && (
-              <button type="button" onClick={() => readAloud(spoken)} className={`${secondary} self-start`} aria-pressed={speaking}>
-                {speaking ? <Square aria-hidden className="size-[1em]" /> : <Volume2 aria-hidden className="size-[1em]" />}
-                {speaking ? "Stop reading" : "Read aloud"}
+          {mic.consent && <VoiceConsent tone="light" onChoose={mic.consent.choose} onDismiss={mic.consent.dismiss} />}
+
+          <div aria-live="polite" aria-busy={turn?.status === "working"} className="flex flex-col gap-(--space)">
+            {turn && asked && <p className="text-sm text-muted-foreground">You asked: {turn.input}</p>}
+            {turn && <DialReply turn={turn} tone="light" offer={session.offer} onDecide={session.decide} onFollowUp={(q) => void ask(q)} onNavigate={close} />}
+            {spoken && speaker.supported && (
+              <button type="button" onClick={() => (speaker.speaking ? speaker.cancel() : speaker.speak(spoken))} className={`${secondary} self-start`} aria-pressed={speaker.speaking}>
+                {speaker.speaking ? <Square aria-hidden className="size-[1em]" /> : <Volume2 aria-hidden className="size-[1em]" />}
+                {speaker.speaking ? "Stop reading" : "Read aloud"}
               </button>
-            )}
-            {/* A financial card already shows its evidence and next step; the plain list is for general answers. */}
-            {((answer.status === "answered" && answer.template === "general") || answer.status === "offline") && <EvidenceList ids={answer.evidenceIds} onNavigate={close} />}
-            {answer.status === "answered" && process.env.NODE_ENV === "development" && (
-              <p className="self-start rounded border border-input px-2 text-sm">dev: source {answer.source}</p>
             )}
           </div>
 
@@ -258,13 +150,9 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
               Try asking
             </h3>
             <ul className="flex flex-col gap-2">
-              {SUGGESTED_QUESTIONS.map(({ question }) => (
+              {TRY.map((question) => (
                 <li key={question}>
-                  <button
-                    type="button"
-                    onClick={() => void ask(question)}
-                    className="min-h-(--target-min) w-full rounded-xl hairline bg-background px-4 py-2 text-left font-bold hover:bg-accent"
-                  >
+                  <button type="button" onClick={() => void ask(question)} className="min-h-(--target-min) w-full rounded-xl hairline bg-background px-4 py-2 text-left font-bold hover:bg-accent">
                     {question}
                   </button>
                 </li>
@@ -285,31 +173,32 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
             <div className="flex flex-wrap gap-2">
               <input
                 id={inputId}
-                value={input}
+                value={listening && mic.snapshot ? mic.snapshot.text : input}
                 onChange={(e) => setInput(e.target.value)}
+                readOnly={listening}
                 maxLength={300}
                 autoComplete="off"
                 className="min-h-(--target-min) min-w-0 flex-1 basis-48 rounded-xl hairline bg-background px-3"
               />
-              {voice.Rec && (
-                <button
-                  type="button"
-                  onClick={listening ? () => recognition.current?.stop() : startListening}
-                  aria-pressed={listening}
-                  className={secondary}
-                >
+              {mic.supported && mic.speechInput !== "typing" && (
+                <button type="button" onClick={listening ? mic.stop : mic.start} aria-pressed={listening} className={secondary}>
                   {listening ? <Square aria-hidden className="size-[1em]" /> : <Mic aria-hidden className="size-[1em]" />}
                   {listening ? "Stop listening" : "Speak"}
                 </button>
               )}
-              <button type="submit" disabled={answer.status === "loading"} className={`${button} border-primary bg-primary text-primary-foreground`}>
+              <button type="submit" disabled={turn?.status === "working"} className={`${button} border-primary bg-primary text-primary-foreground`}>
                 Ask
               </button>
             </div>
             <p role="status" className="text-sm empty:hidden">
-              {listening ? "Listening..." : voiceMessage}
+              {listening ? "Listening... you can correct yourself, for example: food, actually groceries." : (mic.error?.message ?? "")}
             </p>
           </form>
+          {process.env.NODE_ENV === "development" && (
+            <p className="text-sm text-muted-foreground">
+              dev: {session.stats.turns} turns, {session.stats.local} handled on the device, {session.stats.network} backend calls, {session.stats.reused} reused
+            </p>
+          )}
         </div>
       </dialog>
     </AskContext.Provider>

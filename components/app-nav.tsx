@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartColumn, CreditCard, House, PauseCircle, SlidersHorizontal } from "lucide-react";
+import { ChartColumn, CreditCard, Goal, House, PauseCircle, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePreferences } from "@/lib/preferences/provider";
@@ -67,6 +67,12 @@ export function AppNav() {
           </button>
         </li>
         {LINKS.slice(2).map(link)}
+        <li className="hidden lg:block">
+          <Link href="/account/goals" aria-current={path === "/account/goals" ? "page" : undefined} className={tab}>
+            <Goal aria-hidden className="size-[1.35em] shrink-0" />
+            Goals
+          </Link>
+        </li>
         <li className="hidden lg:block">
           <Link href="/account/settings" aria-current={path === "/account/settings" ? "page" : undefined} className={tab}>
             <SlidersHorizontal aria-hidden className="size-[1.35em] shrink-0" />

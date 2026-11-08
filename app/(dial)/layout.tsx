@@ -1,5 +1,7 @@
 import { AppNav } from "@/components/app-nav";
 import { AskDialProvider } from "@/components/assistant/ask-dial";
+import { DialSessionProvider } from "@/components/dial/session";
+import { GoalsProvider } from "@/lib/goals/provider";
 import { ModeSwitch } from "@/components/mode-switch";
 import { StylePreviewProvider } from "@/components/personalise/style-preview";
 import { PersonalisationProvider } from "@/lib/personalisation/provider";
@@ -9,6 +11,8 @@ import { Wordmark } from "@/components/wordmark";
 export default function DialLayout({ children }: { children: React.ReactNode }) {
   return (
     <PersonalisationProvider>
+      <GoalsProvider>
+      <DialSessionProvider>
       <AskDialProvider>
         <StylePreviewProvider>
           <div className="flex min-h-dvh flex-col lg:flex-row">
@@ -37,6 +41,8 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
           </div>
         </StylePreviewProvider>
       </AskDialProvider>
+      </DialSessionProvider>
+      </GoalsProvider>
     </PersonalisationProvider>
   );
 }
