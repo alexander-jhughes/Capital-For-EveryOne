@@ -221,7 +221,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
           )
         )}
 
-        {mic.consent && <VoiceConsent tone="voice" onChoose={mic.consent.choose} onDismiss={mic.consent.dismiss} />}
+        {mic.consent && <VoiceConsent tone="voice" notice={mic.consent.notice} onChoose={mic.consent.choose} onDismiss={mic.consent.dismiss} />}
 
         <section aria-live="polite" aria-busy={turn?.status === "working"} className="flex flex-col gap-3 rounded-2xl bg-[#1c2640] p-(--space)">
           <h3 className="text-sm font-bold text-[#9dd8f0]">{session.offer ? "Dial suggests" : "Dial"}</h3>
@@ -247,7 +247,7 @@ export function VoiceMode({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         )}
 
-        {mic.error && (
+        {mic.error && !mic.consent && (
           <p role="alert" className="rounded-xl bg-[#3a1f2a] p-3 text-[#ffb4ad]">
             {mic.error.message}
           </p>

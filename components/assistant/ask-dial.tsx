@@ -132,7 +132,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
             .
           </p>
 
-          {mic.consent && <VoiceConsent tone="light" onChoose={mic.consent.choose} onDismiss={mic.consent.dismiss} />}
+          {mic.consent && <VoiceConsent tone="light" notice={mic.consent.notice} onChoose={mic.consent.choose} onDismiss={mic.consent.dismiss} />}
 
           <div aria-live="polite" aria-busy={turn?.status === "working"} className="flex flex-col gap-(--space)">
             {turn && asked && <p className="text-sm text-muted-foreground">You asked: {turn.input}</p>}
