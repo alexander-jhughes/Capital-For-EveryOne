@@ -21,16 +21,20 @@ export const normaliseUtterance = (s: string) =>
     .toLowerCase()
     .replace(/[’‘]/g, "'")
     .replace(/[^a-z0-9' ]+/g, " ")
+    .replace(/\bactually\b/g, " ") // "what did I actually spend" asks the same thing as "what did I spend"
     .replace(/\s+/g, " ")
     .trim()} `;
 
 /** Words that make "reset" or "help" about money or a goal, not about the app. */
 const ABOUT_MONEY = / (budget|goal|goals|spend pause|payment|payments|bill|card|spending|save|saving) /;
 
+/** "Stop reading long explanations" is about how Dial answers: a setting, not a stop. */
+const NO_LONG_ANSWERS = / (stop|no more|skip|without) ([a-z]+ ){0,3}long (answers?|explanations?|replies|responses) /;
+
 /** Short replies only: "no" inside a longer sentence is not a "no". */
 function control(s: string, words: number): Interpretation | null {
   const short = words <= 5;
-  if (has(s, / (stop (talking|speaking|reading)|be quiet|quiet please|shush|stop it) /) || (words <= 2 && has(s, / stop /))) return { kind: "control", command: "stop" };
+  if ((has(s, / (stop (talking|speaking|reading)|be quiet|quiet please|shush|stop it) /) && !has(s, NO_LONG_ANSWERS)) || (words <= 2 && has(s, / stop /))) return { kind: "control", command: "stop" };
   if (short && has(s, / (undo|undo that|put it back|change it back|go back to how it was|revert) /)) return { kind: "control", command: "undo" };
   // "Reset my budget" is about Spend Pause, not the look of the app.
   if ((has(s, / (reset|start again|default (look|settings)|original look) /) && !has(s, ABOUT_MONEY)) || has(s, / (everything|it all|all of it|it) back to (normal|default|the default|how it was) /) || has(s, /^ (go )?back to normal $/))
@@ -49,9 +53,13 @@ function control(s: string, words: number): Interpretation | null {
   return null;
 }
 
+/** "More detail in your answers" is about how Dial answers (answerStyle), not Detailed view. */
+const ABOUT_ANSWERS = / (answers?|replies|responses|explanations?) /;
+
 function mode(s: string): Interpretation | null {
   if (has(s, / (simple (view|mode|version)|switch to simple|go simple) /)) return { kind: "mode", mode: "simple" };
-  if (has(s, / (detailed (view|mode|version)|switch to detailed|(show|give) me (more|all the|the full) (detail|details|information|info)|more detail|everything in detail) /))
+  if (has(s, / (detailed (view|mode|version)|switch to detailed) /)) return { kind: "mode", mode: "complex" };
+  if (!has(s, ABOUT_ANSWERS) && has(s, / ((show|give) me (more|all the|the full) (detail|details|information|info)|more detail|everything in detail) /))
     return { kind: "mode", mode: "complex" };
   return null;
 }
@@ -121,9 +129,14 @@ function ui(s: string, textSize: TextSize): UiAction[] {
   if (easier && !actions.some((a) => a.type === "explanations")) actions.push({ type: "explanations", value: "stepByStep" });
   // Fewer numbers means shorter answers (the key figure first) and a calmer home screen.
   const fewerNumbers = has(s, / (fewer|less|not so many|not as many|too many) (numbers|figures|digits) /);
-  if (fewerNumbers || has(s, / (shorter|brief|briefer|short|quicker|concise) (answers?|explanations?|replies|responses)|keep (it|things|them|answers|your answers|my answers|explanations|your explanations) (short|shorter|brief)|be (brief|briefer|concise|quicker)|fewer words|less wordy|too wordy|too long winded|get to the point /))
+  if (fewerNumbers || has(s, NO_LONG_ANSWERS) || has(s, / (shorter|brief|briefer|short|quicker|concise) (answers?|explanations?|replies|responses)|keep (it|things|them|answers|your answers|my answers|explanations|your explanations) (short|shorter|brief)|be (brief|briefer|concise|quicker)|fewer words|less detail in (your |the |my )?(answers|replies|explanations)|less wordy|too wordy|too long winded|get to the point /))
     actions.push({ type: "answerStyle", value: "brief" });
-  else if (has(s, / (longer|fuller|full|more detailed|normal|standard) (answers|explanations|replies) /)) actions.push({ type: "answerStyle", value: "standard" });
+  else if (has(s, / ((longer|fuller|full|more detailed|normal|standard) (answers|explanations|replies)|more detail in (your |the |my )?(answers|explanations|replies)) /))
+    actions.push({ type: "answerStyle", value: "standard" });
+  // How the microphone listens. Each still previews first and needs "Keep it", like every other setting.
+  if (has(s, / (keep listening|listen continuously|keep the (mic|microphone) on|hands free) /)) actions.push({ type: "listenMode", value: "continuous" });
+  else if (has(s, / (push to talk|hold to talk|listen (only )?while i hold) /)) actions.push({ type: "listenMode", value: "hold" });
+  else if (has(s, / (one question at a time|tap to talk|listen once|stop listening automatically) /)) actions.push({ type: "listenMode", value: "tap" });
   if (has(s, / (rather talk|prefer talking|prefer to talk|talk instead|voice first|use my voice|speak instead|talking first) /)) actions.push({ type: "voiceFirst", value: true });
   else if (has(s, / (rather tap|prefer tapping|tapping first|stop voice first) /)) actions.push({ type: "voiceFirst", value: false });
 
