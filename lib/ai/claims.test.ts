@@ -86,7 +86,7 @@ describe("more wrong replies", () => {
 });
 
 describe("right replies stay accepted", () => {
-  // Real Gemini replies from the live samples, including the two the sentence-level check wrongly threw away.
+  // Real Groq replies from the live samples, including the two the sentence-level check wrongly threw away.
   it.each<[AnswerIntent, string, string?, string?]>([
     ["merchant_refunds", "Your £19.99 Amazon refund on Sunday 8 November is pending and has not arrived yet, while your £14.99 Amazon refund on Thursday 29 October is completed and has arrived.", "", "Amazon"],
     ["merchant_refunds", "Your £19.99 Amazon refund on Sunday 8 November is pending and has not arrived yet, but your £14.99 Amazon refund on Thursday 29 October has arrived.", "", "Amazon"],
@@ -295,7 +295,7 @@ describe("API protection", () => {
     expect(blocked.status).toBe(200);
     expect(await blocked.json()).toMatchObject({ source: "template", evidenceIds: ["t051", "t052"] });
     expect(phrase).toHaveBeenCalledTimes(60);
-    expect(warn.mock.calls.flat().join(" ")).toContain("Gemini call limit reached");
+    expect(warn.mock.calls.flat().join(" ")).toContain("Groq call limit reached");
     vi.restoreAllMocks();
   });
 

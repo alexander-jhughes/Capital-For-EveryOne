@@ -1,4 +1,4 @@
-import { ApiError } from "@google/genai";
+import { GroqApiError } from "./groq";
 import { describe, expect, it, vi } from "vitest";
 import { interpretCommand, type CommandModel } from "./command-model";
 import { isRateLimit, modelChain, withModelFallback } from "./model-chain";
@@ -6,14 +6,14 @@ import { answerQuestion } from "./ask";
 import { seedContext } from "./facts";
 import type { AskModel } from "./model";
 
-const api = (status: number) => new ApiError({ message: `status ${status}`, status });
+const api = (status: number) => new GroqApiError(status);
 
 describe("modelChain", () => {
   it("is the main model, then the backups, without repeats", () => {
-    expect(modelChain({})).toEqual(["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]);
-    expect(modelChain({ GEMINI_MODEL: "gemini-3.1-flash-lite" })).toEqual(["gemini-3.1-flash-lite", "gemini-3-flash-preview"]);
-    expect(modelChain({ GEMINI_MODEL: "a", GEMINI_FALLBACK_MODELS: "b, c ,a" })).toEqual(["a", "b", "c"]);
-    expect(modelChain({ GEMINI_MODEL: "a", GEMINI_FALLBACK_MODELS: "" })).toEqual(["a"]);
+    expect(modelChain({})).toEqual(["llama-3.3-70b-versatile", "openai/gpt-oss-20b", "llama-3.1-8b-instant"]);
+    expect(modelChain({ GROQ_MODEL: "openai/gpt-oss-20b" })).toEqual(["openai/gpt-oss-20b", "llama-3.1-8b-instant"]);
+    expect(modelChain({ GROQ_MODEL: "a", GROQ_FALLBACK_MODELS: "b, c ,a" })).toEqual(["a", "b", "c"]);
+    expect(modelChain({ GROQ_MODEL: "a", GROQ_FALLBACK_MODELS: "" })).toEqual(["a"]);
   });
 });
 
@@ -47,8 +47,8 @@ describe("withModelFallback", () => {
   });
 });
 
-describe("telling the person when Gemini is busy", () => {
-  it("answers from the account checks and says Gemini was busy", async () => {
+describe("telling the person when Groq is busy", () => {
+  it("answers from the account checks and says Groq was busy", async () => {
     const busy: AskModel = { classify: vi.fn(async () => null), phrase: vi.fn(async () => { throw api(429); }) };
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const r = await answerQuestion("Has Netflix gone up in price lately?", { model: busy, ctx: seedContext() });
@@ -58,7 +58,7 @@ describe("telling the person when Gemini is busy", () => {
     expect(r.answer).toContain("£12.99");
   });
 
-  it("does not claim busy when Gemini simply answered", async () => {
+  it("does not claim busy when Groq simply answered", async () => {
     const ok: AskModel = { classify: vi.fn(async () => null), phrase: vi.fn(async () => "Yes, Netflix went up from £10.99 to £12.99, which is £2.00 more, charged on Wednesday 4 November.") };
     const r = await answerQuestion("Has Netflix gone up in price lately?", { model: ok, ctx: seedContext() });
     expect(r.source).toBe("model");

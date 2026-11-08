@@ -1,6 +1,6 @@
 // Runs 10 questions against a running server and prints each answer, source and evidence.
 // Usage: npm run dev, then in another terminal: npm run test:ask
-// Set ASK_URL to test somewhere else. Question 9 is too vague to answer, and 10 is one the data can't answer. With GEMINI_API_KEY set, this makes real API calls.
+// Set ASK_URL to test somewhere else. Question 9 is too vague to answer, and 10 is one the data can't answer. With GROQ_API_KEY set, this makes real API calls.
 
 const url = process.env.ASK_URL ?? "http://localhost:3000/api/ask";
 

@@ -1,6 +1,6 @@
-// Gemini is replaced by a fake model here: these tests check what happens to whatever it says, not Gemini itself.
+// Groq is replaced by a fake model here: these tests check what happens to whatever it says, not Groq itself.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearCommandCache, askGeminiForSteps } from "../assistant/command-client";
+import { clearCommandCache, askModelForSteps } from "../assistant/command-client";
 import { handleDial, parseBody } from "./command-handler";
 import { interpretCommand, toSteps, toUiAction, type CommandModel, type ScreenInfo } from "./command-model";
 import { resetRateLimit } from "./rate-limit";
@@ -8,7 +8,7 @@ import { resetRateLimit } from "./rate-limit";
 const screen: ScreenInfo = { route: "/account", mode: "complex", textSize: 100 };
 const fake = (reply: unknown): CommandModel => ({ interpret: vi.fn(async () => reply as never) });
 
-describe("toSteps: Gemini's flat actions become validated steps", () => {
+describe("toSteps: Groq's flat actions become validated steps", () => {
   it("opens real pages, with Home focus and Spending filters", () => {
     expect(toSteps([{ do: "go", page: "/account/spending", category: "Groceries", month: "2026-10" }], screen)).toEqual([
       { type: "navigate", to: "/account/spending", filters: { category: "Groceries", month: "2026-10" } },
@@ -112,7 +112,7 @@ describe("POST /api/dial", () => {
     expect((await bad.json()).error).toMatch(/couldn't read/);
   });
 
-  it("stops spending Gemini calls over the per-minute limit, without failing the request", async () => {
+  it("stops spending Groq calls over the per-minute limit, without failing the request", async () => {
     process.env.ASK_MODEL_CALLS_PER_MINUTE = "2";
     const model = fake({ actions: [] });
     for (let i = 0; i < 4; i++) await post({ text: `hi ${i}`, screen }, model);
@@ -128,20 +128,20 @@ describe("browser client", () => {
 
   it("keeps only steps that pass validation, and asks once for the same words on the same screen", async () => {
     const fetchImpl = reply({ source: "model", steps: [{ type: "navigate", to: "/account/spending" }, { type: "eval", code: "alert(1)" }, { type: "navigate", to: "/nope" }] });
-    const a = await askGeminiForSteps("Show my spending", screen, { fetchImpl });
-    const b = await askGeminiForSteps("show my spending!", screen, { fetchImpl });
+    const a = await askModelForSteps("Show my spending", screen, { fetchImpl });
+    const b = await askModelForSteps("show my spending!", screen, { fetchImpl });
     expect(a).toEqual([{ type: "navigate", to: "/account/spending" }]);
     expect(b).toEqual(a);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("treats errors, a missing key and a cancelled request as no answer, and keeps none of them", async () => {
-    expect(await askGeminiForSteps("a", screen, { fetchImpl: reply({}, false) })).toBeNull();
-    expect(await askGeminiForSteps("b", screen, { fetchImpl: reply({ source: "none", steps: [] }) })).toBeNull();
+    expect(await askModelForSteps("a", screen, { fetchImpl: reply({}, false) })).toBeNull();
+    expect(await askModelForSteps("b", screen, { fetchImpl: reply({ source: "none", steps: [] }) })).toBeNull();
     const c = new AbortController();
     c.abort();
-    expect(await askGeminiForSteps("c", screen, { fetchImpl: reply({ source: "model", steps: [] }), signal: c.signal })).toBeNull();
+    expect(await askModelForSteps("c", screen, { fetchImpl: reply({ source: "model", steps: [] }), signal: c.signal })).toBeNull();
     const retry = reply({ source: "model", steps: [{ type: "back" }] });
-    expect(await askGeminiForSteps("a", screen, { fetchImpl: retry })).toEqual([{ type: "back" }]);
+    expect(await askModelForSteps("a", screen, { fetchImpl: retry })).toEqual([{ type: "back" }]);
   });
 });

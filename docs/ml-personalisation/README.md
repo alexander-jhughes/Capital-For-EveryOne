@@ -75,7 +75,7 @@ Why these two and not "larger text": a setting is only ever offered while it is 
 - it keeps working offline and with no API key, like the rest of the app;
 - there's no new endpoint to secure or rate-limit.
 
-**Separate from Gemini.** The Gemini assistant (`lib/ai`, `POST /api/ask`) answers financial questions. This engine only predicts how the interface should look. The two share no code, data or endpoints: the engine never sees questions or answers, and the assistant never sees personalisation data.
+**Separate from Groq.** The Groq assistant (`lib/ai`, `POST /api/ask`) answers financial questions. This engine only predicts how the interface should look. The two share no code, data or endpoints: the engine never sees questions or answers, and the assistant never sees personalisation data.
 
 ## Why a random forest
 

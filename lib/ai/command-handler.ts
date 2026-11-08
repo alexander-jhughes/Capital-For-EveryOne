@@ -1,4 +1,4 @@
-// The POST /api/dial handler (kept out of the route file, which may only export HTTP methods): turns a request the on-device rules couldn't read into validated Dial steps, using Gemini.
+// The POST /api/dial handler (kept out of the route file, which may only export HTTP methods): turns a request the on-device rules couldn't read into validated Dial steps, using Groq.
 // Body: { text: string, screen: { route?: string, mode: "simple" | "complex", textSize: 100 | 125 | 150 | 200 } }
 // Reply: { steps: DialStep[], source: "model" | "none" | "failed" }. Money questions still go to /api/ask.
 import { interpretCommand, MAX_COMMAND_LENGTH, type CommandModel, type ScreenInfo } from "./command-model";
@@ -24,7 +24,7 @@ export async function handleDial(request: Request, createModel: () => CommandMod
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return Response.json({ error: "That was too long." }, { status: 400, headers });
     const body = parseBody(await request.json().catch(() => null));
     if (!body) return Response.json({ error: "Sorry, I couldn't read that." }, { status: 400, headers });
-    // Over the limit still replies; it just doesn't spend a Gemini call.
+    // Over the limit still replies; it just doesn't spend a Groq call.
     const model = allowModelCall(clientKey(request)) ? createModel() : null;
     return Response.json(await interpretCommand(body.text, body.screen, model), { headers });
   } catch {

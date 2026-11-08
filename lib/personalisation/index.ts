@@ -1,6 +1,6 @@
 // Public entry point for the frontend. Lazy-loads the trained model so it never weighs on the first page load,
 // and degrades to status "unavailable" (the app carries on as before) if the model can't be loaded.
-// Separate from the Gemini assistant (lib/ai, /api/ask): this predicts presentation settings only, on the device.
+// Separate from the Groq assistant (lib/ai, /api/ask): this predicts presentation settings only, on the device.
 import { isValidModel, type ModelArtifact } from "./artifact";
 import type { PersonalisationInput } from "./features";
 import { type InferenceOptions, type PersonalisationResult, recommendPreferences } from "./infer";

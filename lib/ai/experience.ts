@@ -18,7 +18,7 @@ export interface Experience {
   periodLabel?: string;
 }
 
-/** `modelBusy`: Gemini was out of quota (HTTP 429) on every model tried, so this wording came from the account checks. */
+/** `modelBusy`: Groq was out of quota (HTTP 429) on every model tried, so this wording came from the account checks. */
 export type OrchestratedResponse = AskResponse & { experience?: Experience; modelBusy?: boolean };
 
 /**

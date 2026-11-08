@@ -1,4 +1,4 @@
-// A light limit on Gemini calls per visitor, in memory. It protects the quota during a demo, and counts each server
+// A light limit on Groq calls per visitor, in memory. It protects the quota during a demo, and counts each server
 // instance separately, so it is not a security control. Going over it never blocks an answer: see handleAsk.
 
 const WINDOW_MS = 60_000;
@@ -25,7 +25,7 @@ export function allowModelCall(key: string, now = Date.now()): boolean {
     // Say so once a minute, so a run of template answers is never a mystery.
     if (now - (warned.get(key) ?? 0) >= WINDOW_MS) {
       warned.set(key, now);
-      console.warn(`[ask] Gemini call limit reached (${maxCalls()} a minute), so answers are coming from templates for now`);
+      console.warn(`[ask] Groq call limit reached (${maxCalls()} a minute), so answers are coming from templates for now`);
     }
     return false;
   }

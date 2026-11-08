@@ -1,5 +1,5 @@
-// The only file that talks to the Gemini API. Server-side only. Gemini classifies and phrases; it never calculates.
-import { ApiError, GoogleGenAI, ThinkingLevel, type GenerateContentResponse } from "@google/genai";
+// The answer model. Server-side only. Groq classifies and phrases; it never calculates.
+import { describeError as describeGroqError, groqConfig, groqJson } from "./groq";
 import type { Intent } from "../types";
 import type { AnswerFactSet } from "./answer-facts";
 import { CONFIDENCE_LEVELS, type Confidence } from "./experience";
@@ -7,10 +7,10 @@ import { INTENTS } from "./facts";
 import { modelChain, withModelFallback } from "./model-chain";
 import { CANT_TELL } from "./guard";
 
-const CLASSIFY_MAX_TOKENS = 1024;
-const PHRASE_MAX_TOKENS = 2048;
+const CLASSIFY_MAX_TOKENS = 256;
+const PHRASE_MAX_TOKENS = 400;
 
-/** Gemini's reading of a question. `intent` is null when it fits no category. */
+/** The model's reading of a question. `intent` is null when it fits no category. */
 export interface ModelInterpretation {
   intent: Intent | "subscription_list" | "account_overview" | null;
   confidence: Confidence;
@@ -77,20 +77,6 @@ const PHRASE_SCHEMA = {
 /** Control characters and angle brackets could otherwise break out of the question tags. */
 const sanitise = (question: string) => question.replace(/[\p{Cc}<>]/gu, " ").trim();
 
-/**
- * The named string in a structured reply, or null when the reply isn't a complete, well-formed answer.
- * A blocked or cut-off reply is not an answer, whatever text came with it.
- */
-function readObject(response: GenerateContentResponse): Record<string, unknown> | null {
-  if (response.candidates?.[0]?.finishReason !== "STOP") return null;
-  try {
-    const parsed: unknown = JSON.parse(response.text ?? "");
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Only an exact label and confidence count. Any other field in the reply is ignored, so it can't reach the UI. */
 export function parseInterpretation(reply: Record<string, unknown> | null): ModelInterpretation | null {
   const confidence = CONFIDENCE_LEVELS.find((level) => level === reply?.confidence);
@@ -101,63 +87,41 @@ export function parseInterpretation(reply: Record<string, unknown> | null): Mode
 }
 
 /** A short reason safe to log. Never the error itself, which could carry request details. */
-export function describeError(error: unknown): string {
-  if (error instanceof ApiError) return `API status ${error.status}`;
-  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) return "timeout";
-  if (error instanceof TypeError) return "connection failed";
-  return "unexpected failure";
-}
+export const describeError = describeGroqError;
 
 let warnedNoKey = false;
 
 /** The model this server is set up to use. Never includes the key itself. */
 export function modelStatus() {
-  return { gemini: process.env.GEMINI_API_KEY?.trim() ? "configured" : "not configured", model: modelChain()[0], backups: modelChain().slice(1) };
+  return { ai: "groq", groq: groqConfig() ? "configured" : "not configured", model: modelChain()[0], backups: modelChain().slice(1) };
 }
 
 /** A model client, or null with no key: the endpoint then answers from the cache and templates. */
 export function createModel(): AskModel | null {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
+  const config = groqConfig();
+  if (!config) {
     // Without this, every answer quietly comes from templates and nothing says why.
-    if (!warnedNoKey) console.warn("[ask] GEMINI_API_KEY is not set, so Dial is answering from templates only");
+    if (!warnedNoKey) console.warn("[ask] GROQ_API_KEY is not set, so Dial is answering from templates only");
     warnedNoKey = true;
     return null;
   }
-
-  // One attempt only: the SDK's default of 5 would run straight past the time limit.
-  const client = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
   const models = modelChain();
 
   // Each model has its own quota: a rate limit on the first moves on to the next instead of a fixed sentence.
-  const send = (systemInstruction: string, contents: string, schema: object, maxOutputTokens: number, timeoutMs: number) => {
-    const abortSignal = AbortSignal.timeout(timeoutMs);
-    return withModelFallback(models, (model) =>
-      client.models.generateContent({
-        model,
-        contents,
-        config: {
-          systemInstruction,
-          maxOutputTokens,
-          responseMimeType: "application/json",
-          responseJsonSchema: schema,
-          // Thinking counts toward maxOutputTokens and adds delay, and these tasks don't need it.
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          abortSignal,
-        },
-      }),
-    );
+  // One deadline covers the whole chain, so trying a backup never runs past the time limit.
+  const send = (system: string, user: string, schema: object, maxTokens: number, timeoutMs: number) => {
+    const signal = AbortSignal.timeout(timeoutMs);
+    return withModelFallback(models, (model) => groqJson(config, { model, system, user, schema, maxTokens, signal }));
   };
 
   return {
     async classify(question, timeoutMs) {
-      const response = await send(CLASSIFY_SYSTEM, `<question>${sanitise(question)}</question>`, CLASSIFY_SCHEMA, CLASSIFY_MAX_TOKENS, timeoutMs);
-      return parseInterpretation(readObject(response));
+      return parseInterpretation(await send(CLASSIFY_SYSTEM, `<question>${sanitise(question)}</question>`, CLASSIFY_SCHEMA, CLASSIFY_MAX_TOKENS, timeoutMs));
     },
     async phrase(question, facts, timeoutMs) {
       const lines = facts.facts.map((f) => `- ${f.label}: ${f.value}`).join("\n");
-      const contents = `<facts>\n${lines}\n</facts>\n<question>${sanitise(question)}</question>`;
-      const answer = readObject(await send(PHRASE_SYSTEM, contents, PHRASE_SCHEMA, PHRASE_MAX_TOKENS, timeoutMs))?.answer;
+      const user = `<facts>\n${lines}\n</facts>\n<question>${sanitise(question)}</question>`;
+      const answer = (await send(PHRASE_SYSTEM, user, PHRASE_SCHEMA, PHRASE_MAX_TOKENS, timeoutMs))?.answer;
       return typeof answer === "string" ? answer.trim() : null;
     },
   };

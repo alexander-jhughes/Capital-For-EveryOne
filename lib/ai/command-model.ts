@@ -1,14 +1,14 @@
-// Gemini as a translator for requests the on-device rules don't recognise: "make this easier on my eyes", "I want to
+// Groq as a translator for requests the on-device rules don't recognise: "make this easier on my eyes", "I want to
 // see where my food money went in October", "take me to wherever I change how big things are".
 //
-// Gemini only ever returns a small, flat description of what the person wants. It never sees the account, never
+// Groq only ever returns a small, flat description of what the person wants. It never sees the account, never
 // returns code, and never chooses a figure. This file turns that description into DialSteps (the same typed steps the
 // on-device planner produces) and every step is checked by validateStep() before it leaves the server, and again in the
-// browser before it runs. Gemini cannot pay, change Spend Pause, or reach any page that isn't in the registry.
+// browser before it runs. Groq cannot pay, change Spend Pause, or reach any page that isn't in the registry.
 //
 // Token use: one short call, only when the on-device rules gave up. The prompt carries the person's words (max 300
 // characters), the current page, the view and the text size. No transactions, balances, names or conversation history.
-import { ApiError, GoogleGenAI, ThinkingLevel, type GenerateContentResponse } from "@google/genai";
+import { describeError, groqConfig, groqJson } from "./groq";
 import { stepTextSize, TEXT_SIZES, WIDGETS, type TextSize, type UiAction, type WidgetId } from "../preferences/schema";
 import { SPENDING_CATEGORIES } from "../dial/spending-filters";
 import { validateStep } from "../dial/registry";
@@ -26,7 +26,7 @@ export interface ScreenInfo {
   textSize: TextSize;
 }
 
-/** What Gemini returns: flat and small, so the structured-output schema stays simple and cheap. */
+/** What Groq returns: flat and small, so the structured-output schema stays simple and cheap. */
 export interface RawAction {
   do?: unknown;
   page?: unknown;
@@ -157,7 +157,7 @@ export function toUiAction(setting: string, value: string, textSize: TextSize): 
 }
 
 /**
- * Gemini's flat actions as validated DialSteps. Anything unrecognised is dropped, never repaired or guessed, and every
+ * Groq's flat actions as validated DialSteps. Anything unrecognised is dropped, never repaired or guessed, and every
  * step passes the same validateStep() the browser uses. At most MAX_ACTIONS steps; display changes are merged into one
  * preview so the person is asked once.
  */
@@ -213,19 +213,11 @@ export function toSteps(raw: unknown, screen: ScreenInfo): DialStep[] {
   return steps.slice(0, MAX_ACTIONS);
 }
 
-/** A short reason safe to log. Never the error itself, which could carry request details. */
-function describe(error: unknown): string {
-  if (error instanceof ApiError) return `API status ${error.status}`;
-  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) return "timeout";
-  if (error instanceof TypeError) return "connection failed";
-  return "unexpected failure";
-}
-
 export interface CommandResult {
   steps: DialStep[];
-  /** "model": Gemini was asked. "none": no key or over the limit, so nothing was sent. "failed": it was asked and gave nothing usable. */
+  /** "model": Groq was asked. "none": no key or over the limit, so nothing was sent. "failed": it was asked and gave nothing usable. */
   source: "model" | "none" | "failed";
-  /** With "failed": true when Gemini was out of quota (HTTP 429) on every model tried, so the person can be told. */
+  /** With "failed": true when Groq was out of quota (HTTP 429) on every model tried, so the person can be told. */
   busy?: boolean;
 }
 
@@ -236,50 +228,29 @@ export async function interpretCommand(text: string, screen: ScreenInfo, model: 
     const reply = await model.interpret(sanitise(text), screen, timeoutMs);
     return { steps: toSteps(reply?.actions, screen), source: "model" };
   } catch (error) {
-    console.warn(`[dial] interpret failed: ${describe(error)}`);
+    console.warn(`[dial] interpret failed: ${describeError(error)}`);
     return { steps: [], source: "failed", ...(isRateLimit(error) ? { busy: true } : {}) };
   }
 }
 
 let warnedNoKey = false;
 
-/** A Gemini-backed CommandModel, or null with no key. Uses the same key and model settings as /api/ask. */
+/** A Groq-backed CommandModel, or null with no key. Uses the same key and model settings as /api/ask. */
 export function createCommandModel(): CommandModel | null {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    if (!warnedNoKey) console.warn("[dial] GEMINI_API_KEY is not set, so only on-device commands work");
+  const config = groqConfig();
+  if (!config) {
+    if (!warnedNoKey) console.warn("[dial] GROQ_API_KEY is not set, so only on-device commands work");
     warnedNoKey = true;
     return null;
   }
-  const client = new GoogleGenAI({ apiKey, httpOptions: { retryOptions: { attempts: 1 } } });
   const models = modelChain();
   return {
     async interpret(text, screen, timeoutMs) {
-      const contents = `<screen page="${screen.route ?? "unknown"}" view="${screen.mode}" textSize="${screen.textSize}"/>\n<request>${text}</request>`;
-      const abortSignal = AbortSignal.timeout(timeoutMs);
+      const user = `<screen page="${screen.route ?? "unknown"}" view="${screen.mode}" textSize="${screen.textSize}"/>\n<request>${text}</request>`;
+      const signal = AbortSignal.timeout(timeoutMs);
       // Each model has its own quota: a rate limit on the first moves on to the next.
-      const response: GenerateContentResponse = await withModelFallback(models, (model) =>
-        client.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction: SYSTEM,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
-            responseMimeType: "application/json",
-            responseJsonSchema: SCHEMA,
-            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-            abortSignal,
-          },
-        }),
-      );
-      // A blocked or cut-off reply is not an answer, whatever text came with it.
-      if (response.candidates?.[0]?.finishReason !== "STOP") return null;
-      try {
-        const parsed: unknown = JSON.parse(response.text ?? "");
-        return typeof parsed === "object" && parsed !== null ? (parsed as { actions?: unknown }) : null;
-      } catch {
-        return null;
-      }
+      const reply = await withModelFallback(models, (model) => groqJson(config, { model, system: SYSTEM, user, schema: SCHEMA, maxTokens: MAX_OUTPUT_TOKENS, signal }));
+      return reply as { actions?: unknown } | null;
     },
   };
 }

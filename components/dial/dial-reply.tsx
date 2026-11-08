@@ -154,9 +154,9 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
           )}
           <p className={`text-xs ${voice ? "text-[#aab4c8]" : "text-muted-foreground"}`}>
             {item.source === "model"
-              ? "Worded by Gemini. Every figure was checked against your account."
+              ? "Worded by Groq. Every figure was checked against your account."
               : item.modelBusy
-                ? "Gemini is busy right now (its request limit), so this is the verified answer from your account."
+                ? "Groq is busy right now (its request limit), so this is the verified answer from your account."
                 : "From your account checks."}
           </p>
         </div>
