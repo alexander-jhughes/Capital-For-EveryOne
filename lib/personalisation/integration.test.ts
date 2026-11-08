@@ -1,427 +1,307 @@
-// Integration tests for ML suggestions on the adaptive-UI branch: the real preferences schema, the real
-// "Make it yours" rules, the trained model, and the controller, driven through the same event sequence
-// PreferencesProvider emits (kept / undo / reset; previews emit nothing).
+// Integration tests for Dial personalisation v2 in the browser: the real preferences schema and events,
+// the real catalog, the controller rules, the API response parsing, and the privacy boundaries of the app.
+// The server side (database, API, engine) has its own tests in lib/server and lib/recommender.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { liveState } from "../assistant/live-state";
 import { SEED_TRANSACTIONS } from "../data/seed";
 import { emit, type ChangeSource, type PrefsEvent } from "../preferences/events";
-import { CHOICES as RULE_CHOICES, recommend } from "../preferences/recommend";
-import { applyActions, DEFAULT_PREFS, sanitize, type Preferences, type UiAction } from "../preferences/schema";
-import type { ModelArtifact } from "./artifact";
-import { onPrefsEvent, reconcile, shouldShowCard } from "./controller";
-import { CHOICES } from "./features";
-import { type PersonalisationResult, recommendPreferences } from "./infer";
-import modelJson from "./model.json";
-import { INITIAL_STATE, loadState, type PersonalisationState, recordOutcome, recordSignal, resetPersonalisation, saveState, setConsent } from "./state";
-import { TARGET_IDS, TARGETS } from "./targets";
+import { recommend } from "../preferences/recommend";
+import { applyActions, DEFAULT_PREFS, type Preferences, sanitize, type UiAction } from "../preferences/schema";
+import { CATALOG, configurationActions, conflicts, isActive, isCompatible, ITEM_IDS, type ItemId, nonDefaultDimensions } from "../recommender/catalog";
+import { isValidAnswers, QUESTIONS, sanitizeAnswers, sanitizeResearch } from "../recommender/profile";
+import { parseStatus, parseSuggestion } from "./client";
+import {
+  explicitForEvent,
+  LEGACY_KEY,
+  loadWatch,
+  revertedItems,
+  revertVia,
+  sanitizeWatch,
+  saveWatch,
+  shouldShowCard,
+  signalForViewChange,
+  signalsForEvent,
+  takeLegacy,
+  viewWasChosen,
+  WATCH_KEY,
+  withoutReverted,
+} from "./controller";
 
-const model = modelJson as unknown as ModelArtifact;
 const root = (rel: string) => fileURLToPath(new URL(`../../${rel}`, import.meta.url));
 const source = (rel: string) => readFileSync(root(rel), "utf8");
 
-/** A stand-in for PreferencesProvider + PersonalisationProvider, with the same event semantics. */
-function app(opts: { prefs?: Preferences; consent?: boolean; model?: ModelArtifact | null; view?: "simple" | "complex" } = {}) {
-  let prefs: Preferences = opts.prefs ?? { ...DEFAULT_PREFS, onboarding: "done" };
-  let preview: { actions: UiAction[]; result: Preferences; source: ChangeSource } | null = null;
-  let saved: Preferences = prefs;
-  const history: { prefs: Preferences; source: ChangeSource }[] = [];
-  let ml: PersonalisationState = opts.consent === false ? INITIAL_STATE : setConsent(INITIAL_STATE, true);
-  const m = opts.model === undefined ? model : opts.model;
-  const view = opts.view ?? "simple";
-  const send = (e: PrefsEvent) => emit([(ev) => (ml = onPrefsEvent(ml, ev))], e);
+const P: Preferences = { ...DEFAULT_PREFS, onboarding: "done" };
+const kept = (actions: UiAction[], src: ChangeSource, before = P): PrefsEvent => ({ kind: "kept", actions, before, after: applyActions(before, actions), source: src });
 
-  const api = {
-    get prefs() {
-      return preview?.result ?? prefs;
-    },
-    get kept() {
-      return prefs;
-    },
-    get saved() {
-      return saved;
-    },
-    get ml() {
-      return ml;
-    },
-    set ml(s: PersonalisationState) {
-      ml = s;
-    },
-    historyLength: () => history.length,
-    apply(actions: UiAction[], source: ChangeSource = "other") {
-      const before = prefs;
-      prefs = applyActions(prefs, actions);
-      history.push({ prefs: before, source });
-      send({ kind: "kept", actions, before, after: prefs, source });
-    },
-    startPreview(actions: UiAction[], source: ChangeSource = "other") {
-      preview = { actions, result: applyActions(prefs, actions), source };
-    },
-    acceptPreview(save = false) {
-      if (!preview) return;
-      const before = prefs;
-      history.push({ prefs: before, source: preview.source });
-      prefs = preview.result;
-      if (save) saved = prefs;
-      const p = preview;
-      preview = null;
-      send({ kind: "kept", actions: p.actions, before, after: prefs, source: p.source });
-    },
-    rejectPreview() {
-      preview = null;
-    },
-    undo() {
-      const entry = history.pop();
-      if (!entry) return;
-      const before = prefs;
-      prefs = entry.prefs;
-      send({ kind: "undo", before, after: prefs, undoneSource: entry.source });
-    },
-    resetToDefault() {
-      const before = prefs;
-      history.push({ prefs: before, source: "other" });
-      prefs = { ...DEFAULT_PREFS, onboarding: prefs.onboarding };
-      saved = prefs;
-      send({ kind: "reset", before });
-    },
-    openVoice() {
-      ml = recordSignal(ml, "voiceSessions");
-    },
-    /** What PersonalisationProvider does on every change when no preview is showing. */
-    evaluate(): PersonalisationResult | null {
-      if (preview || ml.consent !== "granted") return null;
-      const input = { preferences: api.prefs, view, choices: null };
-      ml = reconcile(ml, input);
-      return recommendPreferences(input, ml, m, { maxSuggestions: 1 });
-    },
-    card(result: PersonalisationResult | null) {
-      return shouldShowCard({ consent: ml.consent, result, onboarding: api.prefs.onboarding, previewActive: preview !== null });
-    },
-    /** The card's "Preview it" then the bar's "Keep it" / "Go back". */
-    previewSuggestion(result: PersonalisationResult, keep: boolean) {
-      const rec = result.preferences[0];
-      api.startPreview(rec.actions, "ml");
-      if (keep) api.acceptPreview(true);
-      else api.rejectPreview();
-      ml = recordOutcome(ml, rec.target, keep ? "accepted" : "rejected", result.fingerprint!);
-    },
-  };
-  return api;
-}
-
-/** Someone who opened Voice Mode six times and chose bigger buttons in Settings: the model suggests talking first. */
-function talker(opts?: Parameters<typeof app>[0]) {
-  const a = app(opts);
-  a.apply([{ type: "targets", value: "large" }], "settings");
-  for (let i = 0; i < 6; i++) a.openVoice();
-  return a;
-}
-
-describe("consent", () => {
-  it("C1: before consent nothing is counted, predicted or shown", () => {
-    const a = app({ consent: false });
-    a.apply([{ type: "textSize", value: 150 }], "settings");
-    a.openVoice();
-    expect(a.ml).toEqual(INITIAL_STATE);
-    expect(a.evaluate()).toBeNull();
-    expect(recommendPreferences({ preferences: a.prefs, view: "simple" }, a.ml, model).status).toBe("needs_consent");
-    expect(a.card(null)).toBe(false);
+describe("signals (only kept Settings and Voice changes, and opening Voice Mode)", () => {
+  it("counts kept Settings and Voice display changes per the published rules", () => {
+    expect(signalsForEvent(kept([{ type: "textSize", value: 150 }], "settings"))).toEqual([{ id: "textLarger", source: "settings" }]);
+    expect(signalsForEvent(kept([{ type: "textSize", value: 100 }], "voice", { ...P, textSize: 150 }))).toEqual([{ id: "textSmaller", source: "voice" }]);
+    expect(signalsForEvent(kept([{ type: "density", value: "calm" }], "settings"))).toEqual([{ id: "lessOnScreen", source: "settings" }]);
+    expect(signalsForEvent(kept([{ type: "hide", widget: "recent" }], "settings"))).toEqual([{ id: "lessOnScreen", source: "settings" }]);
+    expect(signalsForEvent(kept([{ type: "show", widget: "chart" }, { type: "moveToTop", widget: "chart" }], "voice")).map((s) => s.id)).toEqual(["moreVisual", "moreVisual"]);
+    expect(signalsForEvent(kept([{ type: "show", widget: "recent" }], "settings"))).toEqual([{ id: "moreDetail", source: "settings" }]);
   });
 
-  it("C2: with consent, only kept Settings and Voice changes are counted, per the published rules", () => {
-    const a = app();
-    a.apply([{ type: "textSize", value: 125 }], "settings");
-    a.startPreview([{ type: "density", value: "calm" }], "voice");
-    a.acceptPreview();
-    a.apply([{ type: "hide", widget: "recent" }], "settings");
-    a.apply([{ type: "show", widget: "chart" }], "settings");
-    a.apply([{ type: "textSize", value: 100 }], "settings");
-    expect(a.ml.signals).toEqual({ textLarger: 1, lessOnScreen: 2, moreDetail: 1, textSmaller: 1 });
+  it("never counts Make it yours styles, Dial's own suggestions, onboarding, untagged changes, no-op changes or resets", () => {
+    for (const src of ["style", "ml", "other"] as const) expect(signalsForEvent(kept([{ type: "textSize", value: 150 }], src))).toEqual([]);
+    expect(signalsForEvent(kept([{ type: "onboarding", value: "done" }], "settings"))).toEqual([]);
+    expect(signalsForEvent(kept([{ type: "textSize", value: 100 }], "settings"))).toEqual([]);
+    expect(signalsForEvent(kept([{ type: "theme", value: "dark" }], "settings"))).toEqual([]);
+    expect(signalsForEvent({ kind: "reset", before: P })).toEqual([]);
   });
 
-  it("C3: turning suggestions off deletes ML data and leaves display settings exactly as they were", () => {
-    const a = talker();
-    const before = a.kept;
-    a.ml = setConsent(a.ml, false);
-    expect(a.ml).toEqual({ ...INITIAL_STATE, consent: "declined" });
-    expect(a.kept).toBe(before);
-    expect(a.kept.targets).toBe("large");
-    expect(a.evaluate()).toBeNull();
+  it("an undone Settings or Voice change counts once; undoing a kept suggestion does not (it is reported as feedback)", () => {
+    expect(signalsForEvent({ kind: "undo", before: P, after: P, undoneSource: "settings" })).toEqual([{ id: "undoneChanges", source: "settings" }]);
+    expect(signalsForEvent({ kind: "undo", before: P, after: P, undoneSource: "ml" })).toEqual([]);
+    expect(signalsForEvent({ kind: "undo", before: P, after: P, undoneSource: "style" })).toEqual([]);
   });
 
-  it("ML consent is not part of display preferences and survives a preferences reset", () => {
-    expect(Object.keys(sanitize({ ...DEFAULT_PREFS, consent: "granted" }))).not.toContain("consent");
-    const a = talker();
-    a.resetToDefault();
-    expect(a.ml.consent).toBe("granted");
-  });
-});
-
-describe("behaviour-signal rules", () => {
-  it("S1: Make it yours styles, Dial's own suggestions, onboarding and untagged changes are never counted", () => {
-    const a = app();
-    for (const s of ["style", "ml", "other"] as ChangeSource[]) {
-      a.apply([{ type: "textSize", value: 150 }, { type: "density", value: "calm" }, { type: "hide", widget: "chart" }], s);
-      a.undo();
-    }
-    a.apply([{ type: "onboarding", value: "skipped" }], "settings");
-    expect(a.ml.signals).toEqual({});
-  });
-
-  it("S1: previews that are rejected never count, even from Settings or Voice", () => {
-    const a = app();
-    a.startPreview([{ type: "textSize", value: 200 }], "voice");
-    a.rejectPreview();
-    expect(a.ml.signals).toEqual({});
-  });
-
-  it("S2: a Make it yours style kept through the preview bar adds no signals, and the rules give the same answer whatever ML is doing", () => {
-    const rules = recommend(["largerText", "lessInfo", "voiceFirst"])!;
-    const withMl = app();
-    withMl.startPreview(rules.actions, "style");
-    withMl.acceptPreview(true);
-    expect(withMl.ml.signals).toEqual({});
-    expect(withMl.kept.onboarding).toBe("done");
-    // The rules recommender is untouched and independent of ML state.
-    expect(recommend(["largerText", "lessInfo", "voiceFirst"])).toEqual(rules);
-    expect(source("lib/preferences/recommend.ts")).not.toMatch(/personalisation/);
-    expect(source("components/personalise/make-it-yours.tsx")).not.toMatch(/lib\/personalisation/);
-  });
-
-  it("view switches and theme changes are not signals", () => {
-    const a = app();
-    a.apply([{ type: "theme", value: "dark" }, { type: "contrast", value: "high" }], "settings");
-    expect(a.ml.signals).toEqual({});
-  });
-});
-
-describe("suggestion lifecycle", () => {
-  it("G1: kept Settings changes plus Voice Mode use lead to one explained suggestion that is a valid preference change", () => {
-    const a = talker();
-    const r = a.evaluate()!;
-    expect(r.status).toBe("ok");
-    expect(r.preferences).toHaveLength(1);
-    expect(r.preferences[0].target).toBe("voiceFirst");
-    expect(r.preferences[0].reasons).toContain("You've talked to Dial 6 times");
-    expect(r.trainedOn).toBe("synthetic");
-    expect(a.card(r)).toBe(true);
-    for (const id of TARGET_IDS) {
-      const p = applyActions(DEFAULT_PREFS, TARGETS[id].actions);
-      expect(sanitize(p), id).toEqual(p);
-      expect(TARGETS[id].status(p), id).toBe("on");
-    }
-  });
-
-  it("G2: the card stays hidden without consent, before Make it yours is done or skipped, during any preview, or with no suggestion", () => {
-    const a = talker();
-    const r = a.evaluate()!;
-    expect(shouldShowCard({ consent: "granted", result: r, onboarding: "done", previewActive: false })).toBe(true);
-    expect(shouldShowCard({ consent: "granted", result: r, onboarding: "skipped", previewActive: false })).toBe(true);
-    expect(shouldShowCard({ consent: "unset", result: r, onboarding: "done", previewActive: false })).toBe(false);
-    expect(shouldShowCard({ consent: "declined", result: r, onboarding: "done", previewActive: false })).toBe(false);
-    expect(shouldShowCard({ consent: "granted", result: r, onboarding: "unset", previewActive: false })).toBe(false);
-    expect(shouldShowCard({ consent: "granted", result: r, onboarding: "done", previewActive: true })).toBe(false);
-    expect(shouldShowCard({ consent: "granted", result: { ...r, status: "no_recommendation", preferences: [] }, onboarding: "done", previewActive: false })).toBe(false);
-    expect(shouldShowCard({ consent: "granted", result: null, onboarding: "done", previewActive: false })).toBe(false);
-  });
-
-  it("preview changes the screen only: nothing kept, saved or added to undo history, and no re-evaluation", () => {
-    const a = talker();
-    const r = a.evaluate()!;
-    const kept = a.kept;
-    const saved = a.saved;
-    const historyLength = a.historyLength();
-    const signals = a.ml.signals;
-    a.startPreview(r.preferences[0].actions, "ml");
-    expect(a.prefs.voiceFirst).toBe(true);
-    expect(a.kept).toBe(kept);
-    expect(a.saved).toBe(saved);
-    expect(a.historyLength()).toBe(historyLength);
-    expect(a.ml.signals).toBe(signals);
-    expect(a.evaluate()).toBeNull();
-    expect(a.card(r)).toBe(false);
-  });
-
-  it("A1: Keep it saves the setting, is undoable, adds no signal, and the suggestion is not offered again", () => {
-    const a = talker();
-    const r = a.evaluate()!;
-    const signals = a.ml.signals;
-    a.previewSuggestion(r, true);
-    expect(a.kept.voiceFirst).toBe(true);
-    expect(a.saved.voiceFirst).toBe(true);
-    expect(a.historyLength()).toBeGreaterThan(0);
-    expect(a.ml.signals).toEqual(signals);
-    const next = a.evaluate()!;
-    expect(next.withheld).toContainEqual({ target: "voiceFirst", reason: "already_on" });
-  });
-
-  it("R1: Go back / No thanks: settings unchanged, not offered again for the same settings, never after a second no", () => {
-    const a = talker();
-    const r = a.evaluate()!;
-    const kept = a.kept;
-    a.previewSuggestion(r, false);
-    expect(a.kept).toBe(kept);
-    expect(a.evaluate()!.withheld).toContainEqual({ target: "voiceFirst", reason: "previously_rejected" });
-    a.apply([{ type: "spacing", value: "roomy" }], "settings");
-    const again = a.evaluate()!;
-    if (again.preferences[0]?.target === "voiceFirst") {
-      a.ml = recordOutcome(a.ml, "voiceFirst", "rejected", again.fingerprint!);
-      a.apply([{ type: "theme", value: "dark" }], "settings");
-      expect(a.evaluate()!.withheld).toContainEqual({ target: "voiceFirst", reason: "previously_rejected" });
-    }
-  });
-
-  it("I1: Not now holds the suggestion until settings change", () => {
-    const a = talker();
-    const r = a.evaluate()!;
-    a.ml = recordOutcome(a.ml, "voiceFirst", "ignored", r.fingerprint!);
-    expect(a.evaluate()!.withheld).toContainEqual({ target: "voiceFirst", reason: "recently_ignored" });
-    a.apply([{ type: "spacing", value: "roomy" }], "settings");
-    expect(a.evaluate()!.withheld.find((w) => w.target === "voiceFirst")?.reason).not.toBe("recently_ignored");
-  });
-});
-
-describe("undo and reset", () => {
-  it("U1: undoing a kept suggestion counts as a no and does not count as an undone display change", () => {
-    const a = talker();
-    a.previewSuggestion(a.evaluate()!, true);
-    a.undo();
-    expect(a.kept.voiceFirst).toBe(false);
-    const r = a.evaluate()!;
-    expect(r.withheld).toContainEqual({ target: "voiceFirst", reason: "previously_rejected" });
-    expect(a.ml.accepted).toEqual({});
-    expect(a.ml.signals.undoneChanges).toBeUndefined();
-  });
-
-  it("U2: undoing the person's own Settings change counts as an undone display change", () => {
-    const a = app();
-    a.apply([{ type: "textSize", value: 150 }], "settings");
-    a.undo();
-    expect(a.ml.signals).toEqual({ textLarger: 1, undoneChanges: 1 });
-  });
-
-  it("X1: Reset to default resets display settings only; ML consent and counts stay; a kept suggestion becomes a no", () => {
-    const a = talker();
-    a.previewSuggestion(a.evaluate()!, true);
-    const signals = a.ml.signals;
-    a.resetToDefault();
-    expect(a.kept.voiceFirst).toBe(false);
-    expect(a.ml.consent).toBe("granted");
-    expect(a.ml.signals).toEqual(signals);
-    expect(a.evaluate()!.withheld).toContainEqual({ target: "voiceFirst", reason: "previously_rejected" });
-  });
-
-  it("X2: Reset suggestions forgets ML counts and answers, keeps consent, and leaves display settings alone", () => {
-    const a = talker();
-    a.previewSuggestion(a.evaluate()!, false);
-    const kept = a.kept;
-    a.ml = resetPersonalisation(a.ml);
-    expect(a.ml).toEqual({ ...INITIAL_STATE, consent: "granted" });
-    expect(a.kept).toBe(kept);
-  });
-});
-
-describe("fallback", () => {
-  it("F1: no model or a broken model: no card, and Make it yours works exactly as before", () => {
-    for (const m of [null, { ...model, features: [] } as unknown as ModelArtifact]) {
-      const a = talker({ model: m });
-      const r = a.evaluate()!;
-      expect(r.status).toBe("unavailable");
-      expect(a.card(r)).toBe(false);
-      const rules = recommend(["lessInfo"])!;
-      a.startPreview(rules.actions, "style");
-      a.acceptPreview(true);
-      expect(a.kept.layout.density).toBe("calm");
-    }
-  });
-
-  it("F2: blocked storage starts with suggestions off; stored state round-trips including kept suggestions", () => {
-    const broken = {
-      getItem: () => {
-        throw new Error("blocked");
-      },
-      setItem: () => {
-        throw new Error("blocked");
-      },
-      removeItem: () => {
-        throw new Error("blocked");
-      },
-    };
-    expect(loadState(broken).consent).toBe("unset");
-    const m = new Map<string, string>();
-    const store = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
-    const a = talker();
-    a.previewSuggestion(a.evaluate()!, true);
-    saveState(a.ml, store);
-    expect(loadState(store)).toEqual(a.ml);
-    // State saved before this integration (no `accepted`) still loads.
-    expect(loadState({ getItem: () => JSON.stringify({ version: 1, consent: "granted", signals: { textLarger: 2 } }) }).accepted).toEqual({});
+  it("switching view with the Dial switch maps to more detail or less on screen", () => {
+    expect(signalForViewChange("complex")).toBe("moreDetail");
+    expect(signalForViewChange("simple")).toBe("lessOnScreen");
   });
 
   it("listener failures never break preferences", () => {
-    const seen: string[] = [];
-    emit(
-      [
-        () => {
-          throw new Error("boom");
-        },
-        (e) => seen.push(e.kind),
-      ],
-      { kind: "reset", before: DEFAULT_PREFS },
-    );
-    expect(seen).toEqual(["reset"]);
+    const seen: PrefsEvent[] = [];
+    const boom = () => {
+      throw new Error("boom");
+    };
+    emit([boom, (e) => seen.push(e)], kept([{ type: "contrast", value: "high" }], "settings"));
+    expect(seen).toHaveLength(1);
   });
 });
 
-describe("conflicting preferences", () => {
-  it("K1: asking for both less and more on screen gives no layout suggestion", () => {
-    const a = app({ view: "complex" });
-    for (let i = 0; i < 4; i++) {
-      a.apply([{ type: "hide", widget: "recent" }], "settings");
-      a.apply([{ type: "show", widget: "recent" }], "settings");
+describe("explicit settings always win", () => {
+  it("Settings, Voice and Make it yours changes are explicit; a style also chooses the view; Dial's suggestions and resets are not", () => {
+    expect(explicitForEvent(kept([{ type: "textSize", value: 125 }, { type: "moveToTop", widget: "bill" }], "settings")).sort()).toEqual(["homeFocus", "textSize"]);
+    expect(explicitForEvent(kept([{ type: "voiceFirst", value: true }], "voice"))).toEqual(["voiceFirst"]);
+    expect(explicitForEvent(kept([{ type: "density", value: "calm" }], "style")).sort()).toEqual(["density", "view"]);
+    expect(explicitForEvent(kept([{ type: "contrast", value: "high" }], "ml"))).toEqual([]);
+    expect(explicitForEvent(kept([{ type: "contrast", value: "high" }], "other"))).toEqual([]);
+    expect(explicitForEvent({ kind: "reset", before: P })).toEqual([]);
+  });
+
+  it("a view chosen with the Dial switch, even before consent, counts as explicit", () => {
+    expect(viewWasChosen("cfe-prefs=x; cfe-mode=simple")).toBe(true);
+    expect(viewWasChosen("cfe-mode=complex")).toBe(true);
+    expect(viewWasChosen("cfe-prefs=x; not-cfe-mode=1")).toBe(false);
+    expect(viewWasChosen("")).toBe(false);
+  });
+
+  it("any non-default setting counts as explicit, so the server never suggests over it", () => {
+    expect(nonDefaultDimensions(DEFAULT_PREFS)).toEqual([]);
+    const p = applyActions(DEFAULT_PREFS, [{ type: "textSize", value: 150 }, { type: "contrast", value: "high" }, { type: "emphasize", widget: "bill" }]);
+    expect(nonDefaultDimensions(p).sort()).toEqual(["contrast", "homeFocus", "textSize"]);
+  });
+});
+
+describe("catalog: every suggestion is a real, previewable setting", () => {
+  it("each item's actions apply cleanly and put the item in effect, in either view", () => {
+    for (const id of ITEM_IDS) {
+      for (const view of ["simple", "complex"] as const) {
+        const { actions, mode } = configurationActions([id]);
+        const after = applyActions(P, actions);
+        expect(sanitize(after), id).toEqual(after);
+        expect(isActive(id, after, mode ?? view), `${id} in ${view}`).toBe(true);
+      }
     }
-    expect(a.ml.signals).toMatchObject({ lessOnScreen: 4, moreDetail: 4 });
-    const r = a.evaluate()!;
-    expect(r.preferences.map((p) => p.target)).not.toContain("calmLayout");
-    expect(r.withheld).toContainEqual({ target: "calmLayout", reason: "conflicting_signals" });
+  });
+
+  it("never suggests lowering an accessibility setting or changing the theme", () => {
+    const all = ITEM_IDS.flatMap((id) => CATALOG[id].actions);
+    expect(all.some((a) => a.type === "textSize" && a.value === 100)).toBe(false);
+    expect(all.some((a) => a.type === "contrast" && a.value === "standard")).toBe(false);
+    expect(all.some((a) => a.type === "motion" && a.value === "system")).toBe(false);
+    expect(all.some((a) => a.type === "theme" || a.type === "reset" || a.type === "hide")).toBe(false);
+  });
+
+  it("compatibility: one value per dimension, no listed conflicts, at most four changes", () => {
+    expect(conflicts("textSize.125", "textSize.150")).toBe(true);
+    expect(conflicts("view.detailed", "density.calm")).toBe(conflicts("density.calm", "view.detailed"));
+    expect(isCompatible(["view.detailed", "density.calm"])).toBe(false);
+    expect(isCompatible(["textSize.125", "density.calm", "motion.reduced", "targets.large"])).toBe(true);
+    expect(isCompatible(["textSize.125", "density.calm", "motion.reduced", "targets.large", "contrast.high"])).toBe(false);
+  });
+});
+
+describe("kept suggestions: undoing one later counts as a no, once", () => {
+  const after = applyActions(P, configurationActions(["textSize.125", "density.calm"]).actions);
+  const watch = [{ id: "r1", items: ["textSize.125", "density.calm"] as ItemId[] }];
+
+  it("nothing is reported while the kept items are in effect", () => {
+    expect(revertedItems(watch, after, "simple")).toEqual([]);
+  });
+
+  it("an item changed back is reported with how it was undone, then forgotten", () => {
+    const back = applyActions(after, [{ type: "density", value: "standard" }]);
+    const gone = revertedItems(watch, back, "simple");
+    expect(gone).toEqual([{ id: "r1", items: ["density.calm"] }]);
+    expect(withoutReverted(watch, gone)).toEqual([{ id: "r1", items: ["textSize.125"] }]);
+    expect(revertVia({ kind: "undo", before: after, after: back, undoneSource: "ml" })).toBe("undo");
+    expect(revertVia({ kind: "reset", before: after })).toBe("reset");
+    expect(revertVia(null)).toBe("settings");
+  });
+
+  it("stored watch lists are rebuilt from untrusted data", () => {
+    expect(sanitizeWatch([{ id: "a", items: ["textSize.125", "nope", "textSize.125"] }, { id: 3 }, "x", { id: "b", items: [] }])).toEqual([{ id: "a", items: ["textSize.125"] }]);
+    expect(sanitizeWatch("not a list")).toEqual([]);
+  });
+});
+
+describe("the Home card", () => {
+  it("shows only with consent, a suggestion, after the first-run choice, outside any preview, and not once answered", () => {
+    const ok = { consented: true, suggestionId: "s1", onboarding: "done" as const, previewActive: false, answered: new Set<string>() };
+    expect(shouldShowCard(ok)).toBe(true);
+    expect(shouldShowCard({ ...ok, consented: false })).toBe(false);
+    expect(shouldShowCard({ ...ok, suggestionId: null })).toBe(false);
+    expect(shouldShowCard({ ...ok, onboarding: "unset" })).toBe(false);
+    expect(shouldShowCard({ ...ok, onboarding: "skipped" })).toBe(true);
+    expect(shouldShowCard({ ...ok, previewActive: true })).toBe(false);
+    expect(shouldShowCard({ ...ok, answered: new Set(["s1"]) })).toBe(false);
+  });
+});
+
+describe("API responses are parsed defensively", () => {
+  const good = {
+    id: "rec-1",
+    modelVersion: "hybrid-2.0.0",
+    trainedOn: "synthetic",
+    configuration: {
+      items: ["textSize.125", "density.calm"],
+      title: "Larger text and less on the home screen",
+      offer: "Would you like…?",
+      confidence: 0.81,
+      evidence: "strong",
+      actions: [{ type: "reset" }],
+    },
+    alternatives: [{ items: ["textSize.125"], confidence: 0.9, evidence: "moderate" }, { items: ["bogus"] }],
+    explanation: { summary: "Because of your answers", reasons: ["You said: Just the key facts"] },
+    warnings: [
+      { code: "synthetic_only", text: "Practice data" },
+      { code: "evil", text: "x" },
+    ],
+  };
+
+  it("preview actions are rebuilt from the catalog, whatever the server sent", () => {
+    const s = parseSuggestion(good)!;
+    expect(s.configuration.actions).toEqual(configurationActions(["textSize.125", "density.calm"]).actions);
+    expect(s.configuration.actions.some((a) => a.type === "reset")).toBe(false);
+    expect(s.alternatives.map((a) => a.items)).toEqual([["textSize.125"]]);
+    expect(s.warnings.map((w) => w.code)).toEqual(["synthetic_only"]);
+  });
+
+  it("unknown items, empty configurations and malformed bodies give no suggestion", () => {
+    expect(parseSuggestion({ ...good, configuration: { items: ["textSize.125", "drop table"] } })).toBeNull();
+    expect(parseSuggestion({ ...good, configuration: { items: [] } })).toBeNull();
+    expect(parseSuggestion(null)).toBeNull();
+    expect(parseSuggestion({ ...good, id: 42 })).toBeNull();
+  });
+
+  it("status: consent flags and answers are sanitised; anything unreadable means offline", () => {
+    const s = parseStatus({ available: true, consent: { personalisation: "granted", collaborative: "declined", research: "unset" }, profile: { answers: { detailLevel: "keyFacts", evil: "x" } } });
+    expect(s.consent).toEqual({ personalisation: true, collaborative: false, research: false });
+    expect(s.profile).toEqual({ answers: { detailLevel: "keyFacts" }, answered: 1 });
+    expect(parseStatus("nope").available).toBe(false);
+  });
+});
+
+describe("profile", () => {
+  it("every question is optional and only allowlisted answers survive", () => {
+    expect(sanitizeAnswers({})).toEqual({});
+    expect(sanitizeAnswers({ inputMode: "voice", guidance: "sideways", age: "70", income: "low" })).toEqual({ inputMode: "voice" });
+    expect(isValidAnswers({ inputMode: "voice" })).toBe(true);
+    expect(isValidAnswers({ inputMode: "voice", ageBand: "65+" })).toBe(false);
+  });
+
+  it("asks nothing about health, disability, money circumstances or identity; age is separate research data", () => {
+    const text = QUESTIONS.map((q) => [q.label, ...q.options.map((o) => o.label)].join(" ")).join(" ");
+    expect(text).not.toMatch(/disab|impair|condition|diagnos|health|anxiety|mental|vulnerab|\bage\b|income|debt|afford|gender|ethnic|religio/i);
+    expect(QUESTIONS.some((q) => (q.id as string) === "ageBand")).toBe(false);
+    expect(sanitizeResearch({ ageBand: "35-49", income: 1 })).toEqual({ ageBand: "35-49" });
+  });
+});
+
+describe("device storage", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("blocked storage never throws: no watch list, nothing saved, legacy check is false", () => {
+    vi.stubGlobal("window", {
+      get localStorage(): Storage {
+        throw new Error("SecurityError");
+      },
+    });
+    expect(loadWatch()).toEqual([]);
+    expect(() => saveWatch([{ id: "a", items: ["textSize.125"] }])).not.toThrow();
+    expect(takeLegacy()).toBe(false);
+  });
+
+  it("v1's on-device data is deleted, and whether it had been turned on is reported once", () => {
+    const store = new Map<string, string>([[LEGACY_KEY, JSON.stringify({ version: 1, consent: "granted", signals: { textLarger: 2 } })]]);
+    vi.stubGlobal("window", {
+      localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k) },
+    });
+    expect(takeLegacy()).toBe(true);
+    expect(store.has(LEGACY_KEY)).toBe(false);
+    expect(takeLegacy()).toBe(false);
+    saveWatch([{ id: "a", items: ["textSize.125"] }]);
+    expect(loadWatch()).toEqual([{ id: "a", items: ["textSize.125"] }]);
+    saveWatch([]);
+    expect(store.has(WATCH_KEY)).toBe(false);
   });
 });
 
 describe("privacy boundaries", () => {
-  it("P1: the live state sent with Dial questions carries only Spend Pause, purchases and payments", () => {
+  it("the live state sent with Dial questions carries only Spend Pause, purchases and payments", () => {
     const body = liveState(SEED_TRANSACTIONS, { enabled: true, singlePurchaseThreshold: 10000, monthlyBudget: null, quietHours: null });
     expect(Object.keys(body).sort()).toEqual(["payments", "purchases", "spendPause"]);
-    expect(JSON.stringify(body)).not.toMatch(/personalis|signal|consent|voiceSessions|textLarger/i);
+    expect(JSON.stringify(body)).not.toMatch(/personalis|recommend|signal|consent|answers/i);
   });
 
-  it("P1: the AI backend, assistant client and API routes never import personalisation; Ask Dial only reports opening Voice Mode", () => {
-    const files = ["lib/assistant/client.ts", "lib/assistant/live-state.ts", "lib/ai/ask.ts", "lib/ai/interpreter.ts", "app/api/ask/route.ts", "lib/finance/index.ts"];
-    for (const f of files) expect(source(f), f).not.toMatch(/personalisation/);
+  it("the AI backend, assistant client, finance and Gemini code never import personalisation or the recommender", () => {
+    const files = ["lib/assistant/client.ts", "lib/assistant/live-state.ts", "lib/ai/ask.ts", "lib/ai/interpreter.ts", "lib/ai/model.ts", "app/api/ask/route.ts", "lib/finance/index.ts"];
+    for (const f of files) expect(source(f), f).not.toMatch(/personalisation|recommender/);
     const ask = source("components/assistant/ask-dial.tsx");
     expect(ask.match(/usePersonalisation\(\)/g)).toHaveLength(1);
     expect(ask).toMatch(/const \{ noteVoiceOpened \} = usePersonalisation\(\)/);
   });
 
-  it("P1: the model file is never imported statically, so it is fetched only after consent", () => {
-    for (const f of ["lib/personalisation/index.ts", "lib/personalisation/provider.tsx", "components/personalise/ml-suggestion.tsx", "components/settings/display-settings.tsx", "components/home/home-screen.tsx"])
-      expect(source(f), f).not.toMatch(/^import[^\n]*model\.json/m);
-    expect(source("lib/personalisation/provider.tsx")).toMatch(/if \(state\.consent !== "granted" \|\| model !== undefined\) return;\s*let live = true;\s*setModelStatus\("loading"\);\s*loadModel\(\)/);
+  it("browser code never imports the engine, a model file, the database or Gemini", () => {
+    const browser = [
+      "lib/personalisation/provider.tsx",
+      "lib/personalisation/client.ts",
+      "lib/personalisation/controller.ts",
+      "components/personalise/ml-suggestion.tsx",
+      "components/personalise/suggestions-settings.tsx",
+      "components/personalise/about-you.tsx",
+    ];
+    for (const f of browser) {
+      const s = source(f);
+      expect(s, f).not.toMatch(/recommender\/engine|recommender\/models|model\.json|lib\/server|node:sqlite|@google\/genai|lib\/ai\//);
+      expect(s, f).not.toMatch(/from "\.\/index"|personalisation\/index/);
+    }
   });
 
-  it("P2: nothing a person sees names a condition, diagnosis, age, vulnerability or financial circumstance", () => {
+  it("nothing a person sees on the card or in settings names a condition, diagnosis, age, vulnerability or financial circumstance", () => {
     const BANNED = /disab|impair|condition|diagnos|dyslex|autis|adhd|neuro|dementia|anxiety|depress|mental|vulnerab|elderly|older|senior|\bage\b|blind|deaf|struggl|confus|debt|afford|income|poor/i;
-    const card = source("components/personalise/ml-suggestion.tsx");
-    const settings = source("components/settings/display-settings.tsx");
-    const section = settings.slice(settings.indexOf('id="suggestions"'), settings.indexOf("</section>", settings.indexOf('id="suggestions"')));
     const visible = (s: string) => [...s.matchAll(/>([^<>{}]+)</g), ...s.matchAll(/"([A-Z][^"]{8,})"/g)].map((m) => m[1]).join("\n");
-    expect(visible(card)).not.toMatch(BANNED);
-    expect(visible(section)).not.toMatch(BANNED);
-    expect(visible(card)).toMatch(/made-up example data/);
-    expect(visible(section)).toMatch(/made-up example data/);
+    const card = visible(source("components/personalise/ml-suggestion.tsx"));
+    const settings = source("components/personalise/suggestions-settings.tsx");
+    // The research switch may say "age band": it describes the separately-consented research question itself.
+    const settingsText = visible(settings).replace(/age band/g, "");
+    expect(card).not.toMatch(BANNED);
+    expect(settingsText).not.toMatch(BANNED);
+    expect(card).toMatch(/made-up practice data/);
+    expect(visible(settings)).toMatch(/made-up practice data/);
   });
 
-  it("P3: the model's Make it yours choices match the rules recommender exactly", () => {
-    expect(CHOICES.map((c) => ({ id: c.id, label: c.label }))).toEqual(RULE_CHOICES.map((c) => ({ id: c.id, label: c.label })));
+  it("Make it yours (the rules-based fallback) is unchanged and independent of ML", () => {
+    const imports = /from "[^"]*(personalisation|recommender)[^"]*"/;
+    expect(source("lib/preferences/recommend.ts")).not.toMatch(imports);
+    expect(source("components/personalise/make-it-yours.tsx")).not.toMatch(imports);
+    expect(recommend(["lessInfo"])?.style).toBe("calm");
+    expect(recommend(["voiceFirst", "largerText"])?.style).toBe("voice");
   });
 });
