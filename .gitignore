@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 !.env.example
+
+# personalisation database, generated secret and models trained with real data (never commit)
+/.data/
