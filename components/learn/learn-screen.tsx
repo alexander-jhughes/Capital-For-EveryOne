@@ -28,7 +28,7 @@ export function LearnHub() {
         <p className="text-lg text-muted-foreground">Short, hands-on ways to understand how your card works. They start from your own figures, and you can change any of them.</p>
         <p className="text-sm text-muted-foreground">Calculations are worked out on this device by fixed rules, not by Dial or any AI, and they&apos;re illustrative: your lender&apos;s figures can differ.</p>
       </div>
-      <ul className="grid grid-cols-1 gap-(--space) sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-(--space) @xl:grid-cols-2">
         {TOPICS.map(({ slug, title, blurb }) => {
           const { Icon } = PARTS[slug];
           return (

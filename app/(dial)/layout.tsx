@@ -39,7 +39,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
                   <ModeSwitch />
                 </div>
               </header>
-              <main id="main" tabIndex={-1} className="gutter page-width flex-1 pb-8 pt-(--space) focus:outline-none lg:px-10">
+              <main id="main" tabIndex={-1} className="@container gutter page-width flex-1 pb-8 pt-(--space) focus:outline-none lg:px-10">
                 {children}
                 <p className="mt-10 text-sm text-muted-foreground lg:hidden">
                   Demo data only: a fictional card, not a real account. Capital for Everyone is an independent hackathon concept, not an official Capital One product.

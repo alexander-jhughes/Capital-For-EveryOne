@@ -459,19 +459,21 @@ function Pause({ d }: { d: HomeData }) {
   );
 }
 
-// Desktop pairs (12 columns): balance+bill, insights+budget, categories+upcoming, chart+payments, recent+progress. Dense flow fills gaps after a reorder.
+// Two columns (12 tracks) once Home's own width allows, not the window's: with Dial docked open or large text, Home
+// stays one column so figures never get squeezed. The two tall sections (categories, recent) span two rows, each with
+// two shorter cards beside it, so no card is left mostly empty. Dense flow fills gaps after a reorder.
 const SPAN: Partial<Record<WidgetId, string>> = {
-  balance: "lg:col-span-7",
-  bill: "lg:col-span-5",
-  insights: "lg:col-span-7",
-  budget: "lg:col-span-5",
-  categories: "lg:col-span-7",
-  upcoming: "lg:col-span-5",
-  chart: "lg:col-span-5",
-  payments: "lg:col-span-7",
-  recent: "lg:col-span-7",
-  progress: "lg:col-span-5",
-  pause: "lg:col-span-12",
+  balance: "@3xl:col-span-7",
+  bill: "@3xl:col-span-5",
+  insights: "@3xl:col-span-7",
+  budget: "@3xl:col-span-5",
+  categories: "@3xl:col-span-7 @3xl:row-span-2",
+  upcoming: "@3xl:col-span-5",
+  chart: "@3xl:col-span-5",
+  payments: "@3xl:col-span-5",
+  recent: "@3xl:col-span-7 @3xl:row-span-2",
+  progress: "@3xl:col-span-5",
+  pause: "@3xl:col-span-12",
 };
 
 /** "balance and credit", "Dial noticed", "bill and next payment": reads after "Your". */
@@ -615,13 +617,13 @@ export function HomeScreen({ focus }: { focus?: HomeSection }) {
           </Link>
         </p>
       )}
-      <div className={simple ? "flex flex-col gap-(--space)" : "grid grid-cols-1 gap-(--space) lg:grid-flow-dense lg:grid-cols-12"}>
+      <div className={simple ? "flex flex-col gap-(--space)" : "grid grid-cols-1 gap-(--space) @3xl:grid-flow-dense @3xl:grid-cols-12"}>
         {widgets.map((w) => (
           <div
             key={w}
             data-widget={w}
             data-focused={flash?.widget === w ? "" : undefined}
-            className={`relative scroll-mt-(--space) ${simple ? "" : (SPAN[w] ?? "lg:col-span-6")} ${prefs.layout.emphasis === w ? "widget-emphasis rounded-xl" : ""} [&>*]:h-full`}
+            className={`relative scroll-mt-(--space) ${simple ? "" : (SPAN[w] ?? "@3xl:col-span-6")} ${prefs.layout.emphasis === w ? "widget-emphasis rounded-xl" : ""} [&>*]:h-full`}
             aria-label={prefs.layout.emphasis === w ? `${WIDGET_LABELS[w]}, highlighted by you` : undefined}
             role={prefs.layout.emphasis === w ? "group" : undefined}
           >
