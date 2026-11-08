@@ -38,11 +38,13 @@ export interface VoiceEngineOptions {
     noSpeechMs: number;
     /** After start(), how long to wait for the browser to report starting, an error or an end before giving up. */
     startTimeoutMs: number;
+    /** Continuous mode: stop listening when the person hasn't said anything for this long. */
+    quietMs: number;
   }>;
   clock?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout; now(): number };
 }
 
-const DEFAULT_TIMING = { pauseMs: 1100, longPauseMs: 2000, maxRestarts: 6, noSpeechMs: 8000, startTimeoutMs: 7000 };
+const DEFAULT_TIMING = { pauseMs: 1100, longPauseMs: 2000, maxRestarts: 6, noSpeechMs: 8000, startTimeoutMs: 7000, quietMs: 120_000 };
 /** First restart delay; doubles each time (200, 400, 800...). */
 const BACKOFF_MS = 200;
 /** A session that ran this long ended normally (silence), not in a failure loop, so it doesn't use up a restart. */
@@ -151,6 +153,8 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   /** Running from start() until the browser says anything at all. A permission prompt left open, or a recogniser
    *  that silently never starts (seen in headless Chromium), would otherwise show "waiting" for ever. */
   let startTimer: Timer | null = null;
+  /** Continuous mode only: the microphone (and, with the online service, the audio stream) never stays open unattended. */
+  let quietTimer: Timer | null = null;
 
   function later(fn: () => void, ms: number): Timer {
     const set = clock.setTimeout;
@@ -281,6 +285,7 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
     restartTimer = clear(restartTimer);
     noSpeechTimer = clear(noSpeechTimer);
     startTimer = clear(startTimer);
+    quietTimer = clear(quietTimer);
     abortRecogniser();
     resetUtterance();
   }
@@ -341,6 +346,17 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
     }, timing.noSpeechMs);
   }
 
+  function armQuiet() {
+    quietTimer = clear(quietTimer);
+    if (mode !== "continuous" || !active) return;
+    quietTimer = later(() => {
+      quietTimer = null;
+      // Never cut off a question being spoken or an answer Dial is still giving: wait another full period.
+      if (current || speaking !== null || processing) return armQuiet();
+      fail({ code: "no-speech", message: "I stopped listening because it's been quiet for a while. Tap the microphone to start again.", recoverable: true });
+    }, timing.quietMs);
+  }
+
   function handleResults(results: RecognitionResults) {
     restarts = 0;
     micReady = true;
@@ -368,6 +384,7 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
     sessionWords = joinParts(final, interim);
     current = buildTranscript(utteranceId, joinParts(carried, final), interim);
     noSpeechTimer = clear(noSpeechTimer);
+    armQuiet();
     events.onTranscript(current.snapshot);
     armPause(raw);
     emit();
@@ -428,10 +445,11 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
       if (disposed) return;
       if (active) {
         mode = m; // already listening: never a second session
-        return;
+        return armQuiet();
       }
       active = true;
       mode = m;
+      armQuiet();
       failed = false;
       micReady = false;
       restarts = 0;
