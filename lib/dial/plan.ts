@@ -236,7 +236,7 @@ function navTurn(to: DialRoute, opts: { filters?: SpendingFilters; focus?: HomeS
 function displayTurn(said: Said, ir: Interpretation, ctx: DialContext): Turn | null {
   const { s } = said;
   if (said.question && has(s, MONEY)) return null;
-  const easier = has(s, / (easier to (understand|follow)|hard to (understand|follow)|too complicated|too complex|plain english|plainer|simpler words) /) && !has(s, MONEY);
+  const easier = has(s, / (easier to (understand|follow)|hard to (understand|follow)|too complicated|too complex|less complicated|less confusing|plain english|plainer|simpler words) /) && !has(s, MONEY);
   // Detailed view is the busy one, so the simplest fix is Simple view. Already simple: plainer explanations and a
   // calmer home screen. Either way nothing is hidden for good: Detailed view and every section stay one step away.
   if (easier) return ctx.mode === "complex" ? modeTurn("simple") : prefsTurn([{ type: "density", value: "calm" }, { type: "explanations", value: "stepByStep" }]);

@@ -36,6 +36,8 @@ function control(s: string, words: number): Interpretation | null {
   const short = words <= 5;
   if ((has(s, / (stop (talking|speaking|reading)|be quiet|quiet please|shush|stop it) /) && !has(s, NO_LONG_ANSWERS)) || (words <= 2 && has(s, / stop /))) return { kind: "control", command: "stop" };
   if (short && has(s, / (undo|undo that|put it back|change it back|go back to how it was|revert) /)) return { kind: "control", command: "undo" };
+  // "I've changed my mind": with a preview showing, the session treats undo as "no" (nothing was kept yet).
+  if (words <= 8 && has(s, / (changed my mind|change my mind) /) && !has(s, ABOUT_MONEY)) return { kind: "control", command: "undo" };
   // "Reset my budget" is about Spend Pause, not the look of the app.
   if ((has(s, / (reset|start again|default (look|settings)|original look) /) && !has(s, ABOUT_MONEY)) || has(s, / (everything|it all|all of it|it) back to (normal|default|the default|how it was) /) || has(s, /^ (go )?back to normal $/))
     return { kind: "control", command: "reset" };
@@ -107,11 +109,15 @@ function ui(s: string, textSize: TextSize): UiAction[] {
 
   if (aboutButtons && has(s, / (bigger|larger|easier|hard|harder|difficult|miss|missing|fiddly|small|tiny) /)) actions.push({ type: "targets", value: "large" });
   else if (has(s, / (smaller|shrink|too big|too large|zoom out|less big) /)) actions.push({ type: "textSize", value: stepTextSize(textSize, -1) });
-  else if (!target && has(s, / (bigger|larger|enlarge|increase|zoom in|magnify|can't read|cannot read|hard to read|too small|tiny|squint|bigger text|larger text|text size) /))
+  else if (!target && has(s, / (bigger|larger|enlarge|increase|zoom in|magnify|can't read|cannot read|hard to read|easier to read|more readable|too small|tiny|squint|bigger text|larger text|text size) /))
     actions.push({ type: "textSize", value: stepTextSize(textSize, 1) });
 
   if (has(s, / (less contrast|normal contrast|standard contrast|lower contrast) /)) actions.push({ type: "contrast", value: "standard" });
-  else if (has(s, / (contrast|stronger colou?rs?|bolder colou?rs?|hard to see|washed out|faded|can't see|cannot see|too pale|pale|clearer colou?rs?) /))
+  else if (
+    has(s, / (contrast|stronger colou?rs?|bolder colou?rs?|washed out|faded|too pale|pale|clearer colou?rs?) /) ||
+    // "I can't see my refund" is about the money, not the screen.
+    (has(s, / (hard to see|can't see|cannot see) /) && !has(s, / (refunds?|transactions?|payments?|purchases?|charges?|money|spending) /))
+  )
     actions.push({ type: "contrast", value: "high" });
 
   if (has(s, / (dark|darker|night|dim|too bright|glare|hurts my eyes) /)) actions.push({ type: "theme", value: "dark" });

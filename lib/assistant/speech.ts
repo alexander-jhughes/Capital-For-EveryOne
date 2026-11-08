@@ -120,3 +120,13 @@ export function recognitionError(browserCode: string): VoiceError | null {
   const code = ERROR_CODES[browserCode] ?? "failed";
   return code === "aborted" ? null : voiceError(code);
 }
+
+/** Speaking speed for each voice speed setting. Kept modest: very slow speech is harder to follow, not easier. */
+export const SPEECH_RATE = { slow: 0.8, normal: 1, fast: 1.2 } as const;
+
+/** A short buzz, where the device supports it, for people who can't rely on sound. Never throws. */
+export function buzz(pattern: number | number[] = 40) {
+  try {
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(pattern);
+  } catch {}
+}

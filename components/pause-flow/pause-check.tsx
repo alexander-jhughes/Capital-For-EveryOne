@@ -15,6 +15,8 @@ import { useAccount } from "@/lib/state/account-context";
 import { useMode } from "@/lib/state/mode-context";
 import type { PendingPurchase } from "@/lib/types";
 import { ReadAloud } from "./read-aloud";
+import { buzz } from "@/lib/assistant/speech";
+import { usePreferences } from "@/lib/preferences/provider";
 
 const linkClass = "inline-flex min-h-(--target-min) items-center font-bold underline underline-offset-4";
 
@@ -122,6 +124,12 @@ export function PauseCheck() {
   const { mode } = useMode();
   const announce = useAnnounce();
   const [finished, setFinished] = useState<Finished | null>(null);
+  const { prefs } = usePreferences();
+  const pendingId = pendingPurchase?.id;
+  // A gentle double buzz when Spend Pause steps in, for people who asked for vibration (it never relies on sound).
+  useEffect(() => {
+    if (pendingId && prefs.vibrate) buzz([60, 80, 60]);
+  }, [pendingId, prefs.vibrate]);
 
   const explained = useMemo(
     () =>

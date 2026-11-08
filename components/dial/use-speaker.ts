@@ -2,12 +2,15 @@
 
 // Read-aloud for Dial's replies. One utterance at a time; cancelling is always safe.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { canSpeak, pickVoice } from "@/lib/assistant/speech";
+import { canSpeak, pickVoice, SPEECH_RATE } from "@/lib/assistant/speech";
+import { usePreferences } from "@/lib/preferences/provider";
 
 export function useSpeaker() {
   const [supported, setSupported] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const current = useRef<SpeechSynthesisUtterance | null>(null);
+  const { prefs } = usePreferences();
+  const rate = SPEECH_RATE[prefs.voiceRate];
 
   useEffect(() => setSupported(canSpeak(window)), []);
 
@@ -23,6 +26,7 @@ export function useSpeaker() {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-GB";
+    u.rate = rate;
     const v = pickVoice(window.speechSynthesis.getVoices());
     if (v) u.voice = v;
     let ended = false;
@@ -40,7 +44,7 @@ export function useSpeaker() {
     current.current = u;
     setSpeaking(true);
     window.speechSynthesis.speak(u);
-  }, []);
+  }, [rate]);
 
   useEffect(() => cancel, [cancel]);
   return { supported, speaking, speak, cancel };
