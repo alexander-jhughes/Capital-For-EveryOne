@@ -110,3 +110,49 @@ Rules the frontend applies:
 - The `transaction` card needs `evidenceIds`; with none (or only unknown ids) it shows a "Dial didn't point to a specific transaction" state.
 
 Backend asks: please send exactly these strings; send `evidenceIds` for `transaction` answers; leave `experience` out rather than guessing.
+
+## Product workstream (`feat/product-ux`): changes that touch other workstreams
+
+Everything else on this branch is in product-owned files (`components/{home,learn,goals,onboarding,settings}`, `lib/learn`,
+`lib/goals`, `lib/home`, `lib/preferences`, `app/(dial)`, `app/globals.css`). These four changes reach into shared or
+other owners' files, all additive. Please review them before merging.
+
+### 1. Goal kinds added for the product workstream (Alex: `lib/dial/types.ts`; backend: `lib/server/session.ts`)
+
+`GoalSpec` gains four kinds. The three existing kinds are unchanged, and Dial's `registry.ts` still creates only those
+three (it returns `null` for the others, so nothing in Dial changes until you choose to add them).
+
+| Kind | Shape | Measured from |
+|---|---|---|
+| `pay_down` | `{ target, by, startBalance }` | `account.currentBalance` |
+| `utilisation` | `{ percent (1-100), by, startBalance }` | `currentBalance / creditLimit` |
+| `save_up` | `{ purpose: "emergency" \| "purchase", target, by, saved, log: [date, saved][] (max 6), label? }` | the amount the person enters (the app can't see savings) |
+| `pay_on_time` | `{}` | this bill's minimum vs payments made in the app |
+
+- Validation: `sanitizeSpec` in `lib/goals/store.ts` (shared by the browser and `lib/server/account.ts`). Labels are
+  plain words only, 24 characters at most.
+- Session wire tags added in `lib/server/session.ts`: `d`, `u`, `s`, `t`. Old cookies decode exactly as before. Round
+  trip and validation tested in `lib/goals/new-kinds.test.ts`.
+- Goal titles for Dial come from `describeGoal`, which now covers every kind. Goals never reach Gemini.
+
+### 2. Home sections and two display preferences (Alex: voice and the command model read these)
+
+- `WIDGETS` gains `categories`, `upcoming`, `payments` and `progress`. Detailed view shows all 11 by default; Simple
+  still shows bill, insights and Spend Pause. `HOME_SECTIONS` in `lib/dial/types.ts` is **not** changed, so
+  `?focus=` and Dial's "show me…" don't know the new sections yet. `lib/ai/command-model.ts` picks up the new ids
+  automatically for show/hide/move/emphasise; its prompt line describing Home is unchanged.
+- `Preferences` gains `charts: "show" | "hide"` and `learning: "on" | "off"`, with matching `UiAction`s. `sanitize`
+  defaults old cookies to `show` and `on`.
+- `scripts/test-ml-browser.mjs`: one expected count updated (Detailed Home before the preview is now 10 sections, not 6).
+
+### 3. Demo reset (`app/demo/reset/route.ts`)
+
+`/?demo=reset`, or "Start the demo again" on the More page, clears this visitor's `cfe-session`, `cfe-prefs` and
+`cfe-mode` cookies and `cfe-*` browser storage, then turns Spend Pause back on with `RESET_SPEND_PAUSE` through the
+normal `PUT /api/spend-pause`. It only touches the visitor's own cookies.
+
+### 4. Browser suites that were already failing before this branch
+
+On a clean copy of `c5b7a0c`, `test:pay` (16 pass, stops at "Your bill is paid"), `test:browser` (Spend Pause: 1 pass,
+3 fail) and `test:stage6` (5 pass, 7 fail) fail the same way as on this branch. They seem to predate the server-side
+session. Owners: 6A and 6B.
