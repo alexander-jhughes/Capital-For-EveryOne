@@ -94,6 +94,8 @@ export interface VoiceEngineEvents {
 export interface VoiceEngine {
   readonly backend: RecognitionBackend;
   readonly state: VoiceState;
+  /** True while the microphone is open. In continuous mode it can be on while Dial is "responding". */
+  readonly listening: boolean;
   start(mode: ListenMode): void;
   /** Stop listening and deliver the pending utterance if it has words. */
   stop(): void;

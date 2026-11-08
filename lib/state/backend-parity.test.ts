@@ -49,7 +49,8 @@ describe("the screens and Dial's backend agree", () => {
     expect(parseClientState({ payments: [{ id: "pay-1", date: DEMO_TODAY, amount: over }] }, DEMO_TODAY)).toBeNull();
   });
 
-  it("at every step of 2,000 random histories", () => {
+  // 32,000 checked steps take ~4 s alone and ~20 s on a busy machine; the default 5 s timeout made it flaky.
+  it("at every step of 2,000 random histories", { timeout: 60_000 }, () => {
     let seed = 20261108;
     const rand = (n: number) => {
       seed = (seed * 1664525 + 1013904223) % 4294967296;
