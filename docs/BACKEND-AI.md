@@ -185,7 +185,11 @@ The full description is in `docs/profile-model/README.md`. In short:
 - **Consent.** Nothing is stored until tailoring is on. Health needs need a second consent. Turning tailoring off or
   "Delete everything about me" deletes the cookie, and the next answer is untailored (tested).
 - **What goes to Groq.** Only the wording rules, never the needs, type, consent, cookies or ids (tested on the
-  actual request bodies).
+  actual request bodies). Some rules come from health needs (for example "Long text or concentrating can be hard"
+  turns on short answers); the health consent text says that wording rules, never what was told, go to the AI
+  provider.
+- **Requests in order.** The browser sends profile requests one at a time, so a usage count can't re-sign a profile
+  that was just deleted. Dial's per-tab answer cache includes the profile in its key.
 
 Measured results (details in the evaluation files):
 
@@ -289,6 +293,9 @@ Playwright is installed globally.
 - **The help detector is pattern-based**: it missed 3 of 12 held-out requests ("My debts are getting on top of
   me", "I'm stuck with my finances, can someone help?", "I'm going to miss my payment").
 - **Usage counts are browser-reported**, capped at 10, and only affect presentation.
+- **Two tabs at once.** Profile requests are ordered within one tab. If a person deletes their profile in one tab
+  while another tab's usage count is in flight, that count could re-sign the old profile. A database store with a
+  server-side delete would close this; with signed cookies it can't be closed fully.
 - **The accessibility engine and Whisper are not integrated** (section 8).
 - **Not verified against a live Groq key or the Vercel Preview from this environment**: its network blocks both.
   All Groq behaviour is tested against a fake Groq that mimics the API.
