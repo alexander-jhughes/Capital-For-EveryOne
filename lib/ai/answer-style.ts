@@ -24,7 +24,19 @@ const HELP_PATTERNS = [
   /\b(debt|money) (help|advice|worries|problems?)\b/i,
   /\b(worried|anxious|stressed|scared) about (money|my debt|debt|paying|my bill|bills)\b/i,
   /\b(financial|money) (difficulty|difficulties|hardship|trouble)\b/i,
-  /\bbehind (on|with) (my )?(bills|payments|repayments)\b/i,
+  /\bbehind (on|with) (my )?(bills?|payments?|repayments?|credit card|card|rent|mortgage|council tax)\b/i,
+  // Widened after the first unseen evaluation (docs/profile-model/UNSEEN-EVALUATION.md) caught only 6 of 16.
+  /\b(drowning|buried|swamped|overwhelmed|sinking)\b.{0,20}\b(debts?|bills|money|finances)\b/i,
+  /\bhelp( me)? with (my )?(money|debts?|bills|finances)\b/i,
+  /\b(debts?|money|financial)\b.{0,15}\b(charity|charities|adviser|advisor|counsell?ing|counsell?or)\b/i,
+  /\b(can'?t|cannot|won'?t be able to|not able to)\b.{0,15}\b(make|pay|afford|cover|manage|cope with)\b.{0,25}\b(payments?|bills?|card|repayments?|this|debts?)\b/i,
+  /\b(money|cash|things|finances) (is|are|'s|'re) (really |very |so |a bit )?tight\b/i,
+  /\bmissed (a |my |the )?(payment|repayment|bill)\b/i,
+  /\b(don'?t|do not) know how (i'?ll|i will|to) (pay|afford|manage|cope)\b/i,
+  /\b(i'?m|i am) (skint|broke|struggling)\b/i,
+  /\b(struggling|struggle)\b.{0,15}\b(financially|money|debts?|bills|payments?)\b/i,
+  /\b(too much|so much|a lot of) debt\b/i,
+  /\b(talk|speak) to (someone|somebody|a person)\b.{0,20}\b(debts?|money|finances|bills)\b/i,
 ];
 
 export const isHelpRequest = (question: string) => HELP_PATTERNS.some((p) => p.test(question));

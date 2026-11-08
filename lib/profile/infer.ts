@@ -63,7 +63,8 @@ export function adaptationsFor(type: PersonType | null, needs: NeedId[]): Adapta
   const base = type ? BY_TYPE[type] : { cards: [] as CardId[], dialSuggestions: [] as string[] };
   const signpost = type === "stretched" || type === "life_change" || SIGNPOST_NEEDS.some(has);
   const style: AnswerStyle = {
-    plain: type === "clear_simple" || type === "building" || has("plain_words") || has("numbers") || has("english") || has("reading"),
+    // A need the person stated is always honoured, whatever type the model picks (docs/profile-model/UNSEEN-EVALUATION.md).
+    plain: type === "clear_simple" || type === "building" || has("plain_words") || has("numbers") || has("english") || has("reading") || has("new_to_credit"),
     brief: type === "life_change" || has("short_answers") || has("reading") || has("memory"),
     stepByStep: type === "clear_simple" || has("step_by_step") || has("digital"),
     gentle: signpost,

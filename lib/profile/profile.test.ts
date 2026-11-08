@@ -146,6 +146,16 @@ describe("inferProfile", () => {
     expect(r.reasons).toEqual(["You told us: someone close to me has died"]);
   });
 
+  it("a stated need is honoured whatever type is picked or chosen", () => {
+    const wants = { plain_words: "plain", new_to_credit: "plain", short_answers: "brief", step_by_step: "stepByStep", money_tight: "gentle" } as const;
+    for (const t of [null, ...PERSON_TYPES]) {
+      for (const [need, flag] of Object.entries(wants)) {
+        expect(adaptationsFor(t, [need as keyof typeof wants]).style[flag]).toBe(true);
+      }
+      expect(adaptationsFor(t, ["behind_bills"]).signpost).toBe(true);
+    }
+  });
+
   it("only produces allowlisted cards and display actions", () => {
     for (const t of [null, ...PERSON_TYPES]) {
       const a = adaptationsFor(t, [...NEED_IDS]);
