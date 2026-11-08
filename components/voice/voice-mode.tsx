@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Mic, Pencil, Send, Square, Volume2, VolumeX, X 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { spokenText } from "@/lib/dial/runner";
 import { usePreferences } from "@/lib/preferences/provider";
+import { useProfile } from "@/lib/profile/provider";
 import type { Utterance } from "@/lib/voice/types";
 import { DialReply } from "../dial/dial-reply";
 import { useDialSession } from "../dial/session";
@@ -40,6 +41,10 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
   const inputId = useId();
   const session = useDialSession();
   const { prefs } = usePreferences();
+  // With About you tailoring on, the suggested questions follow the person's profile. They run through the same checked path as anything typed.
+  const { profile } = useProfile();
+  const tailored = profile?.consent ? profile.result?.adaptations.dialSuggestions : undefined;
+  const suggestions = tailored?.length ? tailored : SUGGESTIONS;
   const speaker = useSpeaker();
   const [docked, setDocked] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
@@ -269,7 +274,7 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
             <div className="flex flex-col gap-2">
               <p className="text-sm font-bold text-[#aab4c8]">Try</p>
               <ul className="flex flex-wrap gap-2">
-                {SUGGESTIONS.map((s) => (
+                {suggestions.map((s) => (
                   <li key={s}>
                     <button type="button" onClick={() => void handle(s)} className={`${btn} min-h-10 border border-[#3a4766] bg-[#1c2640] text-sm font-semibold hover:bg-[#27314a]`}>
                       {s}
