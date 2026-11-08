@@ -406,7 +406,9 @@ async function scenarios(label, viewport) {
     const page = await open({ viewport, prefs: { listenMode: "continuous", textSize: 125 }, hold: "**/vendor/transformers.min.js" });
     await listen(page);
     await fake(page, "final", "Make the text bigger");
-    await panel(page).getByText("Thinking", { exact: false }).first().waitFor();
+    // Past the engine's pause (so it has been sent) and well inside the 4 seconds it waits for the held model. Dial shows
+    // no "Thinking" yet: its turn card appears only once that wait is over.
+    await page.waitForTimeout(1500);
     check("the first request is still in flight, nothing changed yet", (await textSize(page)) === "125", await textSize(page));
     await fake(page, "final", "Actually, not bigger, smaller");
     await page.waitForFunction(() => document.documentElement.dataset.text === "100", null, { timeout: 15000 }).catch(() => {});
