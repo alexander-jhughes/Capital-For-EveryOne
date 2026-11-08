@@ -34,10 +34,10 @@ export function pickVoice<V extends { lang: string }>(voices: V[]): V | null {
 /** Plain-English message for a recognition error code (the browser's code, or the engine's VoiceErrorCode). */
 export function voiceErrorMessage(code: string): string {
   if (code === "not-allowed" || code === "service-not-allowed") {
-    return "Microphone access is blocked. In Chrome, click the icon at the left of the address bar and allow the microphone. On a Mac, also check System Settings, Privacy and Security, Microphone. You can type instead.";
+    return "Microphone access is blocked. In Chrome, click the icon at the left of the address bar and allow the microphone. On a Mac, also check System Settings, Privacy and Security, Microphone. You can type your question instead.";
   }
   if (code === "not-started") {
-    return "The microphone didn't start. If your browser is asking for permission, choose Allow. Otherwise check the microphone icon in the address bar, then tap the microphone again. You can type instead.";
+    return "The microphone didn't start. If your browser is asking for permission, choose Allow. Otherwise check the microphone icon in the address bar, then tap the microphone again. You can type your question instead.";
   }
   if (code === "no-speech") return "I didn't hear anything. Try again, or type your question.";
   if (code === "aborted") return "";

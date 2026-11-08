@@ -27,7 +27,10 @@
   --text-base: calc(var(--base) * var(--scale));
   --text-lg: calc(var(--base-lg) * var(--scale));
   --text-xl: calc(var(--base-xl) * var(--scale));
-  --text-figure: calc(var(--base-figure) * var(--scale));
+  /* Money figures are already the biggest thing on screen: they grow with the text, but less than body text does,
+     so "£1,069.89" still fits a card at 200% instead of breaking mid-number. */
+  --figure-scale: var(--scale);
+  --text-figure: calc(var(--base-figure) * var(--figure-scale));
   --target-min: calc(var(--base-target) + var(--target-boost));
   --space: calc(var(--base-space) * var(--space-scale));
 }
@@ -50,6 +53,8 @@
 :root[data-text="125"] { --scale: 1.25; --ui-scale: 1.12; }
 :root[data-text="150"] { --scale: 1.5; --ui-scale: 1.25; }
 :root[data-text="200"] { --scale: 2; --ui-scale: 1.5; }
+:root[data-text="150"] { --figure-scale: 1.3; }
+:root[data-text="200"] { --figure-scale: 1.5; }
 html { font-size: calc(16px * var(--ui-scale)); }
 :root[data-spacing="roomy"] { --space-scale: 1.5; }
 :root[data-targets="large"] { --target-boost: 16px; }
@@ -291,6 +296,7 @@ html { font-size: calc(16px * var(--ui-scale)); }
 @utility figure {
   /* Caps the size on narrow screens so 200% text never pushes money off the screen. */
   font-size: min(var(--text-figure), 17vw);
+  white-space: nowrap;
   line-height: 1;
   font-weight: 750;
   letter-spacing: -0.035em;
@@ -398,9 +404,10 @@ html[data-voice-open="true"] body {
 body:has(> * nav[aria-label="Main"]) {
   border-top: 4px solid #d03027;
 }
-/* Wide screens: the page makes room for the panel, so it sits beside the content instead of over it. */
+/* Wide screens at standard text: the page makes room for the panel, so it sits beside the content instead of over
+   it. At 150% and 200% text the rail and panel are wider too, so the panel floats instead of squeezing the page. */
 @media (min-width: 1200px) {
-  html[data-voice-open="true"] body {
+  html[data-voice-open="true"]:not([data-text="150"]):not([data-text="200"]) body {
     padding-right: calc(26rem + 2.5rem);
   }
 }

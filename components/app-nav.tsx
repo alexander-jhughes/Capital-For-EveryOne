@@ -43,7 +43,7 @@ export function AppNav() {
   return (
     <nav
       aria-label="Main"
-      className="z-40 bg-card px-1 lg:bg-[#00304f] lg:text-white pb-[env(safe-area-inset-bottom)] lg:px-5 shadow-[0_-1px_0_var(--border)] [@media(min-height:480px)]:sticky [@media(min-height:480px)]:bottom-0 lg:order-first lg:flex lg:h-dvh lg:w-64 lg:shrink-0 lg:flex-col lg:p-5 lg:shadow-[1px_0_0_var(--border)] lg:[@media(min-height:480px)]:top-0"
+      className="z-40 bg-card px-1 lg:bg-[#00304f] lg:text-white pb-[env(safe-area-inset-bottom)] lg:px-5 shadow-[0_-1px_0_var(--border)] [@media(min-height:480px)]:sticky [@media(min-height:480px)]:bottom-0 lg:order-first lg:flex lg:h-dvh lg:w-64 lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:p-5 lg:shadow-[1px_0_0_var(--border)] lg:[@media(min-height:480px)]:top-0"
     >
       <div className="mb-6 hidden lg:block">
         <Wordmark />
@@ -80,7 +80,7 @@ export function AppNav() {
           </Link>
         </li>
       </ul>
-      <p className="mt-auto hidden pt-6 text-sm text-[#cfe0f0] lg:block">
+      <p className="mt-auto hidden shrink-0 pt-6 text-sm text-[#cfe0f0] lg:block">
         Independent hackathon concept. Not an official Capital One product.
       </p>
     </nav>

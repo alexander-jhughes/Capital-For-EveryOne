@@ -204,7 +204,7 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
               title={ai === "on" ? "Gemini is set up on the server" : "GEMINI_API_KEY isn't set on the server, so answers come from the account checks only"}
             >
               <span aria-hidden className={`size-1.5 rounded-full ${ai === "on" ? "bg-[#86e0a6]" : "bg-[#aab4c8]"}`} />
-              {ai === "checking" ? "Checking AI" : ai === "on" ? "Gemini on" : "Gemini off"}
+              <span className="max-[479px]:sr-only">{ai === "checking" ? "Checking AI" : ai === "on" ? "Gemini on" : "Gemini off"}</span>
             </span>
           </h2>
           <div className="flex shrink-0 gap-1.5">
