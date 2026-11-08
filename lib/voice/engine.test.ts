@@ -528,11 +528,12 @@ describe("errors", () => {
 });
 
 describe("privacy: where speech is recognised", () => {
-  it("uses on-device recognition when the person chose it and the language is installed", async () => {
+  // SpeechRecognition.available() is never called: it crashed Chromium in testing. On-device is simply tried, and a
+  // missing language pack comes back as a recogniser error.
+  it("uses on-device recognition when the person chose it, starting inside the click without probing", () => {
     const { engine, rec, available } = setup({ available: "available", allowCloud: false });
     engine.start("tap");
-    await flush();
-    expect(available).toHaveBeenCalledWith({ langs: ["en-GB"], processLocally: true });
+    expect(available).not.toHaveBeenCalled();
     expect(engine.backend).toBe("on-device");
     expect(rec().processLocally).toBe(true);
     expect(rec().lang).toBe("en-GB");
@@ -540,18 +541,24 @@ describe("privacy: where speech is recognised", () => {
     expect(rec().interimResults).toBe(true);
   });
 
-  it.each(["downloadable", "downloading", "unavailable"])("uses the browser's online service only with consent (%s on device)", async (status) => {
-    const allowed = setup({ available: status, allowCloud: true });
-    allowed.engine.start("tap");
-    await flush();
-    expect(allowed.engine.backend).toBe("cloud");
-    expect(allowed.rec().processLocally).not.toBe(true);
+  it("with the online service allowed, starts at once inside the click, without asking about on-device support", () => {
+    const { engine, world, available, rec } = setup({ available: "available", allowCloud: true });
+    engine.start("tap");
+    expect(world.recs).toHaveLength(1);
+    expect(available).not.toHaveBeenCalled();
+    expect(engine.backend).toBe("cloud");
+    expect(rec().processLocally).not.toBe(true);
+  });
 
-    const refused = setup({ available: status, allowCloud: false });
-    refused.engine.start("tap");
-    await flush();
-    expect(refused.engine.backend).toBe("none");
-    expect(refused.world.recs).toHaveLength(0);
+  it("on-device without the language pack: the recogniser's error becomes 'language-unavailable', and it isn't retried", () => {
+    const { engine, log, world, rec } = setup({ available: "downloadable", allowCloud: false });
+    engine.start("continuous");
+    rec().begin();
+    rec().error("language-not-supported");
+    expect(log.errors).toEqual([expect.objectContaining({ code: "language-unavailable", recoverable: false })]);
+    expect(log.errors[0].message).toMatch(/Display and voice/);
+    expect(engine.state).toBe("failed");
+    expect(world.recs).toHaveLength(1);
   });
 
   it("without an on-device API (Safari), cloud needs consent", () => {
@@ -562,17 +569,7 @@ describe("privacy: where speech is recognised", () => {
     const refused = setup({ allowCloud: false });
     refused.engine.start("tap");
     expect(refused.world.recs).toHaveLength(0);
-  });
-
-  it("'none' never opens the microphone and explains what to do", async () => {
-    const { engine, log, world } = setup({ available: "unavailable", allowCloud: false });
-    engine.start("continuous");
-    await flush();
-    expect(world.recs).toHaveLength(0);
-    expect(log.errors).toEqual([expect.objectContaining({ code: "language-unavailable", recoverable: false })]);
-    expect(log.errors[0].message).toMatch(/type your question/);
-    expect(log.errors[0].message).toMatch(/Display and voice/);
-    expect(engine.state).toBe("failed");
+    expect(refused.log.errors).toEqual([expect.objectContaining({ code: "language-unavailable", recoverable: false })]);
   });
 
   it("reports 'unsupported' when there is no speech recognition at all", () => {
@@ -580,24 +577,6 @@ describe("privacy: where speech is recognised", () => {
     expect(engine.backend).toBe("none");
     engine.start("tap");
     expect(log.errors).toEqual([expect.objectContaining({ code: "unsupported", recoverable: false })]);
-  });
-
-  it("with the online service allowed, starts at once inside the click, without asking about on-device support", () => {
-    const { engine, world, available } = setup({ available: "available", allowCloud: true });
-    engine.start("tap");
-    // No await: the recogniser is created synchronously, so the browser's permission prompt belongs to the click.
-    expect(world.recs).toHaveLength(1);
-    expect(available).not.toHaveBeenCalled();
-    expect(engine.backend).toBe("cloud");
-  });
-
-  it("stop() while the on-device check is running never opens the microphone", async () => {
-    const { engine, world } = setup({ available: "available", allowCloud: false });
-    engine.start("tap");
-    engine.stop();
-    await flush();
-    expect(world.recs).toHaveLength(0);
-    expect(engine.state).toBe("idle");
   });
 
   it("detectBackend answers without opening the microphone", async () => {
@@ -611,8 +590,6 @@ describe("privacy: where speech is recognised", () => {
     expect(await detectBackend(make("downloadable"), "en-GB", false)).toBe("none");
     expect(await detectBackend(make(), "en-GB", true)).toBe("cloud");
     expect(await detectBackend({}, "en-GB", true)).toBe("none");
-    const throws = { SpeechRecognition: Object.assign(class {}, { available: () => Promise.reject(new Error("no")) }) };
-    expect(await detectBackend(throws, "en-GB", false)).toBe("none");
   });
 });
 

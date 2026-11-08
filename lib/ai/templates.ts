@@ -14,6 +14,11 @@ export function templateAnswer(set: AnswerFactSet, question = ""): string {
   const values = (prefix: string) => set.facts.filter((f) => f.key.startsWith(prefix)).map((f) => f.value);
 
   switch (set.intent) {
+    case "account_overview": {
+      const statement = value("statement_balance");
+      const bill = statement === "£0.00" ? "Your latest bill is paid" : `Your bill is ${statement}, due on ${value("due_date")}, and the minimum payment is ${value("minimum_payment")}`;
+      return `${bill}. You have spent ${value("month_to_date_total")} so far this month, and you owe ${value("current_balance")} in total.`;
+    }
     case "spend_this_month": {
       const top = value("month_top_category");
       const kind = spendQuestion(question);

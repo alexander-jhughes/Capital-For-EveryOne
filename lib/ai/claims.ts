@@ -133,6 +133,22 @@ function claimsFor(set: AnswerFactSet): ClaimSet {
   };
 
   switch (set.intent) {
+    case "account_overview": {
+      // Each figure in a summary must be described as what it is. Swapped bill and total are also caught in guard.ts.
+      add(money("statement_balance"), { must: /\b(bill|statement)\b/i });
+      add(money("current_balance"), { must: /\b(owe|owing|total|altogether|everything|balance)\b/i });
+      add(money("minimum_payment"), { must: /\b(minimum|least|smallest)\b/i });
+      add(money("month_to_date_total"), { must: /\b(spent|spend|spending|so far|this month|november)\b/i });
+      add(money("available_credit"), { must: /\b(available|left|spare|can spend|still)\b/i });
+      add(money("credit_limit"), { must: /\blimit\b/i });
+      const top = value("month_top_category")?.split(",")[0];
+      if (top) add(money("month_top_category"), { must: new RegExp(`\\b${escapeRegExp(top)}\\b`, "i") });
+      for (const f of [...withPrefix("subscription_"), ...withPrefix("duplicate_"), ...withPrefix("price_change_")]) {
+        const shop = noteShop(shopFrom(f.value, /^(.+?)(?:, £| went )/));
+        for (const amount of moneyIn(f.value)) add(amount, { merchant: shop, dates: datesIn(f.value) });
+      }
+      break;
+    }
     case "spend_this_month": {
       const category = value("month_top_category")?.split(",")[0];
       const categoryWords = category ? `|${escapeRegExp(category)}` : "";

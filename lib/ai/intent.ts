@@ -6,7 +6,11 @@ const simplify = (text: string) => text.toLowerCase().replace(/[’']/g, "");
 /** The facts can't answer this. It gets "I can't tell" directly and never reaches the model. */
 export const UNSUPPORTED = "unsupported";
 /** Stage 2's intents plus two about one shop. Kept here so the shared Intent type doesn't change. */
-export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds" | "subscription_list" | "transaction_lookup" | "category_spending" | "payment_history";
+export type AnswerIntent = Intent | "merchant_transactions" | "merchant_refunds" | "subscription_list" | "transaction_lookup" | "category_spending" | "payment_history" | "account_overview";
+
+/** "Tell me about my account", "give me a summary", "how am I doing": the whole account in two sentences. */
+const OVERVIEW =
+  /\b(tell me about my (accounts?|card|credit card|finances|money)|(give me |an? |my )?(account |card )?(summary|overview|rundown)( of my (accounts?|card|finances|money))?|summari[sz]e my (accounts?|card|finances|money)|how am i doing|how (is|are|s) my (accounts?|card|finances|money)( doing| looking)?|what(s| is) (going on|happening) with my (accounts?|card|money|finances)|status of my (accounts?|card)|account status|where do i stand|my finances)\b/;
 export type IntentMatch = AnswerIntent | typeof UNSUPPORTED | null;
 export type MerchantPeriod = "all" | "this_month" | "last_month";
 
@@ -200,6 +204,7 @@ export function matchIntent(question: string, names: KnownNames = { merchants: [
   const q = simplify(question);
   if (OUT_OF_SCOPE.test(q)) return UNSUPPORTED;
   if (PAYMENT_HISTORY.test(q)) return "payment_history";
+  if (OVERVIEW.test(q) && !SPEND_WORD.test(q)) return "account_overview";
   if (isCategoryQuestion(q, names.categories) && shopsIn(q, names.merchants).length === 0) {
     const otherPeriod = OTHER_PERIOD.test(q) && !/\b(this month|last month|november|october)\b/.test(q);
     return otherPeriod || NARROW_PHRASE_AT.test(q) ? UNSUPPORTED : "category_spending";

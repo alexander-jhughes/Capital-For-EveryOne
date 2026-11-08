@@ -81,7 +81,10 @@ function knownBackend(win: unknown, allowCloud: boolean): RecognitionBackend | n
   // starts inside the person's click (so the browser's permission prompt appears at once), and nothing can hang or
   // crash before the microphone opens: SpeechRecognition.available() crashed headless Chromium in testing.
   if (allowCloud) return "cloud";
-  if (typeof Rec.available === "function") return null;
+  // On-device only: just try it. SpeechRecognition.available() is never called, because it crashed Chromium in testing.
+  // If the language pack isn't installed, the recogniser reports "language-not-supported", which becomes
+  // "language-unavailable" and the app offers the online service.
+  if ("processLocally" in Rec.prototype || typeof Rec.available === "function") return "on-device";
   return "none";
 }
 

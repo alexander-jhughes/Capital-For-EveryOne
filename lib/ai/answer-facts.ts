@@ -25,8 +25,31 @@ function withEvidence(base: Pick<AnswerFactSet, "intent" | "asOf" | "merchant">,
   return { ...base, facts, evidenceIds, evidence };
 }
 
+const OVERVIEW_KEYS = ["statement_balance", "due_date", "days_until_due", "minimum_payment", "current_balance", "month_to_date_total", "month_top_category"];
+
+/**
+ * The whole account in a few verified facts, for open questions like "tell me about my account". Every figure comes
+ * from the same builders as the specific intents. No evidence rows: it's a summary, and each figure links elsewhere.
+ */
+export function overviewFacts(ctx: FactContext): AnswerFactSet {
+  const pick = (set: AnswerFactSet) => set.facts.filter((f) => OVERVIEW_KEYS.includes(f.key));
+  const flagged = [...answerFacts("duplicates", ctx).facts, ...answerFacts("price_changes", ctx).facts].filter((f) => f.key.startsWith("duplicate_") || f.key.startsWith("price_change_"));
+  const facts: Fact[] = [
+    ...pick(answerFacts("days_until_due", ctx, "how much do I owe")),
+    { key: "available_credit", label: "Credit still available to spend", value: formatPence(Math.max(0, ctx.account.creditLimit - ctx.account.currentBalance)), evidenceIds: [] },
+    { key: "credit_limit", label: "Credit limit", value: formatPence(ctx.account.creditLimit), evidenceIds: [] },
+    ...pick(answerFacts("spend_this_month", ctx)),
+    ...answerFacts("subscription_list", ctx).facts.filter((f) => f.key.startsWith("subscription_")),
+    ...flagged,
+  ].map((f) => ({ ...f, evidenceIds: [] }));
+  const seen = new Set<string>();
+  const unique = facts.filter((f) => !seen.has(f.key) && seen.add(f.key));
+  return { intent: "account_overview", asOf: ctx.today, facts: unique, evidenceIds: [], evidence: [] };
+}
+
 /** The facts for one question, with evidence limited to what supports the answer and both balances available. */
 export function answerFacts(intent: AnswerIntent, ctx: FactContext, question = "", merchant?: string, reference?: string): AnswerFactSet {
+  if (intent === "account_overview") return overviewFacts(ctx);
   if (intent === "category_spending") {
     const categories = [...new Set(ctx.txns.filter((t) => t.category !== "Payments").map((t) => t.category))];
     const facts = categoryFacts(ctx, merchantPeriod(question) === "last_month" ? "last_month" : "this_month", categoryRank(question, categories), namedCategories(question, categories));

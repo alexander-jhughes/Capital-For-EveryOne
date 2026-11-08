@@ -84,6 +84,25 @@ function anchorProblem(reply: string, facts: AnswerFactSet, question: string): s
   if (LOWER.test(valuesText) && !HIGHER.test(valuesText) && HIGHER.test(reply)) return contradicted;
 
   switch (facts.intent) {
+    case "account_overview": {
+      // Each amount is described by the words just before it (back to the previous amount) and just after it.
+      const current = value("current_balance");
+      const statement = value("statement_balance");
+      const minimum = value("minimum_payment");
+      for (const sentence of reply.split(/(?<=[.!?])\s+/)) {
+        const found = [...sentence.matchAll(/£\s?[\d,]+(?:\.\d{2})?/g)];
+        for (let k = 0; k < found.length; k++) {
+          const amount = plainAmount(found[k][0]);
+          const start = found[k].index ?? 0;
+          const before = sentence.slice(k === 0 ? 0 : (found[k - 1].index ?? 0) + found[k - 1][0].length, start);
+          const after = sentence.slice(start + found[k][0].length, k + 1 < found.length ? found[k + 1].index : undefined);
+          if (current && statement !== current && amount === plainAmount(current) && /\b(bill|statement|minimum|due)\b/i.test(before)) return contradicted;
+          if (statement && statement !== current && amount === plainAmount(statement) && /\b(in total|altogether|current|everything)\b/i.test(before)) return contradicted;
+          if (minimum && amount === plainAmount(minimum) && !/\b(minimum|least|smallest)\b/i.test(before + after)) return contradicted;
+        }
+      }
+      return null;
+    }
     case "category_spending": {
       if (value("no_categories")) return DENIAL.test(reply) ? null : contradicted;
       const rows = facts.facts.filter((f) => /^category_(biggest|smallest|\d+)$/.test(f.key));

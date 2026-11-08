@@ -62,6 +62,8 @@ export function askIntentFor(intent: AnswerIntent, question: string): AskIntent 
       return "spending_insights";
     case "payment_history":
       return "payment_planning";
+    case "account_overview":
+      return "general";
   }
 }
 
