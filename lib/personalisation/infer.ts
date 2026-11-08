@@ -4,7 +4,7 @@
 import { isValidModel, type ModelArtifact } from "./artifact";
 import { explicitFingerprint, extractFeatures, featureIndex, FEATURES, hasInformativeFeatures, type PersonalisationInput } from "./features";
 import { contributions, predictProba } from "./forest";
-import { INITIAL_STATE, type PersonalisationState, REJECTION_LIMIT, sanitizeState } from "./state";
+import { INITIAL_STATE, isPaused, type PersonalisationState, REJECTION_LIMIT, sanitizeState } from "./state";
 import { type LayoutStyle, type SuggestedAction, TARGET_IDS, type TargetId, TARGETS, targetStatus } from "./targets";
 
 export interface PreferenceRecommendation {
@@ -34,7 +34,9 @@ export type WithheldReason =
   | "no_explanation"
   | "invalid_output"
   /** Another suggestion that changes the same part of the screen was more confident. */
-  | "overlaps_other";
+  | "overlaps_other"
+  /** A different suggestion was already shown this visit, or the person already answered one (controller.forVisit). */
+  | "one_per_visit";
 
 export type PersonalisationStatus =
   | "ok"
@@ -42,6 +44,8 @@ export type PersonalisationStatus =
   /** The person hasn't been asked yet: offer the opt-in, never predict. */
   | "needs_consent"
   | "disabled"
+  /** The person said "No thanks" BACKOFF_AFTER times in a row: nothing is suggested until they change a setting themselves. */
+  | "paused"
   /** Nothing chosen beyond the defaults: nothing to learn from. */
   | "insufficient_data"
   /** Model missing, invalid or failed: the app carries on exactly as without it. */
@@ -144,6 +148,7 @@ export function recommendPreferences(
     if (state.consent === "unset") return empty("needs_consent");
     if (state.consent !== "granted") return empty("disabled");
     if (!usable(model)) return empty("unavailable");
+    if (isPaused(state)) return empty("paused", model);
 
     const prefs = input?.preferences;
     if (typeof prefs !== "object" || prefs === null) return empty("insufficient_data", model);

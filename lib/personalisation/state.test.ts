@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import { explicitFingerprint, extractFeatures, FEATURE_IDS, hasInformativeFeatures, MISSING, SIGNAL_CAP } from "./features";
 import { DEFAULTS } from "./examples";
 import {
+  BACKOFF_AFTER,
   clearState,
+  clearVisit,
   INITIAL_STATE,
+  isPaused,
+  loadVisit,
+  NEW_VISIT,
+  noteOwnChange,
   loadState,
   PERSONALISATION_STORAGE_KEY,
   recordOutcome,
@@ -12,8 +18,10 @@ import {
   resetPersonalisation,
   sanitizeState,
   saveState,
+  saveVisit,
   setConsent,
   signalForAction,
+  VISIT_STORAGE_KEY,
 } from "./state";
 
 const granted = setConsent(INITIAL_STATE, true);
@@ -84,6 +92,54 @@ describe("outcomes", () => {
   });
 });
 
+describe("back-off after No thanks in a row", () => {
+  it("two No thanks in a row, on any suggestions, pause everything until the person changes a setting themselves", () => {
+    let s = recordOutcome(granted, "largerText", "rejected", "f");
+    expect(isPaused(s)).toBe(false);
+    s = recordOutcome(s, "calmLayout", "ignored", "f");
+    expect(s.declines).toBe(1); // Not now is not a no
+    s = recordOutcome(s, "voiceFirst", "rejected", "f");
+    expect(isPaused(s)).toBe(true);
+    s = recordOutcome(s, "stepByStep", "rejected", "f");
+    expect(s.declines).toBe(BACKOFF_AFTER);
+    expect(isPaused(noteOwnChange(s))).toBe(false);
+    // The per-suggestion limit is separate and unchanged.
+    expect(noteOwnChange(s).rejected.largerText?.count).toBe(1);
+  });
+
+  it("Keep it ends a run of noes; turning suggestions off or resetting forgets it", () => {
+    const s = recordOutcome(recordOutcome(granted, "largerText", "rejected", "f"), "calmLayout", "accepted", "f");
+    expect(s.declines).toBe(0);
+    const paused = recordOutcome(recordOutcome(granted, "largerText", "rejected", "f"), "calmLayout", "rejected", "f");
+    expect(setConsent(paused, false)).toEqual({ ...INITIAL_STATE, consent: "declined" });
+    expect(resetPersonalisation(paused).declines).toBe(0);
+    expect(noteOwnChange(INITIAL_STATE)).toBe(INITIAL_STATE);
+  });
+});
+
+describe("visit (sessionStorage)", () => {
+  it("round-trips only the suggestion id and whether it was answered, with no timestamps", () => {
+    const store = memoryStorage();
+    expect(saveVisit({ shown: "calmLayout", answered: true }, store)).toBe(true);
+    expect(JSON.parse(store.m.get(VISIT_STORAGE_KEY)!)).toEqual({ shown: "calmLayout", answered: true });
+    expect(loadVisit(store)).toEqual({ shown: "calmLayout", answered: true });
+    expect(clearVisit(store)).toBe(true);
+    expect(loadVisit(store)).toEqual(NEW_VISIT);
+  });
+
+  it("never throws and sanitises what it reads", () => {
+    expect(loadVisit(broken)).toEqual(NEW_VISIT);
+    expect(saveVisit(NEW_VISIT, broken)).toBe(false);
+    expect(clearVisit(broken)).toBe(false);
+    expect(loadVisit(undefined)).toEqual(NEW_VISIT);
+    const store = memoryStorage();
+    store.setItem(VISIT_STORAGE_KEY, JSON.stringify({ shown: "deleteAccount", answered: "yes", at: 123 }));
+    expect(loadVisit(store)).toEqual(NEW_VISIT);
+    store.setItem(VISIT_STORAGE_KEY, "{nope");
+    expect(loadVisit(store)).toEqual(NEW_VISIT);
+  });
+});
+
 describe("reset", () => {
   it("forgets counts and answers but keeps the on/off choice", () => {
     const used = recordOutcome(recordSignal(granted, "textLarger"), "largerText", "rejected", "f");
@@ -124,9 +180,19 @@ describe("storage", () => {
       signals: { textLarger: 999, voiceSessions: -3, evil: 5, lessOnScreen: "7" },
       rejected: { largerText: { count: 50, fingerprint: "x" }, nope: { count: 1, fingerprint: "y" }, calmLayout: { count: 0, fingerprint: "z" } },
       ignored: { voiceFirst: "a", other: "b", calmLayout: 4 },
+      declines: 99,
       extra: "dropped",
     });
-    expect(s).toEqual({ version: 1, consent: "granted", signals: { textLarger: SIGNAL_CAP }, rejected: { largerText: { count: REJECTION_LIMIT, fingerprint: "x" } }, ignored: { voiceFirst: "a" }, accepted: {} });
+    expect(s).toEqual({
+      version: 1,
+      consent: "granted",
+      signals: { textLarger: SIGNAL_CAP },
+      rejected: { largerText: { count: REJECTION_LIMIT, fingerprint: "x" } },
+      ignored: { voiceFirst: "a" },
+      accepted: {},
+      declines: BACKOFF_AFTER,
+    });
+    expect(sanitizeState({ version: 1, consent: "granted", declines: "2" }).declines).toBe(0);
     expect(sanitizeState({ version: 2, consent: "granted" })).toEqual(INITIAL_STATE);
     expect(sanitizeState({ version: 1, consent: "declined", signals: { textLarger: 3 } })).toEqual({ ...INITIAL_STATE, consent: "declined" });
   });

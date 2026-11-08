@@ -6,7 +6,7 @@ import { FEATURE_IDS, FEATURES, type PersonalisationInput } from "./features";
 import { getPersonalisation, loadModel } from "./index";
 import { recommendPreferences } from "./infer";
 import modelJson from "./model.json";
-import { INITIAL_STATE, type PersonalisationState, recordOutcome, recordSignal, resetPersonalisation, setConsent } from "./state";
+import { INITIAL_STATE, noteOwnChange, type PersonalisationState, recordOutcome, recordSignal, resetPersonalisation, setConsent } from "./state";
 import { TARGET_IDS, TARGETS } from "./targets";
 
 const model = modelJson as unknown as ModelArtifact;
@@ -165,7 +165,8 @@ describe("inference: the person stays in control", () => {
     const changed: PersonalisationInput = { ...TALKER.input, preferences: { ...DEFAULTS, targets: "large", contrast: "high" } };
     const again = recommendPreferences(changed, state, model);
     if (again.preferences.some((p) => p.target === "voiceFirst")) {
-      state = recordOutcome(state, "voiceFirst", "rejected", again.fingerprint!);
+      // The person changes a setting themselves, which also lifts the two-noes back-off: the per-suggestion limit still holds.
+      state = noteOwnChange(recordOutcome(state, "voiceFirst", "rejected", again.fingerprint!));
       const changedAgain: PersonalisationInput = { ...TALKER.input, preferences: { ...DEFAULTS, targets: "large", spacing: "roomy" } };
       expect(recommendPreferences(changedAgain, state, model).withheld).toContainEqual({ target: "voiceFirst", reason: "previously_rejected" });
     } else expect(again.withheld.find((w) => w.target === "voiceFirst")?.reason).not.toBe("previously_rejected");
