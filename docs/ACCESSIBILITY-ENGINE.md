@@ -169,7 +169,7 @@ Mate 3's settings that affect speech (voice speed, auto read-aloud, vibration) a
 | `npm test` | 66 files, 2,072 tests passed (baseline before this work: 61 files, 1,985 passed) |
 | `npm run typecheck` / `npm run lint` / `npm run build` | Pass / pass / pass |
 | `npm run access:eval` | See below; writes `docs/ACCESS-EVALUATION.md` and `lib/access/accuracy.json` |
-| `npm run test:access` (browser, production build) | 33 checks passed |
+| `npm run test:access` (browser, production build) | 32 checks passed |
 
 New tests: `lib/access/engine.test.ts` (safety, hostile model output, clarification, your changes, Turn off, pause,
 focus ring, cookie size, finance never reads preferences), `lib/access/requests.test.ts` (the requests in section 3
@@ -190,7 +190,15 @@ errors only, plus three money examples about summaries, which were prompted by t
 no longer fully blind for that one change. Final: blind 83% exactly right (49/59), 0 of 18 non-situations hijacked;
 development 84% (97/116), 0 of 34. The new `voice_preference` situation costs two screen-reader sentences in the blind
 set ("I use voice over on my iPhone" → voice preference; "I can't see, so please talk to me" → both), which still
-make talking to Dial first but don't switch on auto read-aloud. Separately, the keyword-rule fix for "I can't see my
+make talking to Dial first but don't switch on auto read-aloud. On Mate 3's original 52 blind sentences alone the score
+is 44/52 (85%, was 88%). The blind set was not edited apart from the label rename and the nine appended sentences.
+
+**Seen sentences.** Some test sentences are also catalogue examples, so for them the model is recalling, not
+generalising: 1 blind sentence ("I'm hard of hearing", from the original set; `ACCESS-EVALUATION.md`'s line "none of
+these sentences appear in the catalogue" is not quite right), 2 development sentences, and 6 of the 33 phrases in
+`requests.test.ts`. Four of those are the brief's own phrases, added as examples for the new situations ("I want to use
+voice instead", "Give me a voice-first experience", "Make the important information stand out", "I can't use a
+mouse"); their passes show the wiring works, not that the model understands new wording. Separately, the keyword-rule fix for "I can't see my
 refund" halved how often the old rules restyle the app for a money question or small talk in the blind set (18% → 9%).
 
 Pre-existing and unrelated: the two randomised backend-parity tests can time out when the whole suite runs alongside
