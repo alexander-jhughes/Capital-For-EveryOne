@@ -87,6 +87,8 @@ export interface VoiceError {
 
 export interface VoiceEngineEvents {
   onState(state: VoiceState): void;
+  /** The microphone opened or closed. In continuous mode that can happen while the state stays "processing" or "responding". */
+  onListening?(open: boolean): void;
   onTranscript(snapshot: TranscriptSnapshot): void;
   /** Called at most once per utteranceId, with the final, corrected text. */
   onUtterance(utterance: Utterance): void;
@@ -98,6 +100,8 @@ export interface VoiceEngineEvents {
 export interface VoiceEngine {
   readonly backend: RecognitionBackend;
   readonly state: VoiceState;
+  /** True while the microphone is open or being opened. In continuous mode it stays true while Dial works or speaks, so the microphone indicator must use this, not the state. */
+  readonly listening: boolean;
   start(mode: ListenMode): void;
   /** Stop listening and deliver the pending utterance if it has words. */
   stop(): void;

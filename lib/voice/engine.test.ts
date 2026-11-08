@@ -118,7 +118,7 @@ function setup(o: { available?: string; allowCloud?: boolean; noRecognition?: bo
   };
   const win = o.noRecognition ? { document: doc } : { SpeechRecognition: Rec, document: doc };
   const clock = new FakeClock();
-  const log = { states: [] as VoiceState[], snapshots: [] as TranscriptSnapshot[], utterances: [] as Utterance[], interrupts: [] as string[], errors: [] as VoiceError[] };
+  const log = { states: [] as VoiceState[], snapshots: [] as TranscriptSnapshot[], utterances: [] as Utterance[], interrupts: [] as string[], errors: [] as VoiceError[], listening: [] as boolean[] };
   const engine = createVoiceEngine({
     win,
     allowCloud: o.allowCloud ?? true,
@@ -126,6 +126,7 @@ function setup(o: { available?: string; allowCloud?: boolean; noRecognition?: bo
     timing: o.timing,
     events: {
       onState: (s) => log.states.push(s),
+      onListening: (open) => log.listening.push(open),
       onTranscript: (s) => log.snapshots.push(s),
       onUtterance: (u) => log.utterances.push(u),
       onInterrupt: (r) => log.interrupts.push(r),
@@ -889,6 +890,44 @@ describe("pausing and resuming", () => {
     expect(rec().aborted).toBe(true);
     expect(log.interrupts).toEqual([]);
     expect(log.utterances).toEqual([]);
+  });
+
+  it("listening tells the truth about the microphone, whatever the state says", () => {
+    const { engine, log, listen } = setup();
+    expect(engine.listening).toBe(false);
+    listen("continuous");
+    expect(engine.listening).toBe(true);
+    // The state moves on to Dial's work, but the microphone is still open.
+    engine.setProcessing(true);
+    expect(engine.state).toBe("processing");
+    expect(engine.listening).toBe(true);
+    engine.setSpeaking("Your bill is £120.");
+    expect(engine.state).toBe("responding");
+    expect(engine.listening).toBe(true);
+    engine.pause();
+    expect(engine.listening).toBe(false);
+    engine.resume();
+    expect(engine.listening).toBe(true);
+    // The state stays "responding" through this stop, so the event is the only way a screen can know.
+    engine.stop();
+    expect(engine.state).toBe("responding");
+    expect(engine.listening).toBe(false);
+    expect(log.listening).toEqual([true, false, true, false]);
+  });
+
+  it("listening goes false when a tap utterance is delivered and when a start fails", () => {
+    const tap = setup();
+    tap.listen("tap");
+    tap.rec().hear(["what is my balance", "final"]);
+    tap.clock.tick(5000);
+    expect(texts(tap.log.utterances)).toEqual(["what is my balance"]);
+    expect(tap.engine.listening).toBe(false);
+    expect(tap.log.listening.at(-1)).toBe(false);
+
+    const none = setup({ noRecognition: true });
+    none.engine.start("tap");
+    expect(none.engine.listening).toBe(false);
+    expect(none.log.listening.at(-1)).toBe(false);
   });
 
   it("pause does nothing in push-to-talk, when idle or while waiting for the microphone", () => {

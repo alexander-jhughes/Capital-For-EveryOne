@@ -24,6 +24,8 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   supported: boolean;
   backend: RecognitionBackend;
   state: VoiceState;
+  /** The microphone is open or being opened. Show this as the indicator: in continuous mode the state can say Dial is working. */
+  listening: boolean;
   snapshot: TranscriptSnapshot | null;
   error: VoiceError | null;
   /** Starts listening. `allowCloud` overrides the option for this start (a choice the person just made in the same click). */
@@ -38,6 +40,7 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   const [supported, setSupported] = useState(false);
   const [backend, setBackend] = useState<RecognitionBackend>("none");
   const [state, setState] = useState<VoiceState>("idle");
+  const [listening, setListening] = useState(false);
   const [snapshot, setSnapshot] = useState<TranscriptSnapshot | null>(null);
   const [error, setError] = useState<VoiceError | null>(null);
 
@@ -56,6 +59,7 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
     engine.current?.dispose();
     engine.current = null;
     engineCloud.current = null;
+    setListening(false);
   }, []);
 
   // Before the first start() there is no engine, but the state still follows what Dial is doing.
@@ -95,6 +99,7 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
             setState(s);
             setBackend(e.backend);
           },
+          onListening: setListening,
           onTranscript: (s) => setSnapshot(s.text ? s : null),
           onUtterance: (u) => latest.current.onUtterance(u),
           onInterrupt: (r) => latest.current.onInterrupt?.(r),
@@ -131,5 +136,5 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
     [settle],
   );
 
-  return { supported, backend, state, snapshot, error, start, stop, cancel, pause, resume, setSpeaking, setProcessing };
+  return { supported, backend, state, listening, snapshot, error, start, stop, cancel, pause, resume, setSpeaking, setProcessing };
 }

@@ -110,6 +110,8 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   let active = false;
   /** The person paused: still active (the utterance and mode are kept), but no session or timers run. */
   let paused = false;
+  /** What onListening last said. */
+  let micOn = false;
   let mode: ListenMode = "tap";
   /** Bumped on every start(), so a slow backend check can't open the microphone after stop(). */
   let startToken = 0;
@@ -188,6 +190,11 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   }
   function emit() {
     if (disposed) return;
+    const open = active && !paused;
+    if (open !== micOn) {
+      micOn = open;
+      events.onListening?.(open);
+    }
     const next = computeState();
     if (next === state) return;
     state = next;
@@ -459,6 +466,9 @@ export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {
   return {
     get backend() {
       return backend;
+    },
+    get listening() {
+      return active && !paused;
     },
     get state() {
       return state;
