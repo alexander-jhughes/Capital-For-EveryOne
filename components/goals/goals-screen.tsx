@@ -321,7 +321,7 @@ export function GoalsScreen() {
       </h1>
       <p>Set a spending goal, and Dial tracks it from your real transactions. Goals don&apos;t move money or change your card.</p>
       <p className="text-sm text-muted-foreground">
-        {saved ? "Your goals stay on this device. They aren't sent anywhere." : "Your goals can't be saved on this device, so they'll only last until you close this page."}
+        {saved ? "Your goals are kept with your session, so they're here next time. They aren't shared with anyone." : "Your goals can't be saved right now, so they'll only last until you close this page."}
       </p>
 
       {notice && (

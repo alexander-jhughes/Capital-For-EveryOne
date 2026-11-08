@@ -41,6 +41,7 @@ Delete any `.claude/worktrees` folder if you have one, or the test runner picks 
 | Area | Files |
 |---|---|
 | Money logic (deterministic) | `lib/finance`, `lib/insights`, `lib/payments`, `lib/spend-pause`, `lib/types.ts` (frozen shapes) |
+| Account API and sessions | `app/api/account`, `payments`, `spend-pause`, `purchases`, `goals`; logic in `lib/server/*` (`docs/BACKEND.md`) |
 | Demo data | `lib/data/seed.ts`, fixed demo date 8 Nov 2026 in `lib/demo-clock.ts` |
 | Gemini answers (`POST /api/ask`) | `lib/ai/*` (Alex's backend): intent, facts, wording, guard, templates |
 | Gemini commands (`POST /api/dial`) | `lib/ai/command-model.ts`, `command-handler.ts` |
@@ -91,16 +92,18 @@ Start here (all of this works today, it needs hardening and polish):
 
 ### You: backend, database and machine learning
 
-There is **no database and no auth yet**. State lives in the browser (`localStorage` and cookies) and the seed.
+There is **no database and no auth yet**. The server is the source of truth: each visitor's events (payments,
+approved purchases, Spend Pause choices, goals) live in a signed session cookie, and every balance is derived from the
+seed plus those events on the server (`lib/server`, `app/api/*`). Read `docs/BACKEND.md` first.
 
-1. **Database.** Replace the seed with stored accounts and transactions. Keep the shapes in `lib/types.ts`
-   (`Account`, `Transaction`, `Payment`, `SpendPauseSettings`) and `lib/goals/store.ts` (`Goal`). Today these are
-   read in `lib/state/account-context.tsx`, saved by `lib/payments/storage.ts`, `lib/spend-pause/storage.ts`,
-   `lib/goals/store.ts`.
-2. **Move the trust boundary to the server.** `/api/ask` currently builds its facts from the seed plus a
-   `state` object the browser sends (`lib/assistant/live-state.ts`, parsed in `lib/ai/live-state.ts`). With a real
-   database, `/api/ask` should read the signed-in person's data on the server and ignore anything the browser
-   claims about balances. Also do this for payments: money actions must be validated and written server-side.
+1. **Database.** Replace the cookie store with a database behind the `SessionStore` interface in
+   `lib/server/store.ts` (two methods, no API change), then replace the seed with stored accounts and transactions.
+   Keep the shapes in `lib/types.ts` (`Account`, `Transaction`, `Payment`, `SpendPauseSettings`) and
+   `lib/goals/store.ts` (`Goal`).
+2. **The trust boundary is on the server.** `/api/ask` answers from the session cookie when there is one and ignores
+   the `state` the browser sends; without a cookie it still accepts `state` (`lib/ai/live-state.ts`). Payments are
+   validated and recorded server-side (`POST /api/payments`). With sign-in, swap the per-visitor cookie for the
+   signed-in person's data.
 3. **Auth.** Per-person data and per-person rate limits (`lib/ai/rate-limit.ts` is a per-IP in-memory limit).
    Never cache one person's answers for another (`lib/dial/ask-cache.ts` is per tab, in memory only, keep it so).
 4. **Machine learning.** `lib/personalisation` suggests display settings from how someone uses the app. It trains

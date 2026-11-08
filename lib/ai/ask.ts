@@ -13,6 +13,9 @@ import { contextFromState, parseClientState, type ClientState } from "./live-sta
 import { describeError, type AskModel } from "./model";
 import { isRateLimit } from "./model-chain";
 import { allowModelCall, clientKey } from "./rate-limit";
+import { contextFromSession } from "../server/account";
+import { SessionSecretError } from "../server/secret";
+import { sessionStore, type SessionStore } from "../server/store";
 import { templateAnswer } from "./templates";
 import { foundNothing, validateResponse } from "./validator";
 
@@ -162,8 +165,11 @@ async function readBody(request: Request): Promise<string | null> {
 
 type ParsedQuestion = { question: string | undefined; state?: ClientState; previousQuestion?: string } | { error: string };
 
-/** A missing question means the default summary. An empty one is a mistake to tell the person about. */
-function parseQuestion(body: string): ParsedQuestion {
+/**
+ * A missing question means the default summary. An empty one is a mistake to tell the person about.
+ * With `ignoreState`, the body's `state` isn't even read: the session already says what happened.
+ */
+function parseQuestion(body: string, ignoreState = false): ParsedQuestion {
   if (body.trim() === "") return { question: undefined };
 
   let parsed: unknown;
@@ -177,7 +183,7 @@ function parseQuestion(body: string): ParsedQuestion {
   const { question, state: rawState, previousQuestion: rawPrevious } = parsed as { question?: unknown; state?: unknown; previousQuestion?: unknown };
   if (rawPrevious !== undefined && rawPrevious !== null && (typeof rawPrevious !== "string" || rawPrevious.length > MAX_QUESTION_LENGTH)) return { error: MESSAGES.unreadable };
   const previousQuestion = typeof rawPrevious === "string" && rawPrevious.trim() !== "" ? rawPrevious.trim() : undefined;
-  const state = rawState === undefined ? undefined : parseClientState(rawState, DEMO_TODAY);
+  const state = rawState === undefined || ignoreState ? undefined : parseClientState(rawState, DEMO_TODAY);
   if (state === null) return { error: MESSAGES.badState };
   const withState = { ...(state ? { state } : {}), ...(previousQuestion ? { previousQuestion } : {}) };
   if (question === undefined || question === null) return { question: undefined, ...withState };
@@ -189,17 +195,33 @@ function parseQuestion(body: string): ParsedQuestion {
   return { question: trimmed, ...withState };
 }
 
-/** The POST /api/ask handler, apart from choosing the model. Every failure is a friendly JSON message. */
-export async function handleAsk(request: Request, createModel: () => AskModel | null): Promise<Response> {
+/** The visitor's session, or null when the request carries none we can trust. A server with no signing key answers from the body, as before. */
+async function sessionFor(request: Request, store: SessionStore) {
+  try {
+    return await store.load(request);
+  } catch (error) {
+    if (!(error instanceof SessionSecretError)) throw error;
+    log("session unavailable", error);
+    return null;
+  }
+}
+
+/**
+ * The POST /api/ask handler, apart from choosing the model. Every failure is a friendly JSON message.
+ * The facts come from the session cookie when there is one this server signed, and only then from the body's `state`.
+ */
+export async function handleAsk(request: Request, createModel: () => AskModel | null, store: SessionStore = sessionStore): Promise<Response> {
   const headers = { "Cache-Control": "no-store" };
   try {
     const body = await readBody(request);
     if (body === null) return Response.json({ error: MESSAGES.tooLong }, { status: 400, headers });
-    const parsed = parseQuestion(body);
+    const session = await sessionFor(request, store);
+    const parsed = parseQuestion(body, session !== null);
     if ("error" in parsed) return Response.json({ error: parsed.error }, { status: 400, headers });
     // Over the limit still gets an answer. It just doesn't spend a Gemini call.
     const model = allowModelCall(clientKey(request)) ? createModel() : null;
-    const answer = await answerQuestion(parsed.question, { model, ctx: contextFromState(parsed.state), previousQuestion: parsed.previousQuestion });
+    const ctx = session ? contextFromSession(session) : contextFromState(parsed.state);
+    const answer = await answerQuestion(parsed.question, { model, ctx, previousQuestion: parsed.previousQuestion });
     return Response.json(answer, { headers });
   } catch (error) {
     log("request failed", error);

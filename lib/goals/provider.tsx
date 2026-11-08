@@ -1,15 +1,16 @@
 "use client";
 
-// Goals for every screen that needs them. Saved on this device only (localStorage "cfe-goals"), and they keep
-// working in memory when storage is blocked: `saved` is then false so the screen can say so.
+// Goals for every screen that needs them. Kept by the server in the visitor's session (GET and PUT /api/goals), and
+// they keep working in memory when the server can't be reached: `saved` is then false so the screen can say so.
 // Safe to nest: an inner GoalsProvider passes its children straight through to the outer one, so there is only
-// ever one copy of the goals and one writer to storage.
+// ever one copy of the goals and one writer to the server.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { DEMO_TODAY } from "../demo-clock";
 import type { Goal, GoalProgress, GoalSpec } from "../dial/types";
 import { useAccount } from "../state/account-context";
+import { accountApi } from "../state/account-api";
 import { goalProgress } from "./progress";
-import { GOALS_KEY, MAX_GOALS, addGoal, goalsStore, readGoals, removeGoal, writeGoals } from "./store";
+import { MAX_GOALS, addGoal, removeGoal } from "./store";
 
 export interface GoalsState {
   goals: Goal[];
@@ -40,52 +41,56 @@ function GoalsRoot({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   // Read by add() and remove(), so two quick changes both see the first before React has rendered it.
   const latest = useRef<Goal[]>([]);
-  const loaded = useRef(false);
+  // Only the newest server reply counts, so a slow reply to an earlier change can't undo a later one.
+  const changes = useRef(0);
 
-  const load = useCallback(() => {
-    const store = goalsStore();
-    const read = readGoals(store);
-    latest.current = read;
-    loaded.current = true;
-    setGoals(read);
-    setSaved(store !== null);
+  const show = useCallback((next: Goal[]) => {
+    latest.current = next;
+    setGoals(next);
   }, []);
 
   useEffect(() => {
-    load();
-    setReady(true);
-    // Another tab changed the goals: show its version rather than overwrite it later.
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === GOALS_KEY || e.key === null) load();
+    let cancelled = false;
+    accountApi.loadGoals().then((result) => {
+      if (cancelled) return;
+      // A goal added before the saved ones arrived (Dial can be quick) is kept alongside them.
+      if (result.ok) show([...result.state.goals, ...latest.current.filter((g) => !result.state.goals.some((s) => s.id === g.id))].slice(0, MAX_GOALS));
+      setSaved(result.ok);
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
     };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [load]);
+  }, [show]);
 
-  const update = useCallback((next: Goal[]) => {
-    latest.current = next;
-    setGoals(next);
-    setSaved(writeGoals(goalsStore(), next));
-  }, []);
+  const update = useCallback(
+    (next: Goal[]) => {
+      show(next);
+      const mine = ++changes.current;
+      accountApi.goals(() => latest.current).then((result) => {
+        if (mine !== changes.current) return;
+        setSaved(result.ok);
+        if (result.ok) show(result.state.goals);
+      });
+    },
+    [show],
+  );
 
   const add = useCallback(
     (spec: GoalSpec) => {
-      // Never write over saved goals that haven't been read yet.
-      if (!loaded.current) load();
       const result = addGoal(latest.current, spec, DEMO_TODAY);
       if (!result.ok) throw new Error(result.reason);
       if (!result.repeat) update(result.goals);
       return result.goal;
     },
-    [load, update],
+    [update],
   );
 
   const remove = useCallback(
     (id: string) => {
-      if (!loaded.current) load();
       if (latest.current.some((g) => g.id === id)) update(removeGoal(latest.current, id));
     },
-    [load, update],
+    [update],
   );
 
   const progress = useMemo(() => {

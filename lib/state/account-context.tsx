@@ -5,11 +5,12 @@ import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { INITIAL_SPEND_PAUSE } from "@/lib/demo-config";
 import { evaluatePurchase } from "@/lib/finance";
 import { recordPayment, type PaymentResult } from "@/lib/payments/rules";
-import { paymentStore, readPayments, writePayments } from "@/lib/payments/storage";
+import type { AccountStateBody } from "@/lib/server/account";
 import { initialSpendPauseState, spendPauseReducer, type PauseOutcome, type PauseRecord, type SpendPauseActivity } from "@/lib/spend-pause/state";
-import { browserStore, readActivity, readSession, readSettings, writeActivity, writeSession, writeSettings } from "@/lib/spend-pause/storage";
+import { browserStore, readSession, writeSession } from "@/lib/spend-pause/storage";
 import { accountWithPurchases, deriveAccount } from "@/lib/state/derive-account";
 import type { Account, PauseDecision, Payment, PendingPurchase, Pence, SpendPauseSettings, Transaction } from "@/lib/types";
+import { accountApi, type ApiResult } from "./account-api";
 
 interface AccountState {
   account: Account;
@@ -40,40 +41,80 @@ interface AccountState {
 
 const AccountContext = createContext<AccountState | null>(null);
 
-/** The one account every screen reads. Worked out from the seed and what has happened since; never stored as figures. */
+/**
+ * The one account every screen reads. The server keeps what has happened (payments, approved purchases, Spend Pause
+ * choices) in a signed session and works every figure out from the seed; this provider mirrors it. Each change is
+ * applied here first, so the screen answers at once, then sent to the server, whose reply replaces the local copy.
+ * The purchase waiting for an answer and the session's history are only this tab's business, so they stay in sessionStorage.
+ */
 export function AccountProvider({ children }: { children: React.ReactNode }) {
   const [pause, dispatch] = useReducer(spendPauseReducer, INITIAL_SPEND_PAUSE, initialSpendPauseState);
   const [ready, setReady] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(true);
-  const skipFirstSave = useRef(true);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentsSaved, setPaymentsSaved] = useState(true);
-  // Read by makePayment, so a second tap sees the first before React has rendered it.
+  // Read by makePayment and resolvePurchase, so a second tap sees the first before React has rendered it.
   const latestPayments = useRef<Payment[]>([]);
+  const latestPending = useRef<PendingPurchase | null>(null);
+  latestPending.current = pause.pendingPurchase;
+  // Only the newest server reply counts, so a slow reply to an earlier change can't undo a later one.
+  const changes = useRef(0);
 
-  // Storage only exists in the browser, so this runs after the server-rendered first paint.
+  const applyServer = useCallback((state: AccountStateBody) => {
+    latestPayments.current = state.payments;
+    setPayments(state.payments);
+    dispatch({ type: "restore", settings: state.settings, activity: state.spendPauseActivity, session: { purchases: state.purchases } });
+    setPaymentsSaved(true);
+    setSettingsSaved(true);
+  }, []);
+
   useEffect(() => {
-    const saved = browserStore("localStorage");
-    const session = readSession(browserStore("sessionStorage"));
-    dispatch({ type: "restore", settings: readSettings(saved), activity: readActivity(saved), session });
-    // Checked against the balance with the saved purchases in it: a payment can cover those too.
-    const paid = readPayments(paymentStore(), accountWithPurchases(session?.purchases ?? []));
-    latestPayments.current = paid;
-    setPayments(paid);
-    setReady(true);
+    let cancelled = false;
+    // Storage only exists in the browser, so this runs after the server-rendered first paint.
+    const saved = readSession(browserStore("sessionStorage"));
+    const transient = saved ? { pendingPurchase: saved.pendingPurchase, pendingChecked: saved.pendingChecked, history: saved.history } : {};
+    accountApi.load().then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        latestPayments.current = result.state.payments;
+        setPayments(result.state.payments);
+        dispatch({ type: "restore", settings: result.state.settings, activity: result.state.spendPauseActivity, session: { ...transient, purchases: result.state.purchases } });
+      } else {
+        // No server: the seed, with every screen saying changes won't be kept.
+        dispatch({ type: "restore", session: transient });
+        setPaymentsSaved(false);
+        setSettingsSaved(false);
+      }
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!ready) return;
-    if (skipFirstSave.current) {
-      skipFirstSave.current = false;
-      return;
-    }
-    const saved = browserStore("localStorage");
-    setSettingsSaved(writeSettings(saved, pause.settings) && writeActivity(saved, pause.activity));
     const { pendingPurchase, pendingChecked, purchases, history } = pause;
     writeSession(browserStore("sessionStorage"), { pendingPurchase, pendingChecked, purchases, history });
   }, [pause, ready]);
+
+  /** Sends one change. If the server refuses or can't be reached, its account replaces the local guess, or the screen is told nothing is being kept. */
+  const sync = useCallback(
+    (send: () => Promise<ApiResult>, unsaved: () => void) => {
+      const mine = ++changes.current;
+      send().then(async (result) => {
+        if (result.ok) {
+          if (mine === changes.current) applyServer(result.state);
+          return;
+        }
+        const fresh = result.status === 0 ? result : await accountApi.load();
+        if (mine !== changes.current) return;
+        if (fresh.ok) applyServer(fresh.state);
+        else unsaved();
+      });
+    },
+    [applyServer],
+  );
 
   const base = useMemo(() => accountWithPurchases(pause.purchases), [pause.purchases]);
   const { account, transactions } = useMemo(() => deriveAccount(pause.purchases, payments), [pause.purchases, payments]);
@@ -81,25 +122,44 @@ export function AccountProvider({ children }: { children: React.ReactNode }) {
   const updatePayments = useCallback((next: Payment[]) => {
     latestPayments.current = next;
     setPayments(next);
-    setPaymentsSaved(writePayments(paymentStore(), next));
   }, []);
+  const paymentsUnsaved = useCallback(() => setPaymentsSaved(false), []);
   const makePayment = useCallback(
     (amount: Pence, kind: Payment["kind"], id: string) => {
       const result = recordPayment(latestPayments.current, base, { id, amount, kind, date: DEMO_TODAY });
-      if (result.ok && !result.repeat) updatePayments(result.payments);
+      if (result.ok && !result.repeat) {
+        updatePayments(result.payments);
+        sync(() => accountApi.pay({ id, amount, kind }), paymentsUnsaved);
+      }
       return result;
     },
-    [base, updatePayments],
+    [base, updatePayments, sync, paymentsUnsaved],
   );
   const undoPayment = useCallback(
     (id: string) => {
-      if (latestPayments.current.some((p) => p.id === id)) updatePayments(latestPayments.current.filter((p) => p.id !== id));
+      if (!latestPayments.current.some((p) => p.id === id)) return;
+      updatePayments(latestPayments.current.filter((p) => p.id !== id));
+      sync(() => accountApi.undo(id), paymentsUnsaved);
     },
-    [updatePayments],
+    [updatePayments, sync, paymentsUnsaved],
   );
 
-  const updateSettings = useCallback((settings: SpendPauseSettings) => dispatch({ type: "update-settings", settings, at: DEMO_NOW.toISOString() }), []);
-  const resolvePurchase = useCallback((id: string, outcome: PauseOutcome) => dispatch({ type: "resolve-purchase", id, outcome }), []);
+  const settingsUnsaved = useCallback(() => setSettingsSaved(false), []);
+  const updateSettings = useCallback(
+    (settings: SpendPauseSettings) => {
+      dispatch({ type: "update-settings", settings, at: DEMO_NOW.toISOString() });
+      sync(() => accountApi.settings(settings), settingsUnsaved);
+    },
+    [sync, settingsUnsaved],
+  );
+  const resolvePurchase = useCallback(
+    (id: string, outcome: PauseOutcome) => {
+      const held = latestPending.current;
+      dispatch({ type: "resolve-purchase", id, outcome });
+      if (outcome === "go" && held?.id === id) sync(() => accountApi.purchase(held), paymentsUnsaved);
+    },
+    [sync, paymentsUnsaved],
+  );
   const addPendingPurchase = useCallback(
     (purchase: PendingPurchase) => {
       const held = pause.pendingPurchase ?? purchase;

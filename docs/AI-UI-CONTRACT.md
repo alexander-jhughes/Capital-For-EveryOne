@@ -58,7 +58,7 @@ Unchanged. HTTP 400 or 500 with `{ "error": "<friendly message>" }`, and no `exp
 
 ## Live app state
 
-**Proposed, not yet agreed with the frontend developer.** It's optional, so nothing breaks until it's used. Without it, Dial answers from the seed data.
+**Superseded by the session cookie for signed-in-like visitors.** When the request carries a `cfe-session` cookie the server signed (`docs/BACKEND.md`), Dial's facts come from that session and the body's `state` is ignored. Without a cookie, `state` works as described here. It's optional, so nothing breaks until it's used. Without either, Dial answers from the seed data.
 
 Send what has happened, not the resulting balances. The server works out every figure itself.
 

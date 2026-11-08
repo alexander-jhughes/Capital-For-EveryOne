@@ -32,7 +32,7 @@ export interface SpendPauseState {
 }
 
 export type SpendPauseAction =
-  | { type: "restore"; settings?: SpendPauseSettings; activity?: SpendPauseActivity; session?: Pick<SpendPauseState, "pendingPurchase" | "pendingChecked" | "purchases" | "history"> }
+  | { type: "restore"; settings?: SpendPauseSettings; activity?: SpendPauseActivity; session?: Partial<Pick<SpendPauseState, "pendingPurchase" | "pendingChecked" | "purchases" | "history">> }
   | { type: "update-settings"; settings: SpendPauseSettings; at: string }
   | { type: "hold-purchase"; purchase: PendingPurchase; checked: boolean }
   | { type: "resolve-purchase"; id: string; outcome: PauseOutcome };
@@ -48,7 +48,8 @@ export const initialSpendPauseState = (settings: SpendPauseSettings): SpendPause
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-const toTransaction = (purchase: PendingPurchase): Transaction => ({
+/** An approved purchase as the transaction list shows it. The server records it the same way (lib/server/account.ts). */
+export const purchaseTransaction = (purchase: PendingPurchase): Transaction => ({
   id: purchase.id,
   date: purchase.createdAt.slice(0, 10),
   merchant: purchase.merchant,
@@ -77,7 +78,7 @@ export function spendPauseReducer(state: SpendPauseState, action: SpendPauseActi
         ...state,
         pendingPurchase: null,
         pendingChecked: false,
-        purchases: action.outcome === "go" ? [...state.purchases, toTransaction(purchase)] : state.purchases,
+        purchases: action.outcome === "go" ? [...state.purchases, purchaseTransaction(purchase)] : state.purchases,
         history: [{ purchase, outcome: action.outcome, checked: state.pendingChecked }, ...state.history],
       };
     }

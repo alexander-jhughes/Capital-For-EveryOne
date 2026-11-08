@@ -9,7 +9,8 @@ import { activeSince, confirmationFor, matchSpendPauseRequest, proposeSpendPause
 import { explainPause } from "./explain";
 import { describeChecks, formFromSettings, hasChecks, parsePounds, settingsFromForm, validateForm, type SettingsForm } from "./settings";
 import { initialSpendPauseState, purchasesTotal, spendPauseReducer as reduce } from "./state";
-import { ACTIVITY_KEY, browserStore, readActivity, readSession, readSettings, SESSION_KEY, SETTINGS_KEY, writeActivity, writeSession, writeSettings } from "./storage";
+import { isSpendPauseSettings } from "../ai/live-state";
+import { browserStore, readSession, SESSION_KEY, writeSession } from "./storage";
 
 const ON = RESET_SPEND_PAUSE;
 const AT = DEMO_NOW.toISOString();
@@ -163,12 +164,6 @@ describe("the settings form", () => {
 });
 
 describe("storage", () => {
-  it("settings persist", () => {
-    const store = memoryStore();
-    expect(writeSettings(store, OFF)).toBe(true);
-    expect(readSettings(store)).toEqual(OFF);
-  });
-
   it("the session persists", () => {
     const store = memoryStore();
     const { pendingPurchase, pendingChecked, purchases, history } = reduce(held(), { type: "resolve-purchase", id: "p1", outcome: "go" });
@@ -176,25 +171,18 @@ describe("storage", () => {
     expect(readSession(store)).toEqual({ pendingPurchase, pendingChecked, purchases, history });
   });
 
-  it.each([
-    ["not JSON", "{oops"],
-    ["the wrong shape", '{"enabled":"yes"}'],
-    ["a float amount", '{"enabled":true,"singlePurchaseThreshold":10.5,"monthlyBudget":null,"quietHours":null}'],
-    ["a bad time", '{"enabled":true,"singlePurchaseThreshold":null,"monthlyBudget":null,"quietHours":{"start":"25:00","end":"06:00"}}'],
-  ])("ignores %s", (_, raw) => {
-    expect(readSettings(memoryStore({ [SETTINGS_KEY]: raw }))).toBeUndefined();
-  });
-
   it("ignores a damaged session", () => {
+    expect(readSession(memoryStore({ [SESSION_KEY]: "{oops" }))).toBeUndefined();
     expect(readSession(memoryStore({ [SESSION_KEY]: '{"purchases":"x"}' }))).toBeUndefined();
     expect(readSession(memoryStore({ [SESSION_KEY]: '{"pendingPurchase":null,"pendingChecked":false,"purchases":[{"id":"x"}],"history":[]}' }))).toBeUndefined();
   });
 
   it("survives blocked storage", () => {
-    expect(readSettings(brokenStore)).toBeUndefined();
-    expect(writeSettings(brokenStore, ON)).toBe(false);
-    expect(readSettings(null)).toBeUndefined();
-    expect(writeSettings(null, ON)).toBe(false);
+    const { pendingPurchase, pendingChecked, purchases, history } = held();
+    expect(readSession(brokenStore)).toBeUndefined();
+    expect(writeSession(brokenStore, { pendingPurchase, pendingChecked, purchases, history })).toBe(false);
+    expect(readSession(null)).toBeUndefined();
+    expect(writeSession(null, { pendingPurchase, pendingChecked, purchases, history })).toBe(false);
   });
 
   it("handles window storage throwing on access", () => {
@@ -281,14 +269,7 @@ describe("Spend Pause activity", () => {
     expect(purchasesTotal(after.purchases)).toBe(12000);
   });
 
-  it("saves and restores, and ignores anything damaged", () => {
-    const store = memoryStore();
-    expect(writeActivity(store, { activatedAt: AT, deactivatedAt: null })).toBe(true);
-    expect(readActivity(store)).toEqual({ activatedAt: AT, deactivatedAt: null });
-    for (const bad of ["not json", "null", "[]", '{"activatedAt":"nope","deactivatedAt":null}', '{"activatedAt":5,"deactivatedAt":null}', "{}"]) {
-      expect(readActivity(memoryStore({ [ACTIVITY_KEY]: bad }))).toBeUndefined();
-    }
-    expect(readActivity(brokenStore)).toBeUndefined();
+  it("is restored from the server along with the settings", () => {
     expect(reduce(start(OFF), { type: "restore", settings: ON, activity: { activatedAt: AT, deactivatedAt: null } }).activity.activatedAt).toBe(AT);
   });
 
@@ -342,17 +323,19 @@ describe("Dial answers about Spend Pause", () => {
   });
 });
 
-describe("saved settings the backend would refuse", () => {
-  it("ignores a limit of £0, a fraction of a penny or over £100,000", () => {
+describe("settings the server refuses", () => {
+  it("refuses a limit of £0, a fraction of a penny or over £100,000", () => {
     for (const bad of [0, 10.5, 10_000_001]) {
-      expect(readSettings(memoryStore({ [SETTINGS_KEY]: JSON.stringify({ ...ON, singlePurchaseThreshold: bad }) }))).toBeUndefined();
-      expect(readSettings(memoryStore({ [SETTINGS_KEY]: JSON.stringify({ ...ON, monthlyBudget: bad }) }))).toBeUndefined();
+      expect(isSpendPauseSettings({ ...ON, singlePurchaseThreshold: bad })).toBe(false);
+      expect(isSpendPauseSettings({ ...ON, monthlyBudget: bad })).toBe(false);
     }
+    expect(isSpendPauseSettings({ ...ON, quietHours: { start: "25:00", end: "06:00" } })).toBe(false);
+    expect(isSpendPauseSettings({ enabled: "yes" })).toBe(false);
   });
 
   it("keeps null for no limit, and the largest limit the form allows", () => {
-    const fine = { ...ON, singlePurchaseThreshold: null, monthlyBudget: 10_000_000 };
-    expect(readSettings(memoryStore({ [SETTINGS_KEY]: JSON.stringify(fine) }))).toEqual(fine);
+    expect(isSpendPauseSettings({ ...ON, singlePurchaseThreshold: null, monthlyBudget: 10_000_000 })).toBe(true);
+    expect(isSpendPauseSettings(settingsFromForm(formFromSettings(ON), true))).toBe(true);
   });
 
   it("keeps purchases oldest first, so both sides agree which is latest", () => {

@@ -1,23 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Goal, GoalSpec } from "../dial/types";
-import { GOALS_KEY, MAX_GOALS, addGoal, newGoalId, readGoals, removeGoal, sanitizeGoals, sanitizeSpec, writeGoals } from "./store";
+import { MAX_GOALS, addGoal, newGoalId, removeGoal, sanitizeGoals, sanitizeSpec } from "./store";
 
 const cap: GoalSpec = { kind: "category_cap", category: "Eating out", monthlyLimit: 8000 };
 const reduce: GoalSpec = { kind: "spend_reduction", target: 50000, by: "2027-01", baselineMonth: "2026-10" };
 const goal = (id: string, spec: GoalSpec = cap): Goal => ({ id, spec, createdOn: "2026-11-08" });
-
-function memoryStore() {
-  const data = new Map<string, string>();
-  return { data, getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => void data.set(k, v) };
-}
-const blocked = {
-  getItem: () => {
-    throw new Error("SecurityError");
-  },
-  setItem: () => {
-    throw new Error("QuotaExceededError");
-  },
-};
 
 describe("sanitizeGoals", () => {
   it("keeps valid goals and drops extra fields", () => {
@@ -60,24 +47,10 @@ describe("sanitizeGoals", () => {
   });
 });
 
-describe("storage", () => {
-  it("round-trips through storage", () => {
-    const store = memoryStore();
-    expect(writeGoals(store, [goal("g-1")])).toBe(true);
-    expect(store.data.has(GOALS_KEY)).toBe(true);
-    expect(readGoals(store)).toEqual([goal("g-1")]);
-  });
-
-  it("works when storage is blocked or broken", () => {
-    expect(readGoals(blocked)).toEqual([]);
-    expect(writeGoals(blocked, [goal("g-1")])).toBe(false);
-    expect(readGoals(null)).toEqual([]);
-    expect(writeGoals(null, [])).toBe(false);
-    const store = memoryStore();
-    store.data.set(GOALS_KEY, "{not json");
-    expect(readGoals(store)).toEqual([]);
-    store.data.set(GOALS_KEY, JSON.stringify([goal("g-1"), { junk: true }]));
-    expect(readGoals(store)).toEqual([goal("g-1")]);
+describe("a saved list that has been edited", () => {
+  it("keeps the valid goals and drops the junk", () => {
+    expect(sanitizeGoals(JSON.parse("[]"))).toEqual([]);
+    expect(sanitizeGoals([goal("g-1"), { junk: true }])).toEqual([goal("g-1")]);
   });
 });
 

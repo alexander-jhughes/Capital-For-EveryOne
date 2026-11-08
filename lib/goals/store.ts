@@ -1,16 +1,13 @@
-// Goals saved on this device only. Everything read is checked, because storage can be old, edited or blocked,
-// and the app must still work without it (goals then last until the page closes).
+// Goal rules, shared by the browser (lib/goals/provider.tsx) and the server (lib/server/account.ts), which keeps the
+// goals in the visitor's session. Everything read is checked, because a saved list can be old or edited.
 import { isMonthKey } from "../dial/months";
 import { SPENDING_CATEGORIES } from "../dial/spending-filters";
 import type { Goal, GoalSpec } from "../dial/types";
 import type { ISODate } from "../types";
 
-export const GOALS_KEY = "cfe-goals";
 export const MAX_GOALS = 10;
 /** The largest amount a goal can hold: £100,000, the same ceiling as the Spend Pause amounts. */
 export const MAX_GOAL_AMOUNT = 10_000_000;
-
-type Store = Pick<Storage, "getItem" | "setItem">;
 
 const GOAL_ID = /^[a-z0-9-]{1,40}$/i;
 const ISO_DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -55,35 +52,6 @@ export function sanitizeGoals(v: unknown): Goal[] {
 
 /** Two specs that would track exactly the same thing. */
 export const sameSpec = (a: GoalSpec, b: GoalSpec) => JSON.stringify(sanitizeSpec(a)) === JSON.stringify(sanitizeSpec(b));
-
-export function readGoals(store: Store | null): Goal[] {
-  try {
-    const raw = store?.getItem(GOALS_KEY);
-    return raw ? sanitizeGoals(JSON.parse(raw)) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** False when the goals couldn't be saved (no storage, blocked, or full). */
-export function writeGoals(store: Store | null, goals: Goal[]): boolean {
-  try {
-    if (!store) return false;
-    store.setItem(GOALS_KEY, JSON.stringify(goals));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** localStorage, or null where it's blocked. Merely touching window.localStorage can throw. */
-export function goalsStore(): Store | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 export type AddResult = { ok: true; goals: Goal[]; goal: Goal; repeat: boolean } | { ok: false; reason: string };
 

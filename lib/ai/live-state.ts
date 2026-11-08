@@ -42,12 +42,14 @@ const isDate = (v: unknown, today: ISODate): v is ISODate => {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === v;
 };
 
-function isSettings(v: unknown): v is SpendPauseSettings {
+/** Settings the server accepts: limits above £0 up to £100,000 or null, quiet hours as HH:MM. The session API uses the same rule. */
+export function isSpendPauseSettings(v: unknown): v is SpendPauseSettings {
   if (!isRecord(v) || typeof v.enabled !== "boolean") return false;
   if (!isOptionalPence(v.singlePurchaseThreshold) || !isOptionalPence(v.monthlyBudget)) return false;
   const quiet = v.quietHours;
   return quiet === null || (isRecord(quiet) && typeof quiet.start === "string" && typeof quiet.end === "string" && TIME.test(quiet.start) && TIME.test(quiet.end));
 }
+const isSettings = isSpendPauseSettings;
 
 const seedIds = new Set(SEED_TRANSACTIONS.map((t) => t.id));
 const isNewId = (v: unknown) => typeof v === "string" && SAFE_ID.test(v) && !seedIds.has(v);
