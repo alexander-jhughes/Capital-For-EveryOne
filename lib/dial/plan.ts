@@ -10,6 +10,7 @@ import type { UiAction } from "../preferences/schema";
 import { describeActions } from "../preferences/schema";
 import { splitCorrection } from "../voice/correction";
 import { interpret, isQuestionText, normaliseUtterance, type Interpretation } from "../voice/interpret";
+import { isStopWord } from "../voice/transcript";
 import { nextSubject } from "./context";
 import {
   addMonths,
@@ -31,7 +32,7 @@ import {
   type SpendCategory,
   type TxnSummary,
 } from "./entities";
-import { findPlace, OPENABLE, PAY_NOTE, PLACES, ROUTE_INFO, ROUTE_WORDS, SECTION_INFO, validateStep } from "./registry";
+import { findPlace, LEARN_CUE, LEARN_NOTE, LEARN_TOPICS, OPENABLE, PAY_NOTE, PLACES, ROUTE_INFO, ROUTE_WORDS, SECTION_INFO, SECTION_PLACES, validateStep } from "./registry";
 import { segment } from "./segment";
 import type { ControlCommand, DialContext, DialPlan, DialRoute, DialStep, DialSubject, GoalSpec, HomeSection, MonthKey, PlanEnv, SpendingFilters, VisualRequest, WhatIfScenario } from "./types";
 
@@ -65,9 +66,17 @@ interface Said {
   unavailable: MonthKey[];
   /** "the last three months" or "September to November". */
   span: boolean;
+  /**
+   * "Compared with last month", "up on last month", "more than last month": the only month named is the relative
+   * "last month", and it is what this month is measured against, not the month being asked about.
+   */
+  lastAsBaseline: boolean;
   question: boolean;
   amount: AmountMatch | null;
 }
+
+/** A comparison word right before "last month" makes it the baseline: "compare to last month", "vs last month". */
+const LAST_AS_BASELINE = /\b(?:to|with|than|against|versus|vs|from|since|over|on)\s+(?:the\s+)?(?:last|previous)\s+month\b/;
 
 function read(text: string, env: PlanEnvWithTransactions): Said {
   const cats = findCategories(text);
@@ -83,6 +92,11 @@ function read(text: string, env: PlanEnvWithTransactions): Said {
     months: months.months,
     unavailable: months.unavailable,
     span: months.lastN,
+    lastAsBaseline:
+      months.matches.length === 1 &&
+      months.matches[0].kind === "last" &&
+      !/before last/i.test(months.matches[0].text) &&
+      LAST_AS_BASELINE.test(lowerSame(text)),
     question: isQuestionText(text),
     amount: findAmount(text),
   };
@@ -131,7 +145,7 @@ const ANAPHORA = / (that|it|this|those|these|them) /;
 const SHOW = /^ (?:(?:please|ok|okay|now|so) )*(?:can you |could you )?(?:please )?(?:show|see|view|display|let me see|i want to see|i'd like to see|give me|pull up|open|take me to|go to) /;
 const SPEND = / (spend|spent|spending|money|costs?|outgoings|expenses?) /;
 const COMPARE =
-  / (compare|comparison|compared|comparing|versus|vs|against|changed?|changing|difference|different|gone up|gone down|went up|went down|go up|go down|going up|going down|rising|falling|more than|less than|higher|lower|increased?|decreased?|up or down) /;
+  / (compare|comparison|compared|comparing|versus|vs|against|changed?|changing|difference|different|gone up|gone down|went up|went down|go up|go down|going up|going down|rising|falling|more than|less than|higher|lower|increased?|decreased?|up or down) |(?: (?:more|less) (?:[a-z']+ ){1,4}than )/;
 const TREND = / (over time|month by month|each month|every month|per month|monthly|trend|history|over the (last|past)|across) /;
 const BREAKDOWN =
   / (where (does|did|do) (most of |all of |all )?my money (go|going)|where('s| is| has) (all )?my money (going|gone|been going)|where my money (goes|went)|what (do|did|am) i (spend|spent|spending) (the )?most on|what am i spending (my money )?on|what do i spend my money on|biggest (spending )?categor(y|ies)|by category|categor(y|ies)|breakdown|break down|split of my spending) /;
@@ -235,13 +249,49 @@ function navTurn(to: DialRoute, opts: { filters?: SpendingFilters; focus?: HomeS
 function displayTurn(said: Said, ir: Interpretation, ctx: DialContext): Turn | null {
   const { s } = said;
   if (said.question && has(s, MONEY)) return null;
-  const easier = has(s, / (easier to (understand|follow)|hard to (understand|follow)|too complicated|too complex|plain english|plainer|simpler words) /) && !has(s, MONEY);
+  const easier = has(s, / (easier to (understand|follow)|hard to (understand|follow)|too complicated|too complex|less complicated|less confusing|plain english|plainer|simpler words) /) && !has(s, MONEY);
   // Detailed view is the busy one, so the simplest fix is Simple view. Already simple: plainer explanations and a
   // calmer home screen. Either way nothing is hidden for good: Detailed view and every section stay one step away.
   if (easier) return ctx.mode === "complex" ? modeTurn("simple") : prefsTurn([{ type: "density", value: "calm" }, { type: "explanations", value: "stepByStep" }]);
   const simplify = has(s, / (simplify|simpler|declutter|less cluttered) /) && ir.kind === "ui" && ir.actions.some((a) => a.type === "density" && a.value === "calm");
   if (simplify && ctx.mode === "complex") return modeTurn("simple");
   return null;
+}
+
+/** Asking to learn, not asking about the account. Only one of these hub words, or a named topic, opens the Learning Lab. */
+const LEARN_HUB = / (teach me|learn about|learn more about|i want to learn|learning lab|lesson|lessons|explainer|explainers|tutorial|course) /;
+
+/**
+ * "Teach me about minimum payments", "open the utilisation lesson", "how does interest work", "take me to the quiz".
+ * Topics are only matched with a learning cue, so "show me my statement" still opens the bill and "what's my APR"
+ * is still a question about the account. A topic the Learning Lab doesn't have opens its hub and says what it covers.
+ */
+function learnTurn(said: Said, ir: Interpretation, env: PlanEnv): Turn | null {
+  const { s } = said;
+  if (ir.kind === "ui" || !has(s, LEARN_CUE)) return null;
+  const topic = LEARN_TOPICS.find((t) => t.re.test(s));
+  if (topic) return navTurn(topic.to, { say: topic.say }, env);
+  if (!has(s, LEARN_HUB)) return null;
+  const named = has(s, / (learning lab|learn lab|credit learning lab|lessons) /);
+  return navTurn("/account/learn", named ? {} : { say: LEARN_NOTE }, env);
+}
+
+/** "What's coming up?" asks for the section, not for a figure. */
+const COMING_UP_QUESTION = /^ (?:so |and |ok |okay )?what(?:'s| is| are)? (?:my )?(?:payments? |bills? |charges? )?(?:coming up|due soon) /;
+
+/**
+ * "Show me my progress", "show my upcoming payments", "open my spending categories": focus that section on Home.
+ * Only when the request is just the section: anything naming a month, category, shop or amount is a chart or a
+ * filter, handled by the rules after this one ("show my grocery spending in October" still draws a chart).
+ */
+function sectionTurn(said: Said, env: PlanEnv, strong: boolean): Turn | null {
+  const { s } = said;
+  const place = SECTION_PLACES.find((p) => p.re.test(s));
+  if (!place) return null;
+  const bare = s.trim().split(" ").every((w) => SECTION_WORDS.has(w));
+  const asked = strong || has(s, WEAK_NAV) || has(s, COMING_UP_QUESTION) || bare;
+  if (!asked || said.months.length || said.categories.length || said.food || said.merchants.length || said.amount) return null;
+  return navTurn(place.to, { focus: place.focus }, env);
 }
 
 function goalTurn(said: Said, env: PlanEnv): Turn | null {
@@ -371,7 +421,10 @@ function visualsTurn(said: Said, env: PlanEnv): Turn | null {
   if (has(s, BUDGET) && has(s, BUDGET_LEFT)) return visualTurn([{ kind: "budget_progress" }], env);
   if (has(s, COMPARE) && (said.span || (months?.length ?? 0) >= 3)) return visualTurn(each({ kind: "monthly_trend", ...(months ? { months } : {}) }), env, food);
   if (has(s, COMPARE)) {
-    const pair = comparisonMonths(months ?? [current(env)], env);
+    // "How do my groceries compare to last month?" is this month so far against last month, not last month against
+    // the month before. Months are worked out from today, so this holds in any month and across a year boundary.
+    const asked = said.lastAsBaseline ? [current(env), addMonths(current(env), -1)] : (months ?? [current(env)]);
+    const pair = comparisonMonths(asked, env);
     if (!pair) return unsupported(`I only have spending from ${rangeLabel(env)}, so there's nothing to compare that with.`, "Nothing to compare");
     return visualTurn(each({ kind: "month_comparison", months: pair }), env, food);
   }
@@ -426,7 +479,7 @@ interface Fragment {
 }
 
 const FILLER = new Set(
-  "the my on in for at of to and or just only specifically instead please i mean meant it's its it was is sorry no um uh er erm oh then also with this that one page screen section tab spend spent spending transactions purchases what how about same again too as well".split(" "),
+  "the my on in for at of to and or just only specifically instead please i mean meant it's its it was is sorry no um uh er erm oh then also with this that one page screen section tab spend spent spending transactions purchases what how about same again too as well actually wait".split(" "),
 );
 
 function fragment(text: string, env: PlanEnv): Fragment | null {
@@ -446,17 +499,22 @@ function fragment(text: string, env: PlanEnv): Fragment | null {
   if (!spansUsed.length) return null;
   let rest = lower;
   for (const sp of spansUsed) rest = rest.slice(0, sp.start) + " ".repeat(sp.end - sp.start) + rest.slice(sp.end);
-  const words = rest.replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
+  // "Change that to Tesco" is a correction, but "change my budget" is a request, so "change" alone isn't filler.
+  const words = rest.replace(/\bchange (?:that|it) to\b/, " ").replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);
   if (!words.every((w) => FILLER.has(w))) return null;
   return { categories, merchants, months, amount, route: slots.length ? null : route };
 }
 
 const isFragment = (text: string, env: PlanEnv) => fragment(text, env) !== null;
 
+/** "Explain that again": the same thing once more. */
+const AGAIN = / (explain|say|show|show me|tell me|go over|go through|repeat) (that|it|this) (to me )?(again|once more|one more time) /;
+const BIGGEST_ONE = / (biggest|largest|most expensive|highest|priciest|top) one /;
+
 /** "what about X", "and X", "X instead": the shapes a follow-up takes. */
 const ELLIPSIS = /^ (?:(?:and|so|ok|okay|right|now|but) )?(?:what|how) about .+ $|^ and .+ $|^ (?:the )?same (?:for|with) .+ $|^ .+ instead $|^ (?:now |then )?(?:for|in) .+ $/;
 const LIST =
-  / (show (it|that|this|them|those|these)( to me)?( as a list| in a list| as transactions)?|as a list|in a list|list (it|them|those|that|these)|(show|see|open|view) (me )?(those|these|the) (transactions|purchases)|those transactions|these transactions|which transactions|what were they|which ones were they) /;
+  / (show (it|that|this|them|those|these)( to me)?( as a list| in a list| as transactions)?|show me instead|as a list|in a list|list (it|them|those|that|these)|(show|see|open|view) (me )?(those|these|the) (transactions|purchases)|those transactions|these transactions|which transactions|what were they|which ones were they) /;
 
 function filtersFromContext(ctx: DialContext): SpendingFilters {
   const v = ctx.lastVisual;
@@ -509,6 +567,17 @@ function followUpTurn(said: Said, env: PlanEnv): Turn | null {
   const { s } = said;
   const v = ctx.lastVisual;
 
+  if (v && has(s, AGAIN)) return { ...visualTurn([v], env), followUp: true };
+  if (has(s, BIGGEST_ONE)) {
+    const category = v?.category ?? ctx.subject.category;
+    const months = v?.months ?? ctx.subject.months;
+    // This chart can't filter by shop and shows one month, so a shop goes to the backend, and several months mean the latest.
+    if (!ctx.subject.merchant && (v || category || months)) {
+      const month = months && [...months].sort().at(-1);
+      return { ...visualTurn([{ kind: "biggest_purchases", limit: 1, ...(category ? { category } : {}), ...(month ? { months: [month] } : {}) }], env), followUp: true };
+    }
+    if (ctx.lastQuestion) return { ...ask(said.text, ctx), followUp: true };
+  }
   if (has(s, LIST)) {
     if (!v && !ctx.subject.category && !ctx.subject.merchant && !ctx.subject.months) return null;
     return { ...navTurn("/account/spending", { filters: filtersFromContext(ctx) }, env), followUp: true };
@@ -541,7 +610,8 @@ function followUpTurn(said: Said, env: PlanEnv): Turn | null {
   const cats = categoriesFor(said);
   const months = said.months.length ? [...said.months].sort() : undefined;
   if (said.unavailable.length && !said.months.length) return unsupported(`I only have spending from ${rangeLabel(env)}.`, "Months without data");
-  if (cats.length) return visualTurn(cats.map((c) => ({ kind: "category_trend", category: c, months: months ?? [current(env)] })), env);
+  // "How much on food in October", then "actually, groceries": two charts leave no last visual, but the month stands.
+  if (cats.length) return visualTurn(cats.map((c) => ({ kind: "category_trend", category: c, months: months ?? ctx.subject.months ?? [current(env)] })), env);
   if (months) return visualTurn([{ kind: "category_breakdown", months }], env);
   return null;
 }
@@ -588,8 +658,15 @@ function placeTurn(said: Said, env: PlanEnvWithTransactions, strong: boolean): T
 const KNOWN_LIST_WORDS = new Set(["recent", "latest", "last", "biggest", "largest", "card", "other", "pending", "past", "previous", "monthly", "new", "old", "own", "online", "refunded", "november", "october", "september"]);
 
 const BARE_FILLER = ["my", "the", "our", "please", "page", "screen", "section", "tab", "information", "info", "details", "dial", "now"];
-/** Every word used in a place name, so "my credit limit" or "accessibility preferences" reads as just a name. */
-const PLACE_WORDS = new Set([...BARE_FILLER, ...PLACES.flatMap((p) => p.re.source.match(/[a-z']+/g) ?? [])]);
+const wordsOf = (places: { re: RegExp }[]) => places.flatMap((p) => p.re.source.match(/[a-z']+/g) ?? []);
+/**
+ * Every word used in a place name, so "my credit limit" or "accessibility preferences" reads as just a name. The Home
+ * section names are kept out: their phrasing ("what is coming up", "progress on my goals") would otherwise make
+ * everyday words like "is" and "on" count as place words, and "Is Spend Pause on?" would read as a bare place.
+ */
+const PLACE_WORDS = new Set([...BARE_FILLER, ...wordsOf(PLACES.filter((p) => !SECTION_PLACES.includes(p)))]);
+/** The same idea for the Home section names alone, used only by sectionTurn. */
+const SECTION_WORDS = new Set([...BARE_FILLER, ...wordsOf(SECTION_PLACES)]);
 
 /** Just the name of a place ("credit information", "my savings goal", "budgets"), with nothing else asked. */
 function isBarePlace(s: string): boolean {
@@ -619,6 +696,8 @@ function classify(text: string, env: PlanEnvWithTransactions): Turn {
   const ir = interpret(text, { textSize: env.textSize });
   const moneyQuestion = said.question && (has(s, MONEY) || said.text.includes("£"));
 
+  // "Wait." and "Cancel." stop Dial, as they do while it is speaking. With a preview showing, "cancel" means no to it.
+  if (isStopWord(text) && !(ctx.pending && ir.kind === "control" && ir.command === "no")) return { steps: [{ type: "control", command: "stop" }], understood: CONTROL_LABEL.stop, keepSubject: true };
   if (ir.kind === "control") {
     if ((ir.command === "yes" || ir.command === "no") && !ctx.pending) return unsupported("There's nothing waiting for a yes or no right now.", CONTROL_LABEL[ir.command]);
     return { steps: [{ type: "control", command: ir.command }], understood: CONTROL_LABEL[ir.command], keepSubject: true };
@@ -628,7 +707,11 @@ function classify(text: string, env: PlanEnvWithTransactions): Turn {
   const display = displayTurn(said, ir, ctx);
   if (display) return display;
 
+  const learn = learnTurn(said, ir, env);
+  if (learn) return learn;
   const strong = has(s, STRONG_NAV);
+  const section = sectionTurn(said, env, strong);
+  if (section) return section;
   if (strong) {
     const nav = placeTurn(said, env, true);
     if (nav) return nav;

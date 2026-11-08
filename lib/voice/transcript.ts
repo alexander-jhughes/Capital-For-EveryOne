@@ -66,13 +66,16 @@ export function buildTranscript(utteranceId: number, finalWords: string, interim
   };
 }
 
-/** Words that mean "I haven't finished". After one of these the engine waits longer before ending the utterance. */
-const CONTINUATIONS = ["and", "actually", "i mean", "um", "uh", "er", "erm", "so", "but", "or", "then", "because", "no wait"];
+/**
+ * Words that mean "I haven't finished". After one of these the engine waits longer before ending the utterance.
+ * "Turn Spend Pause on" also ends on one, which only costs a slightly longer wait; cutting someone off costs far more.
+ */
+const CONTINUATIONS = ["and", "actually", "i mean", "um", "uh", "er", "erm", "so", "but", "or", "then", "because", "no wait", "on", "for", "at", "to", "the"];
 const CONTINUATION = new RegExp(`(?:^|\\s)(?:${CONTINUATIONS.map((w) => w.replace(" ", "\\s+")).join("|")})$`);
 
-/** True when the text trails off on a word like "and" or "actually", so more is probably coming. */
+/** True when the text trails off on a word like "and" or "actually", so more is probably coming. A full stop or question mark means it didn't. */
 export function endsWithContinuation(text: string): boolean {
-  return CONTINUATION.test(words(text).join(" "));
+  return !/[.?!]\s*$/.test(text) && CONTINUATION.test(words(text).join(" "));
 }
 
 /** Phrases that silence Dial. Only the whole utterance counts: "stop my card" is a request, not a stop word. */

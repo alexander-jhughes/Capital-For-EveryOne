@@ -13,6 +13,7 @@ const CORRECTION_PHRASES = [
   "sorry i meant",
   "sorry i mean",
   "no no i mean",
+  "change that to",
   "no i meant",
   "no i mean",
   "scratch that",
@@ -25,6 +26,8 @@ const CORRECTION_PHRASES = [
   "sorry no",
   "actually",
   "rather",
+  "sorry",
+  "wait",
 ];
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -40,6 +43,13 @@ export interface CorrectionSplit {
   before: string;
   /** What the person meant instead, trimmed. */
   after: string;
+}
+
+/** "Actually, groceries": the text opens with a correction phrase and says something after it. */
+export function opensWithCorrection(text: string): boolean {
+  PHRASE.lastIndex = 0;
+  const m = PHRASE.exec(text);
+  return !!m && m.index === 0 && text.slice(m[0].length).trim() !== "";
 }
 
 /** Splits on the last self-correction phrase. Null when there isn't one, or nothing follows it. */

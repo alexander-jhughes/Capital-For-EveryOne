@@ -11,6 +11,7 @@ function deps(over: Partial<RunnerDeps> = {}): RunnerDeps {
     navigate: vi.fn(async () => true),
     back: vi.fn(() => true),
     previewPreferences: vi.fn(),
+    previewAdapt: vi.fn(),
     previewMode: vi.fn(),
     settle: vi.fn((_o: PendingOffer, yes: boolean) => (yes ? "Done." : "Okay, I've left it as it was.")),
     control: vi.fn(() => "Undone."),
@@ -71,6 +72,18 @@ describe("runSteps", () => {
     const d2 = deps();
     await run([{ type: "navigate", to: "/account" }], d2, pending);
     expect(d2.settle).toHaveBeenCalledWith(pending, false);
+  });
+
+  it("undo with a preview showing only withdraws the preview, never the change kept before it", async () => {
+    const pending: PendingOffer = { step: { type: "preferences", actions: [{ type: "contrast", value: "high" }] }, description: "x" };
+    const d = deps();
+    await run([{ type: "control", command: "undo" }], d, pending);
+    expect(d.settle).toHaveBeenCalledTimes(1);
+    expect(d.settle).toHaveBeenCalledWith(pending, false);
+    expect(d.control).not.toHaveBeenCalled();
+    const d2 = deps();
+    await run([{ type: "control", command: "undo" }], d2, null);
+    expect(d2.control).toHaveBeenCalledWith("undo");
   });
 
   it("treats reset as a previewed display change", async () => {

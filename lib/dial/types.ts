@@ -11,6 +11,7 @@
 // Groq never sees this contract and never chooses a step: it only words answers to "ask" steps on the server.
 import type { Category, ISODate, Mode, Pence } from "../types";
 import type { UiAction } from "../preferences/schema";
+import type { Scope, SituationId } from "../access/catalogue";
 
 // ─── Routes and screens (from the real app/(dial) tree; nothing invented) ───────────────────────────────────────
 
@@ -23,11 +24,19 @@ export const DIAL_ROUTES = [
   "/account/settings",
   "/account/personalise",
   "/account/goals",
+  // The Credit Learning Lab, its topic pages (one per slug in lib/learn/topics.ts; a test keeps them in step) and More.
+  "/account/learn",
+  "/account/learn/utilisation",
+  "/account/learn/minimum-payments",
+  "/account/learn/interest",
+  "/account/learn/statement",
+  "/account/learn/quiz",
+  "/account/more",
 ] as const;
 export type DialRoute = (typeof DIAL_ROUTES)[number];
 
 /** Sections on Home that a navigation can scroll to and focus. Match the `data-widget` values on Home. */
-export const HOME_SECTIONS = ["bill", "balance", "insights", "budget", "chart", "recent", "pause"] as const;
+export const HOME_SECTIONS = ["bill", "balance", "insights", "budget", "categories", "upcoming", "chart", "recent", "progress", "pause"] as const;
 export type HomeSection = (typeof HOME_SECTIONS)[number];
 
 /** A calendar month, "YYYY-MM". */
@@ -209,6 +218,13 @@ export type DialStep =
   | { type: "setMode"; mode: Mode }
   /** Display preferences. Previewed, then "Keep it" (existing behaviour in lib/preferences). */
   | { type: "preferences"; actions: UiAction[] }
+  /**
+   * The person described their situation ("I have trouble seeing at night"). The changes come from the fixed catalogue
+   * (lib/access/catalogue.ts), never from a model: a step only names situations. Previewed with a reason for each
+   * change, then kept for the scope (night only, for now, or always). `tentative`: Dial wasn't sure, so it asks. `cloud`: the
+   * cloud model named the situation (the on-device model wasn't sure), so the reply doesn't claim it stayed on the phone.
+   */
+  | { type: "adapt"; situations: SituationId[]; scope: Scope; tentative?: boolean; cloud?: boolean }
   | { type: "control"; command: ControlCommand }
   /** Show a chart built from verified data. */
   | { type: "visual"; request: VisualRequest }
@@ -228,7 +244,7 @@ export type DialStep =
 export type DialStepType = DialStep["type"];
 
 /** Steps that change something the person keeps. They are previewed or confirmed before they take effect. */
-export const CONFIRMED_STEPS: ReadonlySet<DialStepType> = new Set(["setMode", "preferences", "goal"]);
+export const CONFIRMED_STEPS: ReadonlySet<DialStepType> = new Set(["setMode", "preferences", "adapt", "goal"]);
 
 export interface DialPlan {
   /** Executed in order. At most 4: a longer chain is cut and the rest is said back to the person. */

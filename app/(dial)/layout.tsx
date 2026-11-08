@@ -6,12 +6,14 @@ import { ModeSwitch } from "@/components/mode-switch";
 import { MoreButton } from "@/components/more-menu";
 import { StylePreviewProvider } from "@/components/personalise/style-preview";
 import { PersonalisationProvider } from "@/lib/personalisation/provider";
+import { ProfileProvider } from "@/lib/profile/provider";
 import { Wordmark } from "@/components/wordmark";
 
 /** App shell. Phone: header, page, bottom tabs. Desktop (1024px+): side rail, wide page. One component tree for both. */
 export default function DialLayout({ children }: { children: React.ReactNode }) {
   return (
     <PersonalisationProvider>
+      <ProfileProvider>
       <GoalsProvider>
       <DialSessionProvider>
       <AskDialProvider>
@@ -24,7 +26,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
               Skip to main content
             </a>
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="gutter page-width flex flex-wrap items-center justify-between gap-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-10 lg:pt-6">
+              <header className="app-header gutter page-width flex flex-wrap items-center justify-between gap-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] lg:px-10 lg:pt-6">
                 <span className="lg:hidden">
                   <Wordmark stacked />
                 </span>
@@ -37,7 +39,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
                   <ModeSwitch />
                 </div>
               </header>
-              <main id="main" tabIndex={-1} className="gutter page-width flex-1 pb-8 pt-(--space) focus:outline-none lg:px-10">
+              <main id="main" tabIndex={-1} className="@container gutter page-width flex-1 pb-8 pt-(--space) focus:outline-none lg:px-10">
                 {children}
                 <p className="mt-10 text-sm text-muted-foreground lg:hidden">
                   Demo data only: a fictional card, not a real account. Capital for Everyone is an independent hackathon concept, not an official Capital One product.
@@ -50,6 +52,7 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
       </AskDialProvider>
       </DialSessionProvider>
       </GoalsProvider>
+      </ProfileProvider>
     </PersonalisationProvider>
   );
 }

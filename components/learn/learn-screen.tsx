@@ -3,6 +3,7 @@
 import { ArrowLeft, ArrowRight, Calculator, ChevronRight, FileText, Gauge, ListChecks, Scale } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useCountUse } from "@/lib/profile/provider";
 import { quizProgress } from "@/lib/learn/quiz";
 import { TOPICS, type TopicSlug } from "@/lib/learn/topics";
 import { InterestCalculator, MinimumPaymentExplainer, StatementExplainer, UtilisationSimulator } from "./modules";
@@ -17,6 +18,7 @@ const PARTS: Record<TopicSlug, { Icon: typeof Gauge; Body: () => React.ReactNode
 };
 
 export function LearnHub() {
+  useCountUse("learn");
   const [quiz, setQuiz] = useState<{ answered: number; total: number } | null>(null);
   useEffect(() => setQuiz(quizProgress(loadQuizAnswers())), []);
   return (
@@ -26,7 +28,7 @@ export function LearnHub() {
         <p className="text-lg text-muted-foreground">Short, hands-on ways to understand how your card works. They start from your own figures, and you can change any of them.</p>
         <p className="text-sm text-muted-foreground">Calculations are worked out on this device by fixed rules, not by Dial or any AI, and they&apos;re illustrative: your lender&apos;s figures can differ.</p>
       </div>
-      <ul className="grid grid-cols-1 gap-(--space) sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-(--space) @xl:grid-cols-2">
         {TOPICS.map(({ slug, title, blurb }) => {
           const { Icon } = PARTS[slug];
           return (
@@ -53,6 +55,7 @@ export function LearnHub() {
 }
 
 export function LearnTopic({ slug }: { slug: TopicSlug }) {
+  useCountUse("learn");
   const i = TOPICS.findIndex((t) => t.slug === slug);
   const { title } = TOPICS[i];
   const { Body } = PARTS[slug];
