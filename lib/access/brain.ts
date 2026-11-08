@@ -10,6 +10,8 @@ export interface Brain {
   index: ExampleIndex;
 }
 
+const VENDOR_URL = "/vendor/transformers.min.js";
+
 export type BrainStatus = "idle" | "loading" | "ready" | "unavailable";
 
 let loading: Promise<Brain | null> | null = null;
@@ -29,7 +31,9 @@ export function onBrainStatus(l: (s: BrainStatus) => void) {
 async function load(): Promise<Brain | null> {
   if (typeof window === "undefined" || typeof WebAssembly === "undefined") return null;
   setStatus("loading");
-  const t = await import("@huggingface/transformers");
+  // Loaded as a ready-made file from this app (scripts/access/copy-runtime.mjs), never bundled: webpack processing
+  // Transformers.js made every first page compile take minutes. The type comes from the package; the code from /vendor.
+  const t = (await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ VENDOR_URL)) as typeof import("@huggingface/transformers");
   t.env.allowRemoteModels = false;
   t.env.allowLocalModels = true;
   t.env.localModelPath = "/models/";
