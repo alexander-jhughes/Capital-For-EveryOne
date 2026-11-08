@@ -45,6 +45,26 @@
   --radius: 20px;
 }
 /*
+  Onboarding previews: a box can show either view's sizes whatever the page is in. The derived sizes are declared
+  again on the box, because a custom property's calc() is worked out where it is declared, not where it is used.
+*/
+[data-preview] {
+  --text-sm: calc(var(--base-sm) * var(--scale));
+  --text-base: calc(var(--base) * var(--scale));
+  --text-lg: calc(var(--base-lg) * var(--scale));
+  --text-xl: calc(var(--base-xl) * var(--scale));
+  --text-figure: calc(var(--base-figure) * var(--figure-scale));
+  --target-min: calc(var(--base-target) + var(--target-boost));
+  --space: calc(var(--base-space) * var(--space-scale));
+}
+[data-preview="complex"] {
+  --base-sm: 14px; --base: 16px; --base-lg: 19px; --base-xl: 28px; --base-figure: 48px; --base-target: 44px; --base-space: 14px; --radius: 16px;
+}
+[data-preview="simple"] {
+  --base-sm: 17px; --base: 20px; --base-lg: 24px; --base-xl: 34px; --base-figure: 64px; --base-target: 64px; --base-space: 20px; --radius: 20px;
+}
+
+/*
   Text size scales the type fully (--scale) and everything measured in rem (side rail, gutters, card widths, gaps) by
   a gentler --ui-scale, so "make everything bigger" changes the whole page without pushing it past the screen.
   Media queries ignore the root font size, so the phone and desktop layouts still switch at the same widths.
