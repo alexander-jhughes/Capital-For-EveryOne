@@ -35,7 +35,15 @@ export const isEmpty = (s: Session) => s.settings === null && s.purchases.length
 
 type WirePurchase = [id: string, date: string, merchant: string, amount: Pence];
 type WirePayment = [id: string, date: string, amount: Pence, kind: "m" | "s" | "c"];
-type WireSpec = ["c", string, Pence] | ["r", Pence, string, string] | ["b"];
+type WireSpec =
+  | ["c", string, Pence]
+  | ["r", Pence, string, string]
+  | ["b"]
+  // Goal kinds added by the product workstream: pay down, utilisation, save up (e = emergency, p = purchase), on time.
+  | ["d", Pence, string, Pence]
+  | ["u", number, string, Pence]
+  | ["s", "e" | "p", Pence, string, Pence, [string, Pence][], string?]
+  | ["t"];
 type WireGoal = [id: string, createdOn: string, spec: WireSpec];
 type WireSettings = [enabled: 0 | 1, threshold: Pence | null, budget: Pence | null, quietStart: string | null, quietEnd: string | null];
 
@@ -61,6 +69,14 @@ const specToWire = (spec: GoalSpec): WireSpec => {
       return ["r", spec.target, spec.by, spec.baselineMonth];
     case "stay_in_budget":
       return ["b"];
+    case "pay_down":
+      return ["d", spec.target, spec.by, spec.startBalance];
+    case "utilisation":
+      return ["u", spec.percent, spec.by, spec.startBalance];
+    case "save_up":
+      return ["s", spec.purpose === "emergency" ? "e" : "p", spec.target, spec.by, spec.saved, spec.log, ...(spec.label ? [spec.label] : [])] as WireSpec;
+    case "pay_on_time":
+      return ["t"];
   }
 };
 
@@ -74,6 +90,14 @@ const specFromWire = (w: unknown): unknown => {
       return { kind: "spend_reduction", target: w[1], by: w[2], baselineMonth: w[3] };
     case "b":
       return { kind: "stay_in_budget" };
+    case "d":
+      return { kind: "pay_down", target: w[1], by: w[2], startBalance: w[3] };
+    case "u":
+      return { kind: "utilisation", percent: w[1], by: w[2], startBalance: w[3] };
+    case "s":
+      return { kind: "save_up", purpose: w[1] === "e" ? "emergency" : w[1] === "p" ? "purchase" : null, target: w[2], by: w[3], saved: w[4], log: w[5], ...(w.length > 6 ? { label: w[6] } : {}) };
+    case "t":
+      return { kind: "pay_on_time" };
     default:
       return null;
   }

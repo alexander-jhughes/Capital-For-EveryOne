@@ -13,6 +13,22 @@ const GOAL_ID = /^[a-z0-9-]{1,40}$/i;
 const ISO_DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isAmount = (v: unknown): v is number => Number.isInteger(v) && (v as number) > 0 && (v as number) <= MAX_GOAL_AMOUNT;
+const isAmountOrZero = (v: unknown): v is number => v === 0 || isAmount(v);
+/** The most saved-amount updates a goal remembers, so a goal stays small enough for the session cookie. */
+export const MAX_GOAL_LOG = 6;
+/** Plain words only: letters, numbers, spaces and a little punctuation, up to 24 characters. */
+const GOAL_LABEL = /^[\p{L}\p{N}][\p{L}\p{N} ',.&-]{0,23}$/u;
+const PURPOSES = ["emergency", "purchase"] as const;
+
+function cleanLog(v: unknown): [ISODate, number][] | null {
+  if (!Array.isArray(v) || v.length > MAX_GOAL_LOG) return null;
+  const out: [ISODate, number][] = [];
+  for (const row of v) {
+    if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== "string" || !ISO_DATE.test(row[0]) || !isAmountOrZero(row[1])) return null;
+    out.push([row[0], row[1]]);
+  }
+  return out;
+}
 
 /** A clean copy of a goal spec, or null. Unknown fields are dropped, never kept. */
 export function sanitizeSpec(v: unknown): GoalSpec | null {
@@ -28,6 +44,23 @@ export function sanitizeSpec(v: unknown): GoalSpec | null {
         : null;
     case "stay_in_budget":
       return { kind: "stay_in_budget" };
+    case "pay_down":
+      return isAmountOrZero(v.target) && isAmount(v.startBalance) && v.target < v.startBalance && isMonthKey(v.by)
+        ? { kind: "pay_down", target: v.target, by: v.by, startBalance: v.startBalance }
+        : null;
+    case "utilisation":
+      return Number.isInteger(v.percent) && (v.percent as number) >= 1 && (v.percent as number) <= 100 && isAmountOrZero(v.startBalance) && isMonthKey(v.by)
+        ? { kind: "utilisation", percent: v.percent as number, by: v.by, startBalance: v.startBalance }
+        : null;
+    case "save_up": {
+      const log = cleanLog(v.log ?? []);
+      const label = typeof v.label === "string" ? v.label.trim() : undefined;
+      if (!(PURPOSES as readonly unknown[]).includes(v.purpose) || !isAmount(v.target) || !isMonthKey(v.by) || !isAmountOrZero(v.saved) || !log) return null;
+      if (label !== undefined && label !== "" && !GOAL_LABEL.test(label)) return null;
+      return { kind: "save_up", purpose: v.purpose as "emergency" | "purchase", target: v.target, by: v.by, saved: v.saved, log, ...(label ? { label } : {}) };
+    }
+    case "pay_on_time":
+      return { kind: "pay_on_time" };
     default:
       return null;
   }
@@ -67,6 +100,21 @@ export function addGoal(goals: Goal[], spec: GoalSpec, createdOn: ISODate, id: s
 }
 
 export const removeGoal = (goals: Goal[], id: string) => goals.filter((g) => g.id !== id);
+
+/** Replaces one goal's spec, keeping its id and start date. Refuses an invalid spec or an unknown id. */
+export function updateGoal(goals: Goal[], id: string, spec: GoalSpec): AddResult {
+  const clean = sanitizeSpec(spec);
+  const goal = goals.find((g) => g.id === id);
+  if (!clean || !goal) return { ok: false, reason: "That goal can't be changed." };
+  const next = { ...goal, spec: clean };
+  return { ok: true, goals: goals.map((g) => (g.id === id ? next : g)), goal: next, repeat: false };
+}
+
+/** A saved-amount update for a save_up goal: the new amount, with today's entry added to the short log. */
+export function withSaved(spec: Extract<GoalSpec, { kind: "save_up" }>, saved: number, today: ISODate): GoalSpec {
+  const log = [...spec.log.filter(([d]) => d !== today), [today, saved] as [ISODate, number]].slice(-MAX_GOAL_LOG);
+  return { ...spec, saved, log };
+}
 
 /** A short id no existing goal has. Not secret: it only tells goals apart on this device. */
 export function newGoalId(existing: Goal[], random: () => number = Math.random): string {

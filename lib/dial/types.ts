@@ -141,7 +141,20 @@ export type GoalSpec =
   /** Spend this much less than a baseline month, cumulatively, by a month. Tracks spending, not a savings account. */
   | { kind: "spend_reduction"; target: Pence; by: MonthKey; baselineMonth: MonthKey }
   /** Stay within the Spend Pause monthly budget (read from Spend Pause; changing it happens on that screen). */
-  | { kind: "stay_in_budget" };
+  | { kind: "stay_in_budget" }
+  // Added by the product workstream (feat/product-ux). Additive: the three kinds above are unchanged, and Dial's
+  // registry still only creates those three. See docs/INTEGRATION.md, "Goal kinds added for the product workstream".
+  /** Bring the card balance down to `target` by the end of `by`. `startBalance` is the balance when the goal was set. */
+  | { kind: "pay_down"; target: Pence; by: MonthKey; startBalance: Pence }
+  /** Use no more than `percent` of the credit limit by the end of `by`. */
+  | { kind: "utilisation"; percent: number; by: MonthKey; startBalance: Pence }
+  /**
+   * Save towards an emergency fund or a purchase, held somewhere this app can't see: `saved` is what the person says
+   * they have, and `log` their last few updates ([date, saved], oldest first). `label` is optional, plain text.
+   */
+  | { kind: "save_up"; purpose: "emergency" | "purchase"; target: Pence; by: MonthKey; saved: Pence; log: [ISODate, Pence][]; label?: string }
+  /** Pay at least the minimum by the due date, every bill. */
+  | { kind: "pay_on_time" };
 
 export interface Goal {
   id: string;

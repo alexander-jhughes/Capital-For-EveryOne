@@ -1,11 +1,14 @@
 // Goal progress, measured only from real transactions with lib/finance. Pure: the clock is ctx.today.
 // Goals track spending on this card. They never claim money was saved anywhere, and never predict.
 import { budgetStatus, spendingSummary } from "../finance";
-import { formatPence } from "../format";
+import { formatLongDate, formatPence } from "../format";
 import type { InsightContext } from "../insights";
 import { historyStart, monthKey, monthName, monthRange, monthsBetween, nextMonth, previousMonth } from "../dial/months";
 import type { Goal, GoalProgress, GoalSpec } from "../dial/types";
-import type { Transaction } from "../types";
+import type { ISODate, Pence, Transaction } from "../types";
+import { balanceForUtilisation, utilisationPercent } from "../learn/credit";
+import { isNewId, paymentHistory } from "../payments/rules";
+import { daysUntilDue } from "../finance";
 import { describeGoal } from "./describe";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -119,10 +122,100 @@ function stayInBudget(ctx: InsightContext): Omit<GoalProgress, "goalId" | "title
   };
 }
 
+const BALANCE_MOVES = "Your balance goes down with payments and refunds, and up with new spending, including pending items.";
+
+/** Shared by pay_down and utilisation: progress from the balance when the goal was set towards a target balance. */
+function towardsBalance(start: Pence, target: Pence, by: string, ctx: InsightContext, lead: string): Omit<GoalProgress, "goalId" | "title"> {
+  const now = ctx.account.currentBalance;
+  const byName = monthName(by, ctx.today);
+  const late = monthKey(ctx.today) > by;
+  if (now <= target) return { percent: 100, status: "met", statement: `${lead} Your balance is ${formatPence(now)}, at or under ${formatPence(target)}. Goal reached.`, limitations: [BALANCE_MOVES] };
+  const percent = start > target ? percentOf(start - now, start - target) : 0;
+  const moved = now < start ? `down ${formatPence(start - now)} from ${formatPence(start)} when you set this goal` : now > start ? `up ${formatPence(now - start)} since you set this goal` : "the same as when you set this goal";
+  return {
+    percent,
+    status: late ? "missed" : now > start ? "at_risk" : "on_track",
+    statement: `${lead} Your balance is ${formatPence(now)}, ${moved}. ${formatPence(now - target)} to go to reach ${formatPence(target)} by the end of ${byName}.`,
+    limitations: [BALANCE_MOVES],
+  };
+}
+
+function saveUp(spec: Extract<GoalSpec, { kind: "save_up" }>, ctx: InsightContext): Omit<GoalProgress, "goalId" | "title"> {
+  const left = spec.target - spec.saved;
+  const current = monthKey(ctx.today);
+  const months = monthsBetween(current, spec.by).length;
+  const limitations = ["Capital for Everyone can't see your savings account. This uses the amount you entered."];
+  if (left <= 0) return { percent: 100, status: "met", statement: `You've saved ${formatPence(spec.saved)}, reaching your ${formatPence(spec.target)} goal.`, limitations };
+  if (current > spec.by) return { percent: percentOf(spec.saved, spec.target), status: "missed", statement: `You've saved ${formatPence(spec.saved)} of ${formatPence(spec.target)}. The date you chose has passed; you can set a new one.`, limitations };
+  // Whole pence, rounded up, so the monthly figure always gets there.
+  const perMonth = Math.ceil(left / Math.max(1, months));
+  return {
+    percent: percentOf(spec.saved, spec.target),
+    status: "on_track",
+    statement: `You've saved ${formatPence(spec.saved)} of ${formatPence(spec.target)}. ${formatPence(left)} to go: about ${formatPence(perMonth)} a month until the end of ${monthName(spec.by, ctx.today)}.`,
+    limitations,
+  };
+}
+
+/** Paid towards the current bill: payments made in the app, all of which are after the statement in this demo. */
+const paidThisBill = (ctx: InsightContext) => paymentHistory(ctx.txns).filter((t) => isNewId(t.id)).reduce((s, t) => s - t.amount, 0);
+
+function payOnTime(ctx: InsightContext): Omit<GoalProgress, "goalId" | "title"> {
+  const a = ctx.account;
+  const days = daysUntilDue(a, ctx.today);
+  const left = Math.max(0, a.minimumPayment - paidThisBill(ctx));
+  const limitations = ["Only the current bill is tracked: earlier bills aren't in this demo's data."];
+  if (a.statementBalance === 0 || left === 0)
+    return { percent: 100, status: "met", statement: a.statementBalance === 0 ? "This bill is paid in full. Nice work." : "The minimum for this bill is paid, on time.", limitations };
+  if (days < 0) return { percent: null, status: "missed", statement: `${formatPence(left)} of this bill's minimum is still to pay. It was due on ${formatLongDate(a.paymentDueDate)}.`, limitations };
+  return {
+    percent: null,
+    status: days <= 3 ? "at_risk" : "on_track",
+    statement: `${formatPence(left)} is due by ${formatLongDate(a.paymentDueDate)}, ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}.`,
+    limitations,
+  };
+}
+
 /** How a goal is going, from the same transactions every screen reads. */
 export function goalProgress(goal: Goal, ctx: InsightContext): GoalProgress {
   const spec = goal.spec;
-  const body =
-    spec.kind === "category_cap" ? categoryCap(spec, ctx) : spec.kind === "spend_reduction" ? spendReduction(spec, ctx) : stayInBudget(ctx);
-  return { goalId: goal.id, title: describeGoal(spec, ctx.today), ...body };
+  const body = (() => {
+    switch (spec.kind) {
+      case "category_cap":
+        return categoryCap(spec, ctx);
+      case "spend_reduction":
+        return spendReduction(spec, ctx);
+      case "stay_in_budget":
+        return stayInBudget(ctx);
+      case "pay_down":
+        return towardsBalance(spec.startBalance, spec.target, spec.by, ctx, "");
+      case "utilisation": {
+        const used = utilisationPercent(ctx.account.currentBalance, ctx.account.creditLimit);
+        const target = balanceForUtilisation(ctx.account.creditLimit, spec.percent);
+        return towardsBalance(spec.startBalance, target, spec.by, ctx, used === null ? "" : `You're using ${used}% of your limit.`);
+      }
+      case "save_up":
+        return saveUp(spec, ctx);
+      case "pay_on_time":
+        return payOnTime(ctx);
+    }
+  })();
+  return { goalId: goal.id, title: describeGoal(spec, ctx.today), ...body, statement: body.statement.trim() };
+}
+
+/** The four milestones on the way to a goal, and which are reached. Only for goals measured in percent. */
+export function goalMilestones(percent: number | null) {
+  if (percent === null) return [];
+  return [25, 50, 75, 100].map((at) => ({ at, reached: percent >= at }));
+}
+
+/** What has happened since a goal was set, newest first: payments for balance goals, updates for saving goals. */
+export function goalHistory(goal: Goal, ctx: InsightContext): { date: ISODate; text: string }[] {
+  const s = goal.spec;
+  if (s.kind === "save_up") return [...s.log].reverse().map(([date, saved]) => ({ date, text: `Saved so far: ${formatPence(saved)}` }));
+  if (s.kind === "pay_down" || s.kind === "utilisation" || s.kind === "pay_on_time")
+    return paymentHistory(ctx.txns)
+      .filter((t) => t.date >= goal.createdOn)
+      .map((t) => ({ date: t.date, text: `Payment of ${formatPence(-t.amount)}` }));
+  return [];
 }

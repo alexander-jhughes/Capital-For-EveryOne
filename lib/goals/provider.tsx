@@ -10,7 +10,7 @@ import type { Goal, GoalProgress, GoalSpec } from "../dial/types";
 import { useAccount } from "../state/account-context";
 import { accountApi } from "../state/account-api";
 import { goalProgress } from "./progress";
-import { MAX_GOALS, addGoal, removeGoal } from "./store";
+import { MAX_GOALS, addGoal, removeGoal, updateGoal } from "./store";
 
 export interface GoalsState {
   goals: Goal[];
@@ -19,6 +19,8 @@ export interface GoalsState {
   /** Adds the goal and returns it. The same goal twice returns the first. Throws if the spec is invalid or there are MAX_GOALS already. */
   add: (spec: GoalSpec) => Goal;
   remove: (id: string) => void;
+  /** Replaces a goal's spec, keeping its id and start date. Throws if the spec is invalid or the goal is gone. */
+  update: (id: string, spec: GoalSpec) => Goal;
   /** False when goals can't be saved here, so they only last until the page closes. */
   saved: boolean;
   /** False until saved goals have been read (they can only be read in the browser). */
@@ -93,14 +95,24 @@ function GoalsRoot({ children }: { children: React.ReactNode }) {
     [update],
   );
 
+  const change = useCallback(
+    (id: string, spec: GoalSpec) => {
+      const result = updateGoal(latest.current, id, spec);
+      if (!result.ok) throw new Error(result.reason);
+      update(result.goals);
+      return result.goal;
+    },
+    [update],
+  );
+
   const progress = useMemo(() => {
     const ctx = { account, txns: transactions, settings, today: DEMO_TODAY };
     return goals.map((g) => goalProgress(g, ctx));
   }, [goals, account, transactions, settings]);
 
   const value = useMemo(
-    () => ({ goals, progress, add, remove, saved, ready, full: goals.length >= MAX_GOALS }),
-    [goals, progress, add, remove, saved, ready],
+    () => ({ goals, progress, add, remove, update: change, saved, ready, full: goals.length >= MAX_GOALS }),
+    [goals, progress, add, remove, change, saved, ready],
   );
   return <GoalsContext.Provider value={value}>{children}</GoalsContext.Provider>;
 }
