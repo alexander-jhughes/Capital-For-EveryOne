@@ -6,6 +6,8 @@ import { CONFIDENCE_LEVELS, type Confidence } from "./experience";
 import { INTENTS } from "./facts";
 import { modelChain, withModelFallback } from "./model-chain";
 import { CANT_TELL } from "./guard";
+import { styleInstruction } from "./answer-style";
+import type { AnswerStyle } from "../profile/infer";
 
 const CLASSIFY_MAX_TOKENS = 256;
 const PHRASE_MAX_TOKENS = 400;
@@ -19,7 +21,8 @@ export interface ModelInterpretation {
 /** What ask.ts needs from a model. Each call may throw; ask.ts turns that into a template answer. */
 export interface AskModel {
   classify(question: string, timeoutMs: number): Promise<ModelInterpretation | null>;
-  phrase(question: string, facts: AnswerFactSet, timeoutMs: number): Promise<string | null>;
+  /** `style` is how the person asked Dial to word answers (lib/ai/answer-style.ts). Wording only, never figures. */
+  phrase(question: string, facts: AnswerFactSet, timeoutMs: number, style?: AnswerStyle): Promise<string | null>;
 }
 
 const CLASSIFY_SYSTEM = `You sort questions about a credit card account into one category.
@@ -120,10 +123,11 @@ export function createModel(): AskModel | null {
     async classify(question, timeoutMs) {
       return parseInterpretation(await send(CLASSIFY_SYSTEM, `<question>${sanitise(question)}</question>`, CLASSIFY_SCHEMA, CLASSIFY_MAX_TOKENS, timeoutMs));
     },
-    async phrase(question, facts, timeoutMs) {
+    async phrase(question, facts, timeoutMs, style) {
       const lines = facts.facts.map((f) => `- ${f.label}: ${f.value}`).join("\n");
       const user = `<facts>\n${lines}\n</facts>\n<question>${sanitise(question)}</question>`;
-      const answer = (await send(PHRASE_SYSTEM, user, PHRASE_SCHEMA, PHRASE_MAX_TOKENS, timeoutMs))?.answer;
+      // The person's wording rules (lib/ai/answer-style.ts) go after the base rules. Only rules go to Groq, never their profile.
+      const answer = (await send(PHRASE_SYSTEM + styleInstruction(style), user, PHRASE_SCHEMA, PHRASE_MAX_TOKENS, timeoutMs))?.answer;
       return typeof answer === "string" ? answer.trim() : null;
     },
   };
