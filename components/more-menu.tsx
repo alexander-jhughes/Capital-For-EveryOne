@@ -64,6 +64,10 @@ export function MoreScreen() {
             Start the demo again
           </button>
         </form>
+        <Link href="/demo/users" className="inline-flex min-h-(--target-min) items-center gap-2 font-bold text-primary underline underline-offset-4">
+          <UserRound aria-hidden className="size-[1em]" />
+          Try a synthetic demo user
+        </Link>
       </section>
     </div>
   );
