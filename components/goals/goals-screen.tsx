@@ -528,7 +528,7 @@ function CheckIn({ progress }: { progress: GoalProgress[] }) {
           ? "Steady progress. Small, regular steps add up."
           : "Setting one small goal is a good first step.";
   return (
-    <section aria-labelledby="checkin-h" className={`flex flex-col gap-2 ${panelClass} border-l-4 border-primary`}>
+    <section aria-labelledby="checkin-h" className={`flex flex-col gap-2 ${panelClass}`}>
       <h2 id="checkin-h" className="flex items-center gap-2 text-lg font-bold">
         <CalendarCheck aria-hidden className="size-[1.1em] text-primary" />
         This week&apos;s check-in

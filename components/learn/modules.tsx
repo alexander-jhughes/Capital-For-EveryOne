@@ -22,7 +22,7 @@ import { useMode } from "@/lib/state/mode-context";
 import { cardClass, Meter } from "../ui/panel";
 import { Illustrative, NumberField, parseAmount, parseRate, poundsText } from "./fields";
 
-const result = `${cardClass} flex flex-col gap-2 border-l-4 border-primary`;
+const result = `${cardClass} flex flex-col gap-2`;
 const GUIDE = 30;
 
 function Explain({ items }: { items: [string, string][] }) {

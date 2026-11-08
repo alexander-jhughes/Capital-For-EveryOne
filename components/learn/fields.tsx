@@ -92,7 +92,7 @@ export function NumberField({
 /** The "illustrative" warning every calculator carries, worded the same everywhere. */
 export function Illustrative({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-lg border-l-4 border-primary bg-accent px-3 py-2 text-sm text-accent-foreground">
+    <p className="rounded-lg bg-accent px-3 py-2 text-sm text-accent-foreground">
       <strong>Illustrative. </strong>
       {children}
     </p>
