@@ -55,6 +55,17 @@ const CASES: Case[] = [
   ["Can you walk me through it in steps", ui("explanations=stepByStep")],
   ["I'd rather talk than tap", ui("voiceFirst=true")],
   ["I prefer tapping first", ui("voiceFirst=false")],
+  // Answer style and listening
+  ["Keep answers short", ui("answerStyle=brief")],
+  ["Shorter answers please", ui("answerStyle=brief")],
+  ["Can you make your answers shorter", ui("answerStyle=brief")],
+  ["More detail in answers", ui("answerStyle=standard")],
+  ["I'd like longer answers", ui("answerStyle=standard")],
+  ["Keep listening", ui("listenMode=continuous")],
+  ["Push to talk", ui("listenMode=hold")],
+  ["I want to hold to talk", ui("listenMode=hold")],
+  ["Stop listening automatically", ui("listenMode=tap")],
+  ["One question at a time", ui("listenMode=tap")],
   // View (mode)
   ["Switch to simple view", { kind: "mode", mode: "simple" }],
   ["Show me more detail", { kind: "mode", mode: "complex" }],
@@ -111,6 +122,11 @@ describe("interpret: safety", () => {
   });
   it("'no' inside a sentence is not a refusal", () => {
     expect(interpret("No, I meant make the text bigger").kind).toBe("ui");
+  });
+  it("answer and listening phrases don't steal views or stop", () => {
+    expect(interpret("Show me more detail")).toMatchObject({ kind: "mode", mode: "complex" });
+    expect(interpret("Stop listening")).toMatchObject({ kind: "control", command: "stop" });
+    expect(interpret("Keep it")).toMatchObject({ kind: "control", command: "yes" });
   });
   it("cannot produce anything outside the allowlist", () => {
     const r = interpret("pay my bill of £486.20 now and delete my account");

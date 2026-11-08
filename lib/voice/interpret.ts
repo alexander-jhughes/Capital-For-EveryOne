@@ -42,6 +42,19 @@ function control(s: string, words: number): Interpretation | null {
   return null;
 }
 
+/** How Dial answers and listens. Checked before views, so "more detail in answers" isn't Detailed view. */
+function assistant(s: string): Interpretation | null {
+  const one = (a: UiAction): Interpretation => ({ kind: "ui", actions: [a] });
+  if (has(s, / (keep (your |the |my )?answers (short|brief)|short(er)? answers|brief(er)? answers|answers (shorter|short|brief)|less detail in (your |the |my )?answers) /))
+    return one({ type: "answerStyle", value: "brief" });
+  if (has(s, / (more detail in (your |the |my )?answers|(longer|fuller|full|normal|standard|more detailed) answers|answers (longer|in more detail)) /))
+    return one({ type: "answerStyle", value: "standard" });
+  if (has(s, / (keep listening|listen continuously|keep the (mic|microphone) on|hands free) /)) return one({ type: "listenMode", value: "continuous" });
+  if (has(s, / (push to talk|hold to talk|(only )?listen while i hold) /)) return one({ type: "listenMode", value: "hold" });
+  if (has(s, / (stop listening automatically|one question at a time|tap to talk|listen once) /)) return one({ type: "listenMode", value: "tap" });
+  return null;
+}
+
 function mode(s: string): Interpretation | null {
   if (has(s, / (simple (view|mode|version)|switch to simple|go simple) /)) return { kind: "mode", mode: "simple" };
   if (has(s, / (detailed (view|mode|version)|switch to detailed|(show|give) me (more|all the|the full) (detail|details|information|info)|more detail|everything in detail) /))
@@ -135,6 +148,8 @@ export function interpret(utterance: string, ctx: { textSize: TextSize } = { tex
 
   const c = control(s, words);
   if (c) return c;
+  const a = assistant(s);
+  if (a) return a;
   const m = mode(s);
   if (m) return m;
   const n = navigate(s);

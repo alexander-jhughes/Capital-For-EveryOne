@@ -4,14 +4,19 @@ import { Mic, Square, Volume2, X } from "lucide-react";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import { askDial, intentForQuestion, offlineFacts, SUGGESTED_QUESTIONS } from "@/lib/assistant/client";
-import { canSpeak, getRecognition, pickVoice, voiceErrorMessage, type Recognition } from "@/lib/assistant/speech";
+import { canSpeak, pickVoice } from "@/lib/assistant/speech";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
+import { usePreferences } from "@/lib/preferences/provider";
+import { dialStyle } from "@/lib/preferences/schema";
+import type { Utterance } from "@/lib/voice/types";
+import { needsSpeechChoice, useMicButton, useVoice } from "@/lib/voice/use-voice";
 import { paymentReply } from "@/lib/payments/dial";
 import { spendPauseReply, type SpendPauseReply } from "@/lib/spend-pause/dial";
 import { liveState } from "@/lib/assistant/live-state";
 import { usePersonalisation } from "@/lib/personalisation/provider";
 import { useAccount } from "@/lib/state/account-context";
 import type { AskResponse, Fact } from "@/lib/types";
+import { SpeechConsent, type SpeechChoice } from "../voice/speech-consent";
 import { VoiceMode } from "../voice/voice-mode";
 import { DialMark } from "../wordmark";
 import type { ExperienceTemplate } from "@/lib/assistant/experience";
@@ -41,20 +46,25 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const requestId = useRef(0);
+  /** The last question as the backend understood it (resolvedQuestion), sent as previousQuestion for follow-ups. */
   const lastQuestion = useRef<string | undefined>(undefined);
-  const recognition = useRef<Recognition | null>(null);
+  const inFlight = useRef<AbortController | null>(null);
+  const lastUtterance = useRef(0);
   const inputId = useId();
+  const { prefs } = usePreferences();
 
   const [answer, setAnswer] = useState<Answer>({ status: "idle" });
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [voice, setVoice] = useState<{ Rec: ReturnType<typeof getRecognition>; speak: boolean }>({ Rec: null, speak: false });
-  const [listening, setListening] = useState(false);
-  const [voiceMessage, setVoiceMessage] = useState("");
+  const [canTalk, setCanTalk] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [speaking, setSpeaking] = useState(false);
 
   // Feature-detect after mount so server and first client render agree.
-  useEffect(() => setVoice({ Rec: getRecognition(window), speak: canSpeak(window) }), []);
+  useEffect(() => setCanTalk(canSpeak(window)), []);
+  // The same engine as Voice Mode. The sheet listens for one question per tap, or while held.
+  const voice = useVoice({ speechInput: prefs.speechInput, onUtterance: (u) => onUtterance(u) });
+  const sheetMode = prefs.listenMode === "hold" ? "hold" : "tap";
 
   const stopSpeaking = useCallback(() => {
     if (canSpeak(window)) window.speechSynthesis.cancel();
@@ -62,7 +72,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const ask = useCallback(
-    async (question: string) => {
+    async (question: string, replaces?: string) => {
       const q = question.trim();
       if (!q) {
         setAnswer({ status: "invalid", question: "", message: "Please type a question first." });
@@ -70,6 +80,9 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
       }
       stopSpeaking();
       const id = ++requestId.current;
+      // A newer question cancels the older one; its answer would be ignored anyway.
+      inFlight.current?.abort();
+      inFlight.current = null;
       // Spend Pause and payment questions are answered here from live state, so they work with or without the backend.
       const paid = paymentReply(q, { account, transactions, payments });
       const local = spendPauseReply(q, settings, spendPauseActivity) ?? (paid ? { text: paid, action: undefined } : null);
@@ -78,9 +91,18 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setAnswer({ status: "loading", question: q });
-      const outcome = await askDial(q, { state: liveState(transactions, settings), previousQuestion: lastQuestion.current });
-      lastQuestion.current = q;
-      if (id !== requestId.current) return; // a newer question replaced this one
+      const controller = new AbortController();
+      inFlight.current = controller;
+      const outcome = await askDial(q, {
+        state: liveState(transactions, settings),
+        // A spoken self-correction ("Actually, groceries") is resolved against the words it replaced.
+        previousQuestion: replaces ?? lastQuestion.current,
+        style: dialStyle(prefs),
+        signal: controller.signal,
+      });
+      if (id !== requestId.current || outcome.kind === "cancelled") return; // a newer question replaced this one
+      inFlight.current = null;
+      lastQuestion.current = (outcome.kind === "answer" && outcome.resolvedQuestion) || q;
       if (outcome.kind === "answer") {
         const { answer: text, evidenceIds, source } = outcome.response;
         setAnswer({ status: "answered", question: q, text, evidenceIds, source, template: outcome.experience.template });
@@ -95,8 +117,33 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
         );
       }
     },
-    [account, transactions, settings, payments, spendPauseActivity, stopSpeaking],
+    [account, transactions, settings, payments, spendPauseActivity, stopSpeaking, prefs],
   );
+
+  // Each spoken question is asked once, through the same ask() as typed text.
+  function onUtterance(u: Utterance) {
+    voice.setProcessing(false); // the sheet shows its own "Checking your account..."
+    if (u.utteranceId <= lastUtterance.current) return;
+    lastUtterance.current = u.utteranceId;
+    setInput(u.text);
+    void ask(u.text, u.replaces);
+  }
+
+  function startListening() {
+    stopSpeaking();
+    if (voice.listening) return;
+    if (needsSpeechChoice(prefs.speechInput) || voice.backend === "none") return setChoosing(true);
+    setChoosing(false);
+    voice.start(sheetMode);
+  }
+  const mic = useMicButton({ hold: sheetMode === "hold", listening: voice.listening, onStart: startListening, onStop: voice.stop });
+
+  function chosen(choice: SpeechChoice) {
+    setChoosing(false);
+    if (choice === "typing" || sheetMode === "hold") return;
+    if (choice === prefs.speechInput) voice.start(sheetMode);
+    else voice.startWhenReady(sheetMode);
+  }
 
   const openAsk = useCallback(
     (question?: string) => {
@@ -121,28 +168,9 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
   // Runs for the Close button, Escape and backdrop clicks alike.
   function onClosed() {
     stopSpeaking();
-    recognition.current?.stop();
+    voice.cancel();
+    setChoosing(false);
     returnFocus.current?.focus?.();
-  }
-
-  function startListening() {
-    if (!voice.Rec) return;
-    stopSpeaking();
-    setVoiceMessage("");
-    const r = new voice.Rec();
-    r.lang = "en-GB";
-    r.interimResults = false;
-    r.maxAlternatives = 1;
-    r.onresult = (e) => {
-      const text = e.results[0]?.[0]?.transcript ?? "";
-      setInput(text);
-      void ask(text);
-    };
-    r.onerror = (e) => setVoiceMessage(voiceErrorMessage(e.error));
-    r.onend = () => setListening(false);
-    recognition.current = r;
-    setListening(true);
-    r.start();
   }
 
   function readAloud(text: string) {
@@ -240,7 +268,7 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
                 Dial&apos;s assistant isn&apos;t available right now, so it can&apos;t answer typed questions. The suggested questions below still work.
               </p>
             )}
-            {spoken && voice.speak && (
+            {spoken && canTalk && (
               <button type="button" onClick={() => readAloud(spoken)} className={`${secondary} self-start`} aria-pressed={speaking}>
                 {speaking ? <Square aria-hidden className="size-[1em]" /> : <Volume2 aria-hidden className="size-[1em]" />}
                 {speaking ? "Stop reading" : "Read aloud"}
@@ -291,25 +319,39 @@ export function AskDialProvider({ children }: { children: React.ReactNode }) {
                 autoComplete="off"
                 className="min-h-(--target-min) min-w-0 flex-1 basis-48 rounded-xl hairline bg-background px-3"
               />
-              {voice.Rec && (
-                <button
-                  type="button"
-                  onClick={listening ? () => recognition.current?.stop() : startListening}
-                  aria-pressed={listening}
-                  className={secondary}
-                >
-                  {listening ? <Square aria-hidden className="size-[1em]" /> : <Mic aria-hidden className="size-[1em]" />}
-                  {listening ? "Stop listening" : "Speak"}
+              {voice.recognition && (
+                <button type="button" {...mic.props} aria-pressed={voice.listening} className={`${secondary} ${sheetMode === "hold" ? "touch-none select-none" : ""}`}>
+                  {voice.listening ? <Square aria-hidden className="size-[1em]" /> : <Mic aria-hidden className="size-[1em]" />}
+                  {voice.listening ? "Stop listening" : sheetMode === "hold" ? "Hold to speak" : "Speak"}
                 </button>
               )}
               <button type="submit" disabled={answer.status === "loading"} className={`${button} border-primary bg-primary text-primary-foreground`}>
                 Ask
               </button>
             </div>
+            {/* Interim words show as they arrive but aren't announced word by word; the question is sent once it ends. */}
+            {voice.transcript?.text && (
+              <p className="text-sm">
+                <span className="font-bold">Hearing: </span>
+                <span className="italic text-muted-foreground">{voice.transcript.text}</span>
+              </p>
+            )}
             <p role="status" className="text-sm empty:hidden">
-              {listening ? "Listening..." : voiceMessage}
+              {voice.error?.message ??
+                (voice.state === "requesting-permission"
+                  ? "Waiting for the microphone. If your browser asks, choose Allow."
+                  : voice.state === "listening" || voice.state === "transcribing"
+                    ? "Listening..."
+                    : voice.state === "interrupted"
+                      ? "Stopped listening."
+                      : "")}
             </p>
           </form>
+          {choosing && (
+            <div className="rounded-xl bg-card p-(--space) hairline">
+              <SpeechConsent onDone={chosen} onCancel={() => setChoosing(false)} />
+            </div>
+          )}
         </div>
       </dialog>
     </AskContext.Provider>
