@@ -10,11 +10,26 @@ import { emit, type ChangeSource, type PrefsEvent } from "../preferences/events"
 import { CHOICES as RULE_CHOICES, recommend } from "../preferences/recommend";
 import { applyActions, DEFAULT_PREFS, sanitize, type Preferences, type UiAction } from "../preferences/schema";
 import type { ModelArtifact } from "./artifact";
-import { onPrefsEvent, reconcile, shouldShowCard } from "./controller";
-import { CHOICES } from "./features";
+import { forVisit, onPrefsEvent, reconcile, shouldShowCard } from "./controller";
+import { CHOICES, extractFeatures, FEATURE_IDS } from "./features";
 import { type PersonalisationResult, recommendPreferences } from "./infer";
 import modelJson from "./model.json";
-import { INITIAL_STATE, loadState, type PersonalisationState, recordOutcome, recordSignal, resetPersonalisation, saveState, setConsent } from "./state";
+import {
+  BACKOFF_AFTER,
+  INITIAL_STATE,
+  loadState,
+  NEW_VISIT,
+  noteOwnChange,
+  type Outcome,
+  type PersonalisationState,
+  recordOutcome,
+  recordSignal,
+  resetPersonalisation,
+  saveState,
+  setConsent,
+  type Visit,
+} from "./state";
+import type { TargetId } from "./targets";
 import { TARGET_IDS, TARGETS } from "./targets";
 
 const model = modelJson as unknown as ModelArtifact;
@@ -28,6 +43,7 @@ function app(opts: { prefs?: Preferences; consent?: boolean; model?: ModelArtifa
   let saved: Preferences = prefs;
   const history: { prefs: Preferences; source: ChangeSource }[] = [];
   let ml: PersonalisationState = opts.consent === false ? INITIAL_STATE : setConsent(INITIAL_STATE, true);
+  let visit: Visit = NEW_VISIT;
   const m = opts.model === undefined ? model : opts.model;
   const view = opts.view ?? "simple";
   const send = (e: PrefsEvent) => emit([(ev) => (ml = onPrefsEvent(ml, ev))], e);
@@ -47,6 +63,13 @@ function app(opts: { prefs?: Preferences; consent?: boolean; model?: ModelArtifa
     },
     set ml(s: PersonalisationState) {
       ml = s;
+    },
+    get visit() {
+      return visit;
+    },
+    /** The tab was closed and opened again: sessionStorage starts empty. */
+    newVisit() {
+      visit = NEW_VISIT;
     },
     historyLength: () => history.length,
     apply(actions: UiAction[], source: ChangeSource = "other") {
@@ -93,7 +116,14 @@ function app(opts: { prefs?: Preferences; consent?: boolean; model?: ModelArtifa
       if (preview || ml.consent !== "granted") return null;
       const input = { preferences: api.prefs, view, choices: null };
       ml = reconcile(ml, input);
-      return recommendPreferences(input, ml, m, { maxSuggestions: 1 });
+      const r = forVisit(recommendPreferences(input, ml, m, { maxSuggestions: 1 }), visit);
+      if (r.status === "ok" && visit.shown === null) visit = { shown: r.preferences[0].target, answered: false };
+      return r;
+    },
+    /** PersonalisationProvider.recordOutcome: any answer ends suggestions for this visit. */
+    answer(target: TargetId, outcome: Outcome, fingerprint: string) {
+      ml = recordOutcome(ml, target, outcome, fingerprint);
+      visit = { shown: visit.shown ?? target, answered: true };
     },
     card(result: PersonalisationResult | null) {
       return shouldShowCard({ consent: ml.consent, result, onboarding: api.prefs.onboarding, previewActive: preview !== null });
@@ -104,7 +134,7 @@ function app(opts: { prefs?: Preferences; consent?: boolean; model?: ModelArtifa
       api.startPreview(rec.actions, "ml");
       if (keep) api.acceptPreview(true);
       else api.rejectPreview();
-      ml = recordOutcome(ml, rec.target, keep ? "accepted" : "rejected", result.fingerprint!);
+      api.answer(rec.target, keep ? "accepted" : "rejected", result.fingerprint!);
     },
   };
   return api;
@@ -272,13 +302,104 @@ describe("suggestion lifecycle", () => {
     }
   });
 
-  it("I1: Not now holds the suggestion until settings change", () => {
+  it("I1: Not now holds the suggestion for the rest of the visit, and after that until settings change", () => {
     const a = talker();
-    const r = a.evaluate()!;
-    a.ml = recordOutcome(a.ml, "voiceFirst", "ignored", r.fingerprint!);
+    a.answer("voiceFirst", "ignored", a.evaluate()!.fingerprint!);
     expect(a.evaluate()!.withheld).toContainEqual({ target: "voiceFirst", reason: "recently_ignored" });
+    // A settings change in the same visit does not bring it back: the visit is answered.
     a.apply([{ type: "spacing", value: "roomy" }], "settings");
+    expect(a.card(a.evaluate()!)).toBe(false);
+    // Next visit, with changed settings, it may be offered again.
+    a.newVisit();
     expect(a.evaluate()!.withheld.find((w) => w.target === "voiceFirst")?.reason).not.toBe("recently_ignored");
+    // Next visit with unchanged settings: still held.
+    const b = talker();
+    b.answer("voiceFirst", "ignored", b.evaluate()!.fingerprint!);
+    b.newVisit();
+    expect(b.evaluate()!.withheld).toContainEqual({ target: "voiceFirst", reason: "recently_ignored" });
+  });
+
+  it("V1: at most one suggestion per visit, whatever the person answers", () => {
+    for (const outcome of ["accepted", "rejected", "ignored"] as const) {
+      const a = talker();
+      const r = a.evaluate()!;
+      expect(a.visit).toEqual({ shown: "voiceFirst", answered: false });
+      a.answer("voiceFirst", outcome, r.fingerprint!);
+      // Give the model every reason to suggest something else this visit.
+      a.apply([{ type: "hide", widget: "recent" }, { type: "hide", widget: "budget" }], "settings");
+      for (let i = 0; i < 4; i++) a.apply([{ type: "density", value: "calm" }, { type: "density", value: "standard" }], "settings");
+      const again = a.evaluate()!;
+      expect(again.preferences, outcome).toEqual([]);
+      expect(a.card(again), outcome).toBe(false);
+    }
+  });
+
+  it("V1: the visit's one suggestion is the first one shown; a different one waits for the next visit", () => {
+    const a = talker();
+    const r = recommendPreferences({ preferences: a.prefs, view: "simple", choices: null }, a.ml, model, { maxSuggestions: 1 });
+    expect(r.preferences[0].target).toBe("voiceFirst");
+    const held = forVisit(r, { shown: "calmLayout", answered: false });
+    expect(held.status).toBe("no_recommendation");
+    expect(held.preferences).toEqual([]);
+    expect(held.withheld).toContainEqual({ target: "voiceFirst", reason: "one_per_visit" });
+    expect(forVisit(r, { shown: "voiceFirst", answered: false })).toBe(r);
+    expect(forVisit(r, NEW_VISIT)).toBe(r);
+  });
+
+  it("B1: after two No thanks in a row (any suggestions), nothing is suggested until the person changes a setting themselves", () => {
+    const a = talker();
+    a.previewSuggestion(a.evaluate()!, false); // No thanks to talking first
+    a.newVisit();
+    a.answer("calmLayout", "rejected", a.evaluate()!.fingerprint!); // No thanks to another suggestion, next visit
+    expect(a.ml.declines).toBe(BACKOFF_AFTER);
+    a.newVisit();
+    const paused = a.evaluate()!;
+    expect(paused.status).toBe("paused");
+    expect(paused.preferences).toEqual([]);
+    expect(a.card(paused)).toBe(false);
+    // Changes the person did not make themselves don't lift it.
+    for (const src of ["style", "ml", "other"] as ChangeSource[]) a.apply([{ type: "theme", value: "dark" }], src);
+    a.undo();
+    expect(a.evaluate()!.status).toBe("paused");
+    // Their own change in Settings does. The per-suggestion rules still apply afterwards.
+    a.apply([{ type: "spacing", value: "roomy" }], "settings");
+    expect(a.evaluate()!.status).not.toBe("paused");
+    expect(a.ml.rejected.voiceFirst?.count).toBe(1);
+  });
+
+  it("B1: undoing a kept suggestion counts as a no towards the back-off", () => {
+    const a = talker();
+    a.previewSuggestion(a.evaluate()!, true);
+    a.undo();
+    a.evaluate();
+    expect(a.ml.declines).toBe(1);
+  });
+});
+
+describe("new explicit signals (v2 inputs)", () => {
+  it("N1: Read aloud and the view switch are counted only with consent, as counts, and choosing a view lifts the back-off", () => {
+    const off = app({ consent: false });
+    off.ml = recordSignal(off.ml, "readAloud");
+    expect(off.ml).toEqual(INITIAL_STATE);
+    const a = talker();
+    a.ml = recordSignal(recordSignal(a.ml, "readAloud"), "viewDetailed");
+    expect(a.ml.signals).toMatchObject({ readAloud: 1, viewDetailed: 1 });
+    a.ml = recordOutcome(recordOutcome(a.ml, "voiceFirst", "rejected", "f"), "calmLayout", "rejected", "f");
+    expect(a.ml.declines).toBe(BACKOFF_AFTER);
+    a.ml = noteOwnChange(recordSignal(a.ml, "viewSimple")); // what PersonalisationProvider.noteViewChosen does
+    expect(a.ml.declines).toBe(0);
+    const p = source("lib/personalisation/provider.tsx");
+    expect(p).toMatch(/const noteReadAloud = useCallback\(\(\) => setState\(\(s\) => recordSignal\(s, "readAloud"\)\), \[\]\);/);
+    expect(p).toMatch(/noteOwnChange\(recordSignal\(s, view === "simple" \? "viewSimple" : "viewDetailed"\)\)/);
+  });
+
+  it("N2: speechInput (the microphone privacy choice) never changes the model's inputs; answer style and listen mode do", () => {
+    const x = (p: Preferences) => extractFeatures({ preferences: p, view: "simple" }, {});
+    const base = { ...DEFAULT_PREFS, onboarding: "done" as const };
+    for (const speechInput of ["on-device", "cloud", "typing"] as const) expect(x({ ...base, speechInput })).toEqual(x(base));
+    expect(x({ ...base, answerStyle: "brief" })).not.toEqual(x(base));
+    expect(x({ ...base, listenMode: "continuous" })).not.toEqual(x(base));
+    expect(FEATURE_IDS.join(" ")).not.toMatch(/speech/i);
   });
 });
 
@@ -400,7 +521,19 @@ describe("privacy boundaries", () => {
     for (const f of files) expect(source(f), f).not.toMatch(/personalisation/);
     const ask = source("components/assistant/ask-dial.tsx");
     expect(ask.match(/usePersonalisation\(\)/g)).toHaveLength(1);
-    expect(ask).toMatch(/const \{ noteVoiceOpened \} = usePersonalisation\(\)/);
+    // Ask Dial reports only that Voice Mode was opened and (once wired) that Read aloud was tapped: never what was said or read.
+    expect(ask).toMatch(/const \{ noteVoiceOpened(, noteReadAloud)? \} = usePersonalisation\(\)/);
+    expect(ask).not.toMatch(/noteReadAloud\([^)]/);
+  });
+
+  it("P1: withdrawing consent clears the visit too; the visit stores no timestamps or content", () => {
+    const p = source("lib/personalisation/provider.tsx");
+    expect(p).toMatch(/clearState\(\);\s*clearVisit\(\);/);
+    expect(p).toMatch(/setState\(\(s\) => setConsentIn\(s, granted\)\);\s*setVisit\(NEW_VISIT\);/);
+    const state = source("lib/personalisation/state.ts");
+    const saveVisitBody = state.slice(state.indexOf("export function saveVisit"), state.indexOf("export function clearVisit"));
+    expect(saveVisitBody).toMatch(/JSON\.stringify\(\{ shown: visit\.shown, answered: visit\.answered \}\)/);
+    expect(state).not.toMatch(/Date\.now|new Date|performance\.now/);
   });
 
   it("P1: the model file is never imported statically, so it is fetched only after consent", () => {

@@ -5,6 +5,8 @@
 // Usage (Node 22.15+ or 24, no extra packages):
 //   node --no-warnings --import ./scripts/personalisation/ts-resolve.mjs scripts/personalisation/train.ts
 // Add --check to train and compare with the committed model without writing anything (exit 1 if different).
+// Add --evaluate to evaluate the committed model.json (calibration, generator B robustness, coverage, repetition,
+// cross-mode) and write docs/ml-personalisation/EVALUATION-v2.md. It never writes model.json.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,10 +15,16 @@ import { recommendPreferences } from "../../lib/personalisation/infer";
 import type { BinaryMetrics } from "../../lib/personalisation/metrics";
 import { TARGET_IDS } from "../../lib/personalisation/targets";
 import { DEFAULT_CONFIG, trainModel, type TrainingReport } from "../../lib/personalisation/train";
+import { writeEvaluation } from "./evaluation-report";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const modelPath = join(root, "lib", "personalisation", "model.json");
 const reportPath = join(root, "docs", "ml-personalisation", "EVALUATION.md");
+
+if (process.argv.includes("--evaluate")) {
+  writeEvaluation(modelPath, join(root, "docs", "ml-personalisation", "EVALUATION-v2.md"));
+  process.exit(0);
+}
 
 const started = performance.now();
 const { model, report } = trainModel(DEFAULT_CONFIG);

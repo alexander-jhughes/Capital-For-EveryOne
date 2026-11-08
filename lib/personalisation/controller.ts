@@ -5,11 +5,13 @@
 //   - "Make it yours" styles, Dial's own suggestions, onboarding and anything untagged are never counted;
 //   - previews and rejected previews never reach here (the provider only emits kept changes, undo and reset);
 //   - nothing is counted without consent.
+// Repetition rules: at most one suggestion per visit (forVisit), and after BACKOFF_AFTER "No thanks" in a row nothing
+// is suggested until the person changes a setting themselves (a kept Settings or Voice change, or the view switch).
 import type { ChangeSource, PrefsEvent } from "../preferences/events";
 import type { Preferences } from "../preferences/schema";
 import { explicitFingerprint, extractFeatures, type PersonalisationInput } from "./features";
 import type { PersonalisationResult } from "./infer";
-import { type Consent, type PersonalisationState, recordSignal, REJECTION_LIMIT, signalForAction } from "./state";
+import { BACKOFF_AFTER, type Consent, noteOwnChange, type PersonalisationState, recordSignal, REJECTION_LIMIT, signalForAction, type Visit } from "./state";
 import { TARGET_IDS, targetStatus } from "./targets";
 
 export const COUNTED_SOURCES: readonly ChangeSource[] = ["settings", "voice"];
@@ -19,7 +21,7 @@ export function onPrefsEvent(state: PersonalisationState, e: PrefsEvent): Person
   if (state.consent !== "granted") return state;
   if (e.kind === "kept") {
     if (!COUNTED_SOURCES.includes(e.source)) return state;
-    let next = state;
+    let next = noteOwnChange(state);
     for (const a of e.actions) {
       const s = signalForAction(a, { textSize: e.before.textSize });
       if (s) next = recordSignal(next, s);
@@ -45,7 +47,26 @@ export function reconcile(state: PersonalisationState, input: PersonalisationInp
     delete accepted[id];
     rejected[id] = { count: Math.min((rejected[id]?.count ?? 0) + 1, REJECTION_LIMIT), fingerprint };
   }
-  return { ...state, accepted, rejected };
+  return { ...state, accepted, rejected, declines: Math.min(state.declines + reverted.length, BACKOFF_AFTER) };
+}
+
+/**
+ * At most one suggestion per visit. The first suggestion shown is the only one this visit can show, and once the
+ * person answers it (Keep it, Go back, No thanks or Not now) nothing else is shown until the next visit.
+ */
+export function forVisit(result: PersonalisationResult, visit: Visit): PersonalisationResult {
+  const top = result.preferences[0];
+  if (result.status !== "ok" || !top || (!visit.answered && (visit.shown === null || visit.shown === top.target))) return result;
+  return {
+    ...result,
+    status: "no_recommendation",
+    recommendedLayout: null,
+    preferences: [],
+    confidence: null,
+    reasons: [],
+    offer: null,
+    withheld: [...result.withheld, ...result.preferences.map((p) => ({ target: p.target, reason: "one_per_visit" as const }))],
+  };
 }
 
 /** The Home suggestion card shows only when every condition holds. */

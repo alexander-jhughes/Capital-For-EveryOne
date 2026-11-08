@@ -2,11 +2,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { isValidModel, type ModelArtifact } from "./artifact";
+import { FORMAT_FEATURES, isValidModel, type ModelArtifact } from "./artifact";
+import { calibrate } from "./calibration";
 import { FEATURE_IDS } from "./features";
-import { DEFAULT_SYNTHETIC, generateSynthetic, splitIndices } from "./synthetic";
+import { recommendPreferences } from "./infer";
+import { INITIAL_STATE } from "./state";
+import { DEFAULT_SYNTHETIC, generateSynthetic, servedPopulation, splitIndices } from "./synthetic";
 import { TARGET_IDS, targetStatus } from "./targets";
-import { chooseThreshold, DEFAULT_CONFIG, trainModel, type TrainingReport } from "./train";
+import { chooseThreshold, DEFAULT_CONFIG, trainModel, type TrainingReport, V1_CONFIG, V2_CONFIG } from "./train";
 
 let model: ModelArtifact;
 let report: TrainingReport;
@@ -42,12 +45,26 @@ describe("synthetic data", () => {
     }
   });
 
-  it("has missing data like real use: some never did Make it yours, some never consented to signals, some on the older schema", () => {
-    const people = generateSynthetic({ ...DEFAULT_SYNTHETIC, people: 2000 });
-    const share = (f: (p: (typeof people)[number]) => boolean) => people.filter(f).length / people.length;
-    expect(share((p) => p.input.choices === null)).toBeGreaterThan(0.4);
-    expect(share((p) => p.signals === null)).toBeGreaterThan(0.3);
-    expect(share((p) => p.input.preferences!.voiceFirst === undefined)).toBeGreaterThan(0.2);
+  it("has missing data like real use: some never did Make it yours, some never consented to signals (v1: some on the older schema)", () => {
+    for (const version of [1, 2] as const) {
+      const people = generateSynthetic({ ...DEFAULT_SYNTHETIC, people: 2000, version });
+      const share = (f: (p: (typeof people)[number]) => boolean) => people.filter(f).length / people.length;
+      expect(share((p) => p.input.choices === null), `v${version}`).toBeGreaterThan(0.4);
+      expect(share((p) => p.signals === null), `v${version}`).toBeGreaterThan(0.3);
+      // Version 2 models this app, where every person has the current schema (sanitize() fills it in).
+      expect(share((p) => p.input.preferences!.voiceFirst === undefined), `v${version}`)[version === 1 ? "toBeGreaterThan" : "toBe"](version === 1 ? 0.2 : 0);
+    }
+  });
+
+  it("version 1 is unchanged, so the v1 baseline can still be reproduced and evaluated", () => {
+    const v1 = generateSynthetic({ ...DEFAULT_SYNTHETIC, people: 300, version: 1 });
+    expect(v1).toEqual(generateSynthetic({ ...V1_CONFIG.data, people: 300 }));
+    expect(v1).not.toEqual(generateSynthetic({ ...DEFAULT_SYNTHETIC, people: 300 }));
+    expect(v1.every((p) => !p.signals || !("readAloud" in p.signals))).toBe(true);
+  });
+
+  it("never generates speechInput (a microphone privacy choice, not a display preference)", () => {
+    for (const p of generateSynthetic({ ...DEFAULT_SYNTHETIC, people: 300 })) expect(Object.keys(p.input.preferences!)).not.toContain("speechInput");
   });
 
   it("splits people into disjoint train, validation and test sets covering everyone", () => {
@@ -60,9 +77,11 @@ describe("synthetic data", () => {
 });
 
 describe("training", () => {
-  it("produces a valid model with the current feature order", () => {
+  it("produces a valid model with the feature order of its format", () => {
     expect(isValidModel(model)).toBe(true);
-    expect(model.features).toEqual(FEATURE_IDS);
+    expect(model.formatVersion).toBe(DEFAULT_CONFIG.pipeline);
+    expect(model.features).toEqual(FORMAT_FEATURES[DEFAULT_CONFIG.pipeline]);
+    expect(FEATURE_IDS.slice(0, FORMAT_FEATURES[1].length)).toEqual(FORMAT_FEATURES[1]); // features are append-only
     expect(model.trainedOn).toBe("synthetic");
     for (const id of TARGET_IDS) expect(model.targets[id].trees).toHaveLength(DEFAULT_CONFIG.forest.trees);
   });
@@ -84,6 +103,30 @@ describe("training", () => {
 
   it("stays small enough to ship to the browser", () => {
     expect(JSON.stringify(model).length).toBeLessThan(300 * 1024);
+  });
+});
+
+describe("the v2 candidate pipeline (V2_CONFIG)", () => {
+  // Small, so the suite stays fast; the full candidate is trained by `train.ts --evaluate`.
+  const { model: v2, report: r2 } = trainModel({ ...V2_CONFIG, data: { ...V2_CONFIG.data, people: 6000 }, forest: { ...V2_CONFIG.forest, trees: 5 } });
+
+  it("produces a valid format-2 model with every feature and a monotone calibration per target", () => {
+    expect(isValidModel(v2)).toBe(true);
+    expect(v2.formatVersion).toBe(2);
+    expect(v2.features).toEqual(FEATURE_IDS);
+    for (const id of TARGET_IDS) {
+      const c = v2.targets[id].calibration!;
+      const ys = [0, 0.1, 0.3, 0.5, 0.7, 0.9, 1].map((p) => calibrate(c, p));
+      expect(ys, id).toEqual([...ys].sort((a, b) => a - b));
+      expect(r2.targets[id].ece.calibrated, id).not.toBeNull();
+    }
+  });
+
+  it("trains only on the people the app can score, and runs through inference", () => {
+    const served = servedPopulation(generateSynthetic({ ...V2_CONFIG.data, people: 6000 })).length;
+    expect(r2.people.train + r2.people.validation + r2.people.test).toBe(served);
+    const r = recommendPreferences({ preferences: { textSize: 150 }, view: "simple" }, { ...INITIAL_STATE, consent: "granted", signals: { readAloud: 4 } }, v2);
+    expect(["ok", "no_recommendation"]).toContain(r.status);
   });
 });
 

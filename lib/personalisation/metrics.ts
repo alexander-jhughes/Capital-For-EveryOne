@@ -72,3 +72,38 @@ export function recommendationMetrics(y: number[], p: number[], threshold: numbe
     keepRate: offered.length ? r4(kept / offered.length) : null,
   };
 }
+
+export interface ReliabilityBin {
+  /** Bin covers predicted probabilities in [lo, hi) (the last bin includes 1). */
+  lo: number;
+  hi: number;
+  n: number;
+  /** Mean predicted probability in the bin, or null when empty. */
+  predicted: number | null;
+  /** Share of the bin that actually kept the setting, or null when empty. */
+  observed: number | null;
+}
+
+const rawBins = (y: number[], p: number[], bins: number) => {
+  const out = Array.from({ length: bins }, (_, b) => ({ lo: b / bins, hi: (b + 1) / bins, n: 0, sp: 0, sy: 0 }));
+  for (let i = 0; i < y.length; i++) {
+    const b = out[Math.min(Math.max(Math.floor(p[i] * bins), 0), bins - 1)];
+    b.n++;
+    b.sp += p[i];
+    b.sy += y[i];
+  }
+  return out;
+};
+
+/** Equal-width reliability diagram: does "0.7" mean about 70% kept? */
+export function reliability(y: number[], p: number[], bins = 10): ReliabilityBin[] {
+  return rawBins(y, p, bins).map(({ lo, hi, n, sp, sy }) => ({ lo: r4(lo), hi: r4(hi), n, predicted: n ? r4(sp / n) : null, observed: n ? r4(sy / n) : null }));
+}
+
+/** Expected calibration error: the n-weighted mean gap between predicted and observed rate over equal-width bins. 0 is perfect. */
+export function ece(y: number[], p: number[], bins = 10): number | null {
+  if (y.length === 0) return null;
+  let sum = 0;
+  for (const b of rawBins(y, p, bins)) sum += Math.abs(b.sp - b.sy);
+  return r4(sum / y.length);
+}
