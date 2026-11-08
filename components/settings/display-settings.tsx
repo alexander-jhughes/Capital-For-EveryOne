@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import { useAskDial } from "@/components/assistant/ask-dial";
 import { useAnnounce } from "@/components/live-region";
-import { usePersonalisation } from "@/lib/personalisation/provider";
+import { SuggestionsSettings } from "@/components/personalise/suggestions-settings";
 import { usePreferences } from "@/lib/preferences/provider";
 import { describeActions, TEXT_SIZES, WIDGET_LABELS, WIDGETS, type Preferences, type UiAction, type WidgetId } from "@/lib/preferences/schema";
 import { useMode } from "@/lib/state/mode-context";
@@ -53,7 +53,6 @@ export function DisplaySettings() {
   const { openVoice } = useAskDial();
   const announce = useAnnounce();
   const [confirmReset, setConfirmReset] = useState(false);
-  const ml = usePersonalisation();
 
   const change = (actions: UiAction[]) => {
     apply(actions, { source: "settings" });
@@ -146,46 +145,7 @@ export function DisplaySettings() {
         </Link>
       </section>
 
-      <section id="suggestions" aria-labelledby="s-ml" className="elevated flex scroll-mt-4 flex-col gap-4 rounded-xl bg-card p-(--space)">
-        <div className="flex flex-col gap-2">
-          <h2 id="s-ml" className="text-lg font-bold">
-            Suggestions from Dial
-          </h2>
-          <p className="text-muted-foreground">
-            Dial can suggest a display change now and then, like larger text or a calmer home screen. It bases this only on display settings you&apos;ve chosen, display
-            changes you&apos;ve kept here or in Voice Mode, and how often you open Voice Mode, all counted on this device. It never looks at your spending,
-            transactions or account, or at what you say to Dial, and nothing is sent anywhere. A suggestion never changes anything until you preview it and choose
-            Keep it.
-          </p>
-          <p className="text-muted-foreground">These suggestions come from a model trained on made-up example data. It hasn&apos;t been tested with real people yet.</p>
-        </div>
-        <Segmented
-          legend="Suggestions"
-          hint="Turning suggestions off deletes everything Dial has counted. Your display settings stay as they are."
-          value={ml.consent === "granted" ? "on" : "off"}
-          options={[{ value: "off", label: "Off" }, { value: "on", label: "On" }]}
-          onChange={(v) => {
-            ml.setConsent(v === "on");
-            announce(v === "on" ? "Suggestions on." : "Suggestions off. What Dial had counted is deleted.");
-          }}
-        />
-        {ml.consent === "granted" && (
-          <>
-            {ml.modelStatus === "unavailable" && <p role="status">Suggestions aren&apos;t available right now. Everything else works as usual.</p>}
-            <button
-              type="button"
-              onClick={() => {
-                ml.resetSuggestions();
-                announce("Suggestions reset. Dial has forgotten what it counted and your answers.");
-              }}
-              className={`${pill} hairline self-start bg-card`}
-            >
-              <RotateCcw aria-hidden className="size-[1em]" />
-              Reset suggestions
-            </button>
-          </>
-        )}
-      </section>
+      <SuggestionsSettings />
 
       <section aria-labelledby="s-layout" className="elevated flex flex-col gap-4 rounded-xl bg-card p-(--space)">
         <div>
