@@ -239,6 +239,9 @@ Limitations:
 
 ## 8. Accessibility engine: what exists today and what still needs agreeing
 
+The full integration architecture, proposed contract, conflicts and ownership are in
+`docs/ACCESSIBILITY-INTEGRATION.md`. This section is the short version.
+
 The accessibility engine (semantic classification, optional Groq Whisper) is not in this branch: it was on
 `feat/groq-adaptive-access`, which isn't on GitHub, and `4b5da91` ported only the Groq answer path. Nothing below is
 an agreed contract; it describes the existing code an integration would meet.
