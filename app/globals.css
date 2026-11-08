@@ -3,6 +3,12 @@
 @import "shadcn/tailwind.css";
 
 /*
+  Tailwind scans every file in the project for class names. The on-device model (23 MB of binary weights) and its
+  index are not source: scanning them made every first page compile take about four minutes.
+*/
+@source not "../public/models";
+
+/*
   Capital for Everyone: one component tree, three independent layers on <html>.
   1. View (data-mode): base sizes for Simple or Detailed.
   2. Preferences (data-text, data-spacing, data-targets, data-contrast, data-theme, data-motion): multiply or override.
