@@ -56,7 +56,7 @@ Actions ("do"):
     /account is Home (balance, bill, Dial noticed, budget, chart, recent transactions). Optional focus on Home: ${HOME_SECTIONS.join(", ")}.
     /account/spending shows transactions. Optional category (${SPENDING_CATEGORIES.join(", ")}) and month as YYYY-MM.
     /account/pay only opens the payment page. You can never make a payment.
-    /account/spend-pause is the check-in and monthly budget. /account/settings is Display and voice. /account/personalise suggests a style. /account/goals is savings and spending goals.
+    /account/spend-pause is the check-in and monthly budget. /account/settings is Display and voice. /account/personalise suggests a style. /account/goals is savings and spending goals. /account/credit is building your credit (habits that help a credit file, how much of the limit is used).
 - display: change how the app looks. setting and value are one of:
     textSize: bigger, smaller, 100, 125, 150, 200
     contrast: high, standard

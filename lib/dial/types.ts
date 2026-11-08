@@ -24,6 +24,7 @@ export const DIAL_ROUTES = [
   "/account/settings",
   "/account/personalise",
   "/account/goals",
+  "/account/credit",
 ] as const;
 export type DialRoute = (typeof DIAL_ROUTES)[number];
 

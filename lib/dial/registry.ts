@@ -29,6 +29,7 @@ export const ROUTE_INFO: Record<DialRoute, { name: string; spoken: string }> = {
   "/account/settings": { name: "Settings", spoken: "display and voice settings" },
   "/account/personalise": { name: "Personalise", spoken: "personalising the app" },
   "/account/goals": { name: "Goals", spoken: "your goals" },
+  "/account/credit": { name: "Building your credit", spoken: "building your credit" },
 };
 
 export const SECTION_INFO: Record<HomeSection, { name: string; spoken: string }> = {
@@ -66,6 +67,7 @@ export const PLACES: Place[] = [
   { re: / (personali[sz]e|personali[sz]ation|personali[sz]ing|make it (mine|yours|my own)|make the app (mine|my own)) /, to: "/account/personalise" },
   { re: / (settings|preferences|accessibility|display and voice|display options|voice options|voice and display) /, to: "/account/settings" },
   { re: / (goals?|savings goals?|saving goals?) /, to: "/account/goals" },
+  { re: / (build(ing)? (my |your )?credit|credit build(ing|er)|credit (score|rating|file|history|health|habits)|improve (my )?credit|credit utili[sz]ation|utili[sz]ation) /, to: "/account/credit" },
   { re: / (pay (my |the |off (my |the )?)?(bill|card|balance|statement)|make a payment|pay page|pay screen|payment page|payments page|payment screen) /, to: "/account/pay", say: PAY_NOTE },
   { re: / (credit (information|info|limit|details|available)|available credit|my credit|how much credit|my balance|the balance|balance|credit) /, to: "/account", focus: "balance" },
   { re: / (budgets?) /, to: "/account", focus: "budget", say: BUDGET_NOTE },
@@ -85,6 +87,7 @@ export const ROUTE_WORDS: [RegExp, DialRoute][] = [
   [/\b(?:settings|preferences)\b/i, "/account/settings"],
   [/\b(?:personali[sz]e)\b/i, "/account/personalise"],
   [/\b(?:goals?)\b/i, "/account/goals"],
+  [/\b(?:credit (?:building|score|health))\b/i, "/account/credit"],
   [/\b(?:home|dashboard|home screen)\b/i, "/account"],
 ];
 

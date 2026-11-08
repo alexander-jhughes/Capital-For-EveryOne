@@ -26,6 +26,7 @@ import { describeGoal } from "@/lib/goals/describe";
 import { useGoals } from "@/lib/goals/provider";
 import { formatLongDate, formatPence } from "@/lib/format";
 import { paymentReply } from "@/lib/payments/dial";
+import { creditHealth, creditSummary, isCreditBuildingQuestion } from "@/lib/finance/credit";
 import { usePreferences } from "@/lib/preferences/provider";
 import { dialStyle } from "@/lib/preferences/schema";
 import { spendPauseReply } from "@/lib/spend-pause/dial";
@@ -212,6 +213,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
           months,
           today: DEMO_TODAY,
           localReply: (q) => {
+            // "How can I build my credit?" is answered from the card, with figures from lib/finance/credit.ts.
+            if (isCreditBuildingQuestion(q))
+              return { text: creditSummary(creditHealth(L.account, L.payments, DEMO_TODAY)), link: { label: "See your credit habits", href: "/account/credit" } };
             const sp = spendPauseReply(q, L.settings, L.spendPauseActivity);
             if (sp) return { text: sp.text, link: sp.action ? { label: sp.action.label, href: sp.action.href } : undefined };
             const paid = paymentReply(q, { account: L.account, transactions: L.transactions, payments: L.payments });
