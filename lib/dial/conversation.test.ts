@@ -337,6 +337,7 @@ function fakeRunner(): RunnerDeps {
     navigate: vi.fn(async () => true),
     back: vi.fn(() => true),
     previewPreferences: vi.fn(),
+    previewAdapt: vi.fn(),
     previewMode: vi.fn(),
     settle: vi.fn(() => "Done."),
     control: vi.fn(() => null),
