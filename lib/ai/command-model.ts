@@ -52,6 +52,7 @@ Actions ("do"):
     /account/spending shows transactions. Optional category (${SPENDING_CATEGORIES.join(", ")}) and month as YYYY-MM.
     /account/pay only opens the payment page. You can never make a payment.
     /account/spend-pause is the check-in and monthly budget. /account/settings is Display and voice. /account/personalise suggests a style. /account/goals is savings and spending goals.
+    /account/learn is the Credit Learning Lab. Its lessons: /account/learn/utilisation, /account/learn/minimum-payments, /account/learn/interest (APR and interest), /account/learn/statement, /account/learn/quiz. There is no credit score page. /account/more lists every other screen.
 - display: change how the app looks. setting and value are one of:
     textSize: bigger, smaller, 100, 125, 150, 200
     contrast: high, standard

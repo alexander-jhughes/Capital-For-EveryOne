@@ -23,6 +23,14 @@ export const DIAL_ROUTES = [
   "/account/settings",
   "/account/personalise",
   "/account/goals",
+  // The Credit Learning Lab, its topic pages (one per slug in lib/learn/topics.ts; a test keeps them in step) and More.
+  "/account/learn",
+  "/account/learn/utilisation",
+  "/account/learn/minimum-payments",
+  "/account/learn/interest",
+  "/account/learn/statement",
+  "/account/learn/quiz",
+  "/account/more",
 ] as const;
 export type DialRoute = (typeof DIAL_ROUTES)[number];
 

@@ -28,6 +28,13 @@ export const ROUTE_INFO: Record<DialRoute, { name: string; spoken: string }> = {
   "/account/settings": { name: "Settings", spoken: "display and voice settings" },
   "/account/personalise": { name: "Personalise", spoken: "personalising the app" },
   "/account/goals": { name: "Goals", spoken: "your goals" },
+  "/account/learn": { name: "Learning Lab", spoken: "the Credit Learning Lab" },
+  "/account/learn/utilisation": { name: "Credit utilisation", spoken: "the credit utilisation lesson" },
+  "/account/learn/minimum-payments": { name: "Minimum payments", spoken: "the minimum payments lesson" },
+  "/account/learn/interest": { name: "APR and interest", spoken: "the APR and interest lesson" },
+  "/account/learn/statement": { name: "Your statement, explained", spoken: "the statement lesson" },
+  "/account/learn/quiz": { name: "Credit quiz", spoken: "the credit quiz" },
+  "/account/more": { name: "More", spoken: "everything else in the app" },
 };
 
 export const SECTION_INFO: Record<HomeSection, { name: string; spoken: string }> = {
@@ -42,7 +49,7 @@ export const SECTION_INFO: Record<HomeSection, { name: string; spoken: string }>
 
 /** Said when someone asks for a place that doesn't exist. Lists only real screens. */
 export const OPENABLE =
-  "I can open Home, Spending, Pay, Spend Pause, Goals, Settings and Personalise, or show your bill, balance and credit, budget or what Dial has noticed on Home.";
+  "I can open Home, Spending, Pay, Spend Pause, Goals, the Learning Lab, Settings, Personalise and More, or show your bill, balance and credit, budget or what Dial has noticed on Home.";
 
 export interface Place {
   /** Matched against the normalised text (lower case, padded with spaces). */
@@ -53,6 +60,10 @@ export interface Place {
 }
 
 const BUDGET_NOTE = "Your monthly budget is set in Spend Pause.";
+/** Dial can't see a credit score and the app never shows one, so a request for one opens the lessons that exist. */
+export const CREDIT_SCORE_NOTE =
+  "I can't see your credit score, and the Learning Lab doesn't cover scores. It explains credit utilisation, minimum payments, APR and interest, and your statement.";
+export const LEARN_NOTE = "The Learning Lab explains credit utilisation, minimum payments, APR and interest, and your statement, and has a short quiz.";
 export const PAY_NOTE = "Dial never makes a payment for you. Choose the amount and confirm it here.";
 
 /**
@@ -65,6 +76,10 @@ export const PLACES: Place[] = [
   { re: / (personali[sz]e|personali[sz]ation|personali[sz]ing|make it (mine|yours|my own)|make the app (mine|my own)) /, to: "/account/personalise" },
   { re: / (settings|preferences|accessibility|display and voice|display options|voice options|voice and display) /, to: "/account/settings" },
   { re: / (goals?|savings goals?|saving goals?) /, to: "/account/goals" },
+  { re: / (credit scores?|credit ratings?|credit reports?|credit files?) /, to: "/account/learn", say: CREDIT_SCORE_NOTE },
+  { re: / (credit quiz|quiz|test my knowledge) /, to: "/account/learn/quiz" },
+  { re: / (learning lab|learn lab|credit learning lab|learning centre|learning center|lessons|learning) /, to: "/account/learn" },
+  { re: / (more features|more options|more screens|more pages|more page|more menu|the more page|everything else|other features|all features|all the features) /, to: "/account/more" },
   { re: / (pay (my |the |off (my |the )?)?(bill|card|balance|statement)|make a payment|pay page|pay screen|payment page|payments page|payment screen) /, to: "/account/pay", say: PAY_NOTE },
   { re: / (credit (information|info|limit|details|available)|available credit|my credit|how much credit|my balance|the balance|balance|credit) /, to: "/account", focus: "balance" },
   { re: / (budgets?) /, to: "/account", focus: "budget", say: BUDGET_NOTE },
@@ -84,7 +99,23 @@ export const ROUTE_WORDS: [RegExp, DialRoute][] = [
   [/\b(?:settings|preferences)\b/i, "/account/settings"],
   [/\b(?:personali[sz]e)\b/i, "/account/personalise"],
   [/\b(?:goals?)\b/i, "/account/goals"],
+  [/\b(?:learning lab|learning|lessons)\b/i, "/account/learn"],
+  [/\b(?:more features|more page)\b/i, "/account/more"],
   [/\b(?:home|dashboard|home screen)\b/i, "/account"],
+];
+
+/**
+ * Learning Lab topics, matched only when the person is asking to learn ("teach me about", "lesson", "explain how"),
+ * so "show me my statement" still opens the bill and "what's my APR" is still a question about the account.
+ */
+export const LEARN_CUE = / (teach me|learn about|learn more about|i want to learn|learning lab|lesson|lessons|explainer|explainers|tutorial|course|how does (a |an |my |the )?[a-z ]{0,25}work|quiz) /;
+export const LEARN_TOPICS: { re: RegExp; to: DialRoute; say?: string }[] = [
+  { re: / (credit scores?|credit ratings?|credit reports?|credit files?) /, to: "/account/learn", say: CREDIT_SCORE_NOTE },
+  { re: / (quiz|test my knowledge) /, to: "/account/learn/quiz" },
+  { re: / (credit utili[sz]ation|utili[sz]ation|how much of (my|the|your) limit) /, to: "/account/learn/utilisation" },
+  { re: / (minimum payments?|minimum repayments?|paying (only |just )?the minimum) /, to: "/account/learn/minimum-payments" },
+  { re: / (apr|interest rates?|interest) /, to: "/account/learn/interest" },
+  { re: / (statements?) /, to: "/account/learn/statement" },
 ];
 
 export function findPlace(normalised: string): Place | null {
