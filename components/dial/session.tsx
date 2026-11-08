@@ -9,13 +9,19 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { askDial, intentForQuestion, offlineFacts } from "@/lib/assistant/client";
 import { askModelForSteps } from "@/lib/assistant/command-client";
+import { brainWithin, loadBrain } from "@/lib/access/brain";
+import { adaptationFor, offeredAdaptation, type Adaptation } from "@/lib/access/pipeline";
+import { changesFor, planKeep } from "@/lib/access/understand";
+import { prefersReducedMotion, reveal } from "@/lib/access/reveal";
+import { clarify } from "@/lib/access/clarify";
+import { PROTECTED_NOTE, withoutProtectedHides } from "@/lib/access/safety";
 import { liveState } from "@/lib/assistant/live-state";
 import { DEMO_NOW, DEMO_TODAY } from "@/lib/demo-clock";
 import { createAskCache, askKey } from "@/lib/dial/ask-cache";
 import { afterAnswer, withRoute } from "@/lib/dial/context";
 import { plan } from "@/lib/dial/plan";
 import { runSteps, type PendingOffer, type ReplyItem } from "@/lib/dial/runner";
-import { DIAL_ROUTES, EMPTY_CONTEXT, type DialContext, type DialRoute } from "@/lib/dial/types";
+import { DIAL_ROUTES, EMPTY_CONTEXT, type DialContext, type DialRoute, type DialStep } from "@/lib/dial/types";
 import { buildVisual } from "@/lib/dial/visuals";
 import { simulate } from "@/lib/dial/what-if";
 import { describeGoal } from "@/lib/goals/describe";
@@ -91,6 +97,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
   const offerRef = useRef<PendingOffer | null>(null);
   /** The mode before a view preview, so "no" can put it back. */
   const modeBefore = useRef<Mode | null>(null);
+  /** Stops an adaptation that is still revealing itself, one change at a time. */
+  const stopReveal = useRef<() => void>(() => {});
   const cache = useMemo(() => createAskCache(), []);
   // What the saved profile does to answers, for the cache key only (read through a ref so callbacks stay stable).
   const { profile } = useProfile();
@@ -112,7 +120,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     setOffer(o);
   };
 
-  const settle = useCallback((o: PendingOffer, yes: boolean, save = false): string => {
+  const settle = useCallback((o: PendingOffer, yes: boolean, save = false): string => settleNowRef.current(o, yes, save), []);
+
+  const settleNow = (o: PendingOffer, yes: boolean, save = false): string => {
     const { prefsApi: p, goalsApi: g } = live.current;
     const step = o.step;
     setPending(null);
@@ -120,6 +130,26 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       if (yes && step.actions.some((a) => a.type === "reset")) p.resetToDefault();
       else if (yes) p.acceptPreview({ save });
       else p.rejectPreview();
+    }
+    if (step.type === "adapt") {
+      // Answering before the last change has landed stops the sequence; what's kept is always the full set.
+      stopReveal.current();
+      if (!yes) {
+        p.rejectPreview();
+        return "Okay, I've left it as it was. You can tell me more about what's hard, or change anything in Settings.";
+      }
+      const keep = planKeep(changesFor(step.situations), step.scope);
+      if (step.scope === "night") {
+        // The preview showed the night look now. Keep the schedule (saved, so it comes back every evening) and
+        // anything that isn't about the light; the screen returns to the day look until 7pm.
+        p.rejectPreview();
+        p.apply([...keep.now, { type: "nightLook", actions: keep.night }], { save: true, source: "voice" });
+        return "Done. Your night look switches on by itself from 7pm to 7am. You can change it in Settings, or say undo.";
+      }
+      // Applied from the plan, not from the preview, so it's complete even if "Keep it" came mid-animation.
+      p.rejectPreview();
+      p.apply(keep.now, { save: step.scope === "always" || save, source: "voice" });
+      return step.scope === "now" ? "Done, just for now. It goes back to normal next time, or say undo." : "Done, and saved for next time. Say undo to change it back.";
     }
     if (step.type === "setMode") {
       if (!yes && modeBefore.current) setMode(modeBefore.current);
@@ -133,7 +163,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
     if (!yes) return "Okay, I've left it as it was.";
     if (step.type === "preferences" && save) return "Kept and saved. It will look like this next time.";
     return step.type === "preferences" ? "Done. Say save it to keep this for next time, or undo to change it back." : "Done.";
-  }, [setMode]);
+  };
+  const settleNowRef = useRef(settleNow);
+  settleNowRef.current = settleNow;
 
   const submit = useCallback(
     async (text: string, opts: { replaces?: string } = {}): Promise<DialTurn | null> => {
@@ -148,6 +180,29 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       abort.current = controller;
       const id = ++turnId.current;
       const L = live.current;
+
+      // A contradictory or vague request gets a question back, never a guess (lib/access/clarify.ts). A correction
+      // ("no, I meant bigger") is already a clear choice, so it skips this.
+      const question = opts.replaces || splitCorrection(input) ? null : clarify(input);
+      if (question) {
+        const asked: DialTurn = { id, input, understood: "", corrected: false, status: "done", items: [{ kind: "say", text: question }], local: true };
+        setStats((s) => ({ ...s, turns: s.turns + 1, local: s.local + 1 }));
+        setTurn(asked);
+        return asked;
+      }
+
+      // Someone describing their situation ("I have trouble seeing at night") is understood on this device by meaning,
+      // before the precise rules run. Commands, page names and money questions skip this (lib/access/route.ts).
+      // The model is given up to 4 seconds the first time it loads; after that it answers in milliseconds.
+      let found: Adaptation | null = null;
+      try {
+        const brain = await brainWithin(4000);
+        if (id !== turnId.current) return null;
+        if (brain) found = await adaptationFor(input, brain);
+        if (id !== turnId.current) return null;
+      } catch {
+        // The rules below still run; nothing about the sentence is logged.
+      }
 
       const months = [...new Set(L.transactions.map((t) => t.date.slice(0, 7)))].sort();
       const merchants = [...new Set(L.transactions.map((t) => t.merchant))];
@@ -171,11 +226,16 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
       context.current = planned.context;
       // The on-device rules come first. Groq is only asked when they found nothing they could do with the request,
       // so common commands never cost a call. Its answer is a list of steps that pass the same validation as ours.
-      let steps = planned.steps;
+      const adaptStep = (a: Adaptation): DialStep => ({ type: "adapt", situations: a.situations, scope: a.scope, ...(a.tentative ? { tentative: true } : {}) });
+      // "Probably" only wins when the rules had nothing else to do with the sentence, and it is offered as a question.
+      const rulesGaveUp = planned.steps.length > 0 && planned.steps.every((s) => s.type === "unsupported");
+      const adaptation = offeredAdaptation(found, rulesGaveUp);
+      let steps: DialStep[] = adaptation ? [adaptStep(adaptation)] : planned.steps;
       let usedModel = false;
       const gaveUp = steps.length > 0 && steps.every((s) => s.type === "unsupported");
       const corrected = !!replaces || splitCorrection(input) !== null;
-      const working: DialTurn = { id, input, understood: gaveUp ? "" : planned.understood, corrected, status: "working", items: [], local: planned.local };
+      // When the situation layer took the sentence, its card says what it heard, so the rules' reading isn't shown too.
+      const working: DialTurn = { id, input, understood: gaveUp || adaptation ? "" : planned.understood, corrected, status: "working", items: [], local: adaptation ? true : planned.local };
       setTurn(gaveUp ? { ...working, local: false } : working);
       if (gaveUp) {
         const route = (DIAL_ROUTES as readonly string[]).includes(L.pathname) ? L.pathname : null;
@@ -183,7 +243,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
         if (id !== turnId.current) return null; // a newer turn replaced this one
         if (fromModel === "busy") steps = [{ type: "unsupported", say: "Groq is busy right now (its request limit), so I couldn't work that out. Try again in a few seconds, or use a plain command like make everything bigger." }];
         else if (fromModel && fromModel.length > 0) {
-          steps = fromModel;
+          // A model may suggest "less on screen" by hiding sections; the bill, Spend Pause and warnings are never hidden that way.
+          const safe = withoutProtectedHides(fromModel);
+          steps = safe.steps.length > 0 ? safe.steps : [{ type: "unsupported", say: PROTECTED_NOTE }];
           usedModel = true;
         }
       }
@@ -218,6 +280,14 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
             return true;
           },
           previewPreferences: (step) => live.current.prefsApi.startPreview(step.actions, { source: "voice" }),
+          // Each change lands on its own, a beat apart, in step with its line in Dial's card (lib/access/reveal.ts).
+          previewAdapt: (step) => {
+            const actions = changesFor(step.situations).map((c) => c.action);
+            stopReveal.current();
+            stopReveal.current = reveal(actions.length, (n) => live.current.prefsApi.startPreview(actions.slice(0, n), { source: "voice" }), {
+              reduced: prefersReducedMotion(live.current.prefsApi.prefs.motion),
+            });
+          },
           previewMode: (m) => {
             modeBefore.current = live.current.mode;
             setMode(m);
@@ -304,6 +374,9 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
 
   const setSurface = useCallback((s: DialSurface | null) => {
     surface.current = s;
+    // Opening Dial starts loading the on-device model, so it is usually ready by the time the person has spoken.
+    // Nothing is downloaded for people who never open Dial.
+    if (s) void loadBrain();
   }, []);
 
   // Leaving with a preview showing withdraws it: nothing changes silently.

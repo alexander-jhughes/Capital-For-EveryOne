@@ -1,6 +1,8 @@
 "use client";
 
-import { AlertCircle, ArrowRight, Check, Save, Undo2 } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, Clock, Gauge, Save, ShieldCheck, Undo2 } from "lucide-react";
+import accuracy from "@/lib/access/accuracy.json";
+import { SCOPE_TEXT } from "@/lib/dial/runner";
 import Link from "next/link";
 import type { PendingOffer, ReplyItem } from "@/lib/dial/runner";
 import { ExperienceCard } from "../experience/templates";
@@ -35,7 +37,7 @@ export function DialReply({
   const outline = voice ? "border border-[#aab4c8]" : "hairline bg-card";
   const primary = voice ? "bg-[#6cc4e8] text-[#0e1626]" : "bg-primary text-primary-foreground";
   const hasOffer = !!offer && turn.items.some((i) => i.kind === "offer");
-  const isPrefOffer = offer?.step.type === "preferences";
+  const isPrefOffer = offer?.step.type === "preferences" || (offer?.step.type === "adapt" && offer.step.scope === "now");
 
   return (
     <div className="flex flex-col gap-3">
@@ -125,6 +127,46 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
             ))}
           </dl>
           <EvidenceList ids={item.evidenceIds} onNavigate={onNavigate} />
+        </div>
+      );
+    case "adapt":
+      return (
+        <div className={`flex flex-col gap-3 rounded-2xl p-4 ${voice ? "bg-[#1b2438]" : "hairline bg-card"}`}>
+          <p className="text-lg font-bold leading-snug">
+            {item.tentative ? "Did you mean: " : "I heard: "}
+            {item.heard.join(", and ").toLowerCase().replace(/^./, (c) => c.toUpperCase())}
+            {item.tentative ? "?" : "."}
+          </p>
+          <ul className="flex flex-col gap-3" aria-label="Changes in this preview">
+            {item.changes.map((c, i) => (
+              <li key={c.text} className="reveal-item flex items-start gap-2" style={{ "--reveal-index": i } as React.CSSProperties}>
+                <Check aria-hidden className="mt-1 size-[1.1em] shrink-0" />
+                <span>
+                  <span className="block font-bold">{c.text.charAt(0).toUpperCase() + c.text.slice(1)}</span>
+                  <span className={voice ? "text-[#c9d1e0]" : "text-muted-foreground"}>{c.why}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="flex items-start gap-2 font-semibold">
+            <Clock aria-hidden className="mt-1 size-[1.1em] shrink-0" />
+            {SCOPE_TEXT[item.scope]}
+          </p>
+          <p className={`flex items-start gap-2 text-sm ${voice ? "text-[#aab4c8]" : "text-muted-foreground"}`}>
+            <ShieldCheck aria-hidden className="mt-0.5 size-[1.1em] shrink-0" />
+            {item.cloud
+              ? "Understood with Groq's AI, which only chose from Dial's fixed list. Only the settings you keep are saved, never what you told me."
+              : "Understood on this phone. Only the settings you keep are saved, never what you told me."}
+          </p>
+          {!item.cloud && (
+            <p className={`flex items-start gap-2 text-sm ${voice ? "text-[#aab4c8]" : "text-muted-foreground"}`}>
+              <Gauge aria-hidden className="mt-0.5 size-[1.1em] shrink-0" />
+              <span>
+                <span className="font-bold">{accuracy.recognised}% right</span> on {accuracy.sentences} sentences it had never seen (keyword rules:{" "}
+                {accuracy.keywordRules}%). It never mistook a money question for one of these.
+              </span>
+            </p>
+          )}
         </div>
       );
     case "answer":

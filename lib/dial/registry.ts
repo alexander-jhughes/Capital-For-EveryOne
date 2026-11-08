@@ -1,7 +1,8 @@
 // What Dial can open, and the gate every step passes before the runner executes it.
 // validateStep() rebuilds a step from allowlists only: a route that isn't real, a section that isn't on Home, a
 // display setting the preferences schema doesn't know, or a string with markup is rejected, never repaired.
-import { sanitize, WIDGETS, type UiAction } from "../preferences/schema";
+import { nightList, sanitize, WIDGETS, type UiAction } from "../preferences/schema";
+import { SITUATION_IDS, type Scope, type SituationId } from "../access/catalogue";
 import type { Mode } from "../types";
 import { SPENDING_CATEGORIES, spendingHref } from "./spending-filters";
 import {
@@ -155,6 +156,7 @@ const month = (v: unknown): v is string => typeof v === "string" && MONTH_KEY.te
 const SORTS = ["newest", "oldest", "highest", "lowest", "shop"] as const;
 const CONTROLS: ControlCommand[] = ["yes", "no", "stop", "undo", "reset", "exit", "help", "readPage", "readBalance", "save"];
 const MODES: Mode[] = ["simple", "complex"];
+const SCOPES: Scope[] = ["night", "now", "always"];
 
 /** Copies only the defined keys, so a rebuilt step never carries `key: undefined`. */
 function defined<T extends Obj>(o: T): T {
@@ -173,7 +175,10 @@ function filters(x: unknown): SpendingFilters | null {
   return defined({ category, month: m, merchant, txn, sort, highlight: highlight ? [...(highlight as string[])] : undefined }) as SpendingFilters;
 }
 
-const SCALAR_ACTIONS = ["textSize", "contrast", "spacing", "motion", "theme", "targets", "explanations", "voiceFirst", "onboarding", "answerStyle", "listenMode", "speechInput"] as const;
+const SCALAR_ACTIONS = [
+  "textSize", "contrast", "spacing", "motion", "theme", "targets", "explanations", "voiceFirst", "onboarding", "answerStyle", "listenMode", "speechInput",
+  "reading", "colours", "voiceRate", "autoRead", "reach", "tapGuard", "vibrate", "focusRing",
+] as const;
 
 /** One display action, checked against the preferences schema's own allowlists (sanitize keeps only allowed values). */
 function uiAction(x: unknown): UiAction | null {
@@ -192,7 +197,13 @@ function uiAction(x: unknown): UiAction | null {
     if (!keysOk(x, ["type", "widget"], ["widget"]) || !oneOf(x.widget, WIDGETS)) return null;
     return { type: t, widget: x.widget };
   }
-  if (t === "clearEmphasis" || t === "reset") return keysOk(x, ["type"]) ? { type: t } : null;
+  if (t === "clearEmphasis" || t === "reset" || t === "nightOff") return keysOk(x, ["type"]) ? { type: t } : null;
+  if (t === "nightLook") {
+    if (!keysOk(x, ["type", "actions"], ["actions"]) || !Array.isArray(x.actions) || x.actions.length === 0) return null;
+    // Every entry must survive the schema's own night check unchanged, or the whole action is rejected.
+    const kept = nightList(x.actions);
+    return kept.length === x.actions.length && JSON.stringify(kept) === JSON.stringify(x.actions) ? { type: "nightLook", actions: kept } : null;
+  }
   return null;
 }
 
@@ -271,6 +282,15 @@ export function validateStep(x: unknown): DialStep | null {
       if (!keysOk(x, ["type", "actions"], ["actions"]) || !Array.isArray(x.actions) || x.actions.length < 1 || x.actions.length > 12) return null;
       const actions = x.actions.map(uiAction);
       return actions.every((a): a is UiAction => a !== null) ? { type: "preferences", actions } : null;
+    }
+    case "adapt": {
+      if (!keysOk(x, ["type", "situations", "scope", "tentative", "cloud"], ["situations", "scope"])) return null;
+      const list = x.situations;
+      if (!Array.isArray(list) || list.length < 1 || list.length > 3 || !list.every((id) => oneOf(id, SITUATION_IDS)) || new Set(list).size !== list.length) return null;
+      if (!oneOf(x.scope, SCOPES)) return null;
+      if (x.tentative !== undefined && typeof x.tentative !== "boolean") return null;
+      if (x.cloud !== undefined && typeof x.cloud !== "boolean") return null;
+      return defined({ type: "adapt", situations: [...(list as SituationId[])], scope: x.scope, tentative: x.tentative, cloud: x.cloud }) as DialStep;
     }
     case "control":
       return keysOk(x, ["type", "command"], ["command"]) && oneOf(x.command, CONTROLS) ? { type: "control", command: x.command } : null;
