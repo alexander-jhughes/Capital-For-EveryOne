@@ -18,7 +18,10 @@ export function useSpeaker() {
 
   const cancel = useCallback(() => {
     current.current = null;
-    if (canSpeak(window)) window.speechSynthesis.cancel();
+    if (canSpeak(window)) {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume?.();
+    }
     setSpeaking(false);
     setPaused(false);
   }, []);
@@ -31,7 +34,7 @@ export function useSpeaker() {
 
   const resume = useCallback(() => {
     if (!current.current || !canSpeak(window)) return;
-    window.speechSynthesis.resume();
+    window.speechSynthesis.resume?.();
     setPaused(false);
   }, []);
 
@@ -39,6 +42,7 @@ export function useSpeaker() {
   const speak = useCallback((text: string, onEnd?: () => void) => {
     if (!canSpeak(window) || !text.trim()) return onEnd?.();
     window.speechSynthesis.cancel();
+    window.speechSynthesis.resume?.();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "en-GB";
     u.rate = rate;

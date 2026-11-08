@@ -200,6 +200,19 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
         ? `${dialStatus ? `${dialStatus}. ` : ""}Microphone on` // continuous mode: Dial is busy and can still hear
         : dialStatus;
 
+  // Tap to talk, or hold to talk. Shared by the large talk button and the small one beside the text box.
+  const micPress =
+    hold && !paused
+      ? {
+          // Push to talk: listen while pressed (pointer or Space/Enter held), send on release.
+          onPointerDown: begin,
+          onPointerUp: mic.stop,
+          onPointerCancel: mic.cancel,
+          onKeyDown: (e: React.KeyboardEvent) => (e.key === " " || e.key === "Enter") && !e.repeat && (e.preventDefault(), begin()),
+          onKeyUp: (e: React.KeyboardEvent) => (e.key === " " || e.key === "Enter") && mic.stop(),
+        }
+      : { onClick: paused ? mic.resume : mic.listening ? mic.stop : begin };
+
   // Pause and the paused controls come and go with the microphone. If the focused one went, don't lose focus to the page.
   useEffect(() => {
     if (lastFocus.current && !lastFocus.current.isConnected && document.activeElement === document.body) micButton.current?.focus();
@@ -292,7 +305,7 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
             {turn ? (
               <DialReply turn={turn} tone="voice" offer={session.offer} onDecide={(yes, o) => { const said = session.decide(yes, o); if (heard?.spoken) reply(said); }} onFollowUp={(q) => void handle(q)} onNavigate={() => window.innerWidth < 1024 && setDocked(true)} />
             ) : (
-              <p className="text-lg leading-snug">Hi. Type or tap the microphone. You can ask about your money, go anywhere in the app, or change how it looks.</p>
+              <p className="text-lg leading-snug">Hi. Tap the microphone and speak, or type below. You can ask about your money, go anywhere in the app, or change how it looks.</p>
             )}
             {/* Any finished reply can be read aloud on request, typed or spoken, with or without the microphone. */}
             {speaker.supported && turn?.status === "done" && (
@@ -380,6 +393,14 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
             </div>
           )}
 
+          {/* Talking is the main way in. The browser only listens after this is pressed, and asks first the first time. */}
+          {mic.supported && !mic.listening && !paused && (
+            <button type="button" {...micPress} className={`${btn} min-h-14 w-full bg-[#f5f5f2] text-lg text-[#004977] hover:bg-white`}>
+              <Mic aria-hidden className="size-[1.3em]" />
+              {hold ? "Press and hold to speak" : "Tap to speak"}
+            </button>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -406,16 +427,7 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
               <button
                 ref={micButton}
                 type="button"
-                {...(hold && !paused
-                  ? {
-                      // Push to talk: listen while pressed (pointer or Space/Enter held), send on release.
-                      onPointerDown: begin,
-                      onPointerUp: mic.stop,
-                      onPointerCancel: mic.cancel,
-                      onKeyDown: (e: React.KeyboardEvent) => (e.key === " " || e.key === "Enter") && !e.repeat && (e.preventDefault(), begin()),
-                      onKeyUp: (e: React.KeyboardEvent) => (e.key === " " || e.key === "Enter") && mic.stop(),
-                    }
-                  : { onClick: paused ? mic.resume : mic.listening ? mic.stop : begin })}
+                {...micPress}
                 aria-label={paused ? "Resume listening" : hold ? "Hold to talk" : mic.listening ? "Stop listening" : "Start listening"}
                 aria-pressed={mic.listening}
                 className={`flex size-(--target-min) shrink-0 items-center justify-center rounded-full ${mic.listening ? "bg-[#d03027] text-white" : "bg-[#f5f5f2] text-[#004977]"}`}

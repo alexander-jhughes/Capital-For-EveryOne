@@ -5,8 +5,8 @@
 // so the browser's permission prompt appears straight away.
 //
 // Tapping the microphone:
-//   - not chosen yet: starts listening with the browser's speech service, and saves that choice. The panel always
-//     says, next to the microphone, that this sends speech to the browser maker. Display and voice can change it.
+//   - not chosen yet: asks first (VoiceConsent): the browser's online speech service, on this device only, or typing.
+//     Nothing listens and no audio leaves until the person picks one. The choice is saved; Display and voice changes it.
 //   - chose typing: offers the choice again, rather than leaving voice off with no way back.
 //   - chose "on this device only", but the browser doesn't have it: offers the choice with a plain explanation.
 //   - chose the online service, or on-device is installed: starts listening.
@@ -41,10 +41,9 @@ export function useDialVoice(opts: { listenMode?: ListenMode; onUtterance(u: Utt
 
   const start = useCallback(() => {
     setAsking(null);
-    if (prefs.speechInput === "unset") return choose("cloud");
-    if (prefs.speechInput === "typing") return setAsking({});
+    if (prefs.speechInput === "unset" || prefs.speechInput === "typing") return setAsking({});
     engineStart();
-  }, [prefs.speechInput, engineStart, choose]);
+  }, [prefs.speechInput, engineStart]);
 
   // On-device recognition isn't installed in this browser: say so and offer the online service, rather than a dead end.
   useEffect(() => {
