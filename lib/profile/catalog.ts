@@ -3,7 +3,8 @@
 // The needs follow the four drivers of vulnerability that the FCA's guidance (FG21/1) and the Money Advice Trust's
 // vulnerability handbook use: health, life events, resilience and capability, plus how the person likes to be spoken to.
 // Two rules come from that guidance:
-//   1. Nothing here is guessed. Every need is something the person ticked themselves, and they can untick it.
+//   1. No need is guessed. Every need is something the person ticked themselves, and they can untick it. (The model
+//      does work out which of six ways of tailoring fits, from those ticks and account behaviour, and says why.)
 //   2. Health is special category data (UK GDPR article 9), so a health need is only kept with a separate, explicit
 //      consent, and the server refuses it otherwise.
 // Person-facing words describe what would help, never a label for the person. A test bans words such as

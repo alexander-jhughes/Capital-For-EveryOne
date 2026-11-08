@@ -23,6 +23,7 @@ import { useGoals } from "@/lib/goals/provider";
 import { formatLongDate, formatPence } from "@/lib/format";
 import { paymentReply } from "@/lib/payments/dial";
 import { usePreferences } from "@/lib/preferences/provider";
+import { useProfile } from "@/lib/profile/provider";
 import { dialStyle } from "@/lib/preferences/schema";
 import { spendPauseReply } from "@/lib/spend-pause/dial";
 import { splitCorrection } from "@/lib/voice/correction";
@@ -89,6 +90,10 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
   /** The mode before a view preview, so "no" can put it back. */
   const modeBefore = useRef<Mode | null>(null);
   const cache = useMemo(() => createAskCache(), []);
+  // What the saved profile does to answers, for the cache key only (read through a ref so callbacks stay stable).
+  const { profile } = useProfile();
+  const profileRef = useRef("");
+  profileRef.current = profile?.consent && profile.result ? JSON.stringify([profile.result.type, profile.result.adaptations.style, profile.result.adaptations.signpost]) : "none";
 
   // Latest values for callbacks that outlive a render (async steps, the voice engine).
   const live = useRef({ account, transactions, settings, payments, spendPauseActivity, mode, prefsApi, goalsApi, pathname });
@@ -247,7 +252,8 @@ export function DialSessionProvider({ children }: { children: React.ReactNode })
           goals: () => live.current.goalsApi.goals,
           describeGoal,
           ask: (question, previousQuestion, signal) =>
-            cache.run(askKey({ question, previousQuestion, style, state: stateKey }), () => askDial(question, { state, previousQuestion, style, signal })),
+            // The profile is part of the key: after tailoring changes or is turned off, an older tailored answer isn't replayed.
+            cache.run(askKey({ question, previousQuestion, style: `${style}|${profileRef.current}`, state: stateKey }), () => askDial(question, { state, previousQuestion, style, signal })),
           offline: (question) => {
             const intent = intentForQuestion(question);
             return intent ? offlineFacts(intent, { account: live.current.account, txns: live.current.transactions, settings: live.current.settings, today: DEMO_TODAY, now: DEMO_NOW }) : null;

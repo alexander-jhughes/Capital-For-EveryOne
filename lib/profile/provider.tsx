@@ -69,41 +69,63 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const consented = useRef(false);
   consented.current = profile?.consent ?? false;
 
+  // Every profile request goes out one at a time, in order. Each reply re-signs the whole cookie, so two requests in
+  // flight together could finish in either order: a usage count started before "Delete everything" could otherwise
+  // land last and put the deleted profile back. Queued, the count runs after the delete, finds no profile, and does nothing.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const inOrder = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const next = queue.current.then(task, task);
+    queue.current = next.catch(() => {});
+    return next;
+  }, []);
+
   const refresh = useCallback(async () => {
-    const { view } = await call("GET");
+    const { view } = await inOrder(() => call("GET"));
     setProfile(view ?? EMPTY);
     setReady(true);
-  }, []);
+  }, [inOrder]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const save = useCallback(async (change: ProfileChangeRequest) => {
-    const { view, error } = await call("PUT", change);
-    if (view) setProfile(view);
-    return error;
-  }, []);
-
-  const remove = useCallback(async () => {
-    const { view, error } = await call("DELETE");
-    if (view) setProfile(view);
-    return error;
-  }, []);
-
   // Counts change the model's input, so the result is fetched again, but at most once every few seconds.
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelRefresh = () => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = null;
+  };
+
+  const save = useCallback(
+    async (change: ProfileChangeRequest) => {
+      if (change.consent === false) consented.current = false;
+      const { view, error } = await inOrder(() => call("PUT", change));
+      if (view) setProfile(view);
+      return error;
+    },
+    [inOrder],
+  );
+
+  const remove = useCallback(async () => {
+    // No more counts from now on, even before the reply arrives.
+    consented.current = false;
+    cancelRefresh();
+    const { view, error } = await inOrder(() => call("DELETE"));
+    if (view) setProfile(view);
+    return error;
+  }, [inOrder]);
+
   const noteUsage = useCallback(
     (kind: UsageKind) => {
       if (!consented.current) return;
-      void fetch("/api/profile/usage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }) })
+      void inOrder(() => fetch("/api/profile/usage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }) }))
         .then(() => {
-          if (pending.current) clearTimeout(pending.current);
+          cancelRefresh();
           pending.current = setTimeout(() => void refresh(), 3000);
         })
         .catch(() => {});
     },
-    [refresh],
+    [inOrder, refresh],
   );
 
   const value = useMemo(() => ({ profile, ready, save, remove, noteUsage }), [profile, ready, save, remove, noteUsage]);

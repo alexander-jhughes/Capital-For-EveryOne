@@ -55,7 +55,9 @@ Questions that should get the fixed free-advice answer, and ones that must not.
 help (and 3 of 12 in the held-out set below, with no false alarms in either). It was then widened using this first
 set's misses and general distress wording. So the first set now measures nothing: it was used for tuning. The
 held-out set, written before the change and never used to tune it, is the fair measure. A false alarm is low-harm by
-design: the fixed answer has no figures and only points to free advice.
+design: the fixed answer has no figures and only points to free advice. An independent code review then found false
+alarms outside both sets ("I'm struggling to find my statement", "Why can't I make a payment?", "Why can't I pay with
+Apple Pay?"). The patterns were narrowed, those questions became negative tests, and both sets were re-run: unchanged.
 
 - Requests for help caught: 16 of 16
 - Ordinary questions wrongly treated as requests for help: 0 of 12

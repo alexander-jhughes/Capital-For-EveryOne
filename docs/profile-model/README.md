@@ -80,9 +80,15 @@ Add `--check` to confirm the committed `lib/profile/model.json` matches a fresh 
 These follow the FCA's guidance on treating vulnerable customers fairly (FG21/1) and the Money Advice Trust's TEXAS
 approach (Thank, Explain, eXplicit consent, Ask, Signpost):
 
-- **Nothing is guessed about the person.** The needs are only what they ticked. The model picks one of six ways to
-  tailor the app; it never infers a health condition or labels anyone. A test bans words like "vulnerable",
-  "disability" and "diagnosis" from all person-facing text.
+- **No need or condition is guessed.** The needs are only what the person ticked. The model does make one
+  inference: which of six ways of tailoring fits, from those ticks and account behaviour (for example, using most of
+  the limit and paying the minimum leans towards "Staying on top when money is tight", which turns on the free-help
+  card). It only runs with consent, shows its reasons, holds back below 0.6, and the person can choose another type.
+  It never infers a health condition or labels anyone. A test bans words like "vulnerable", "disability" and
+  "diagnosis" from all person-facing text.
+- **Health needs and Groq.** A health need (for example "Long text or concentrating can be hard") can turn on wording
+  rules such as "keep it short". Those rules, never the need itself, are sent to Groq with the question. The health
+  consent text says so.
 - **Consent first.** Nothing is stored until tailoring is turned on. Turning it off, or "Delete everything about me",
   deletes the cookie. `/demo/reset` clears it too.
 - **Health is special category data.** Health needs need a second, explicit consent. The server refuses them without

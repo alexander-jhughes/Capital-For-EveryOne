@@ -19,8 +19,9 @@ export function styleInstruction(style: AnswerStyle | undefined): string {
 const HELP_PATTERNS = [
   /\b(free|impartial|independent)\b.{0,30}\b(help|advice|support|guidance)\b/i,
   /\b(where|who)\b.{0,20}\b(get|find|go for|turn to)\b.{0,20}\b(help|advice|support)\b/i,
-  /\b(struggling|struggle) (with|to)\b/i,
-  /\b(can'?t|cannot|can not|unable to) (afford|pay|keep up|make (my|the) payment)/i,
+  // "Struggling to find my statement" is a navigation question, so a money word has to follow.
+  /\b(struggling|struggle) (with|to)\b.{0,25}\b(pay|paying|afford|money|debts?|bills|cope|manage|keep up|make ends meet|repayments?)\b/i,
+  /\b(can'?t|cannot|can not|unable to) (afford|pay(?! (with|by|using|online|in)\b)|keep up|make (my|the) payment)/i,
   /\b(debt|money) (help|advice|worries|problems?)\b/i,
   /\b(worried|anxious|stressed|scared) about (money|my debt|debt|paying|my bill|bills)\b/i,
   /\b(financial|money) (difficulty|difficulties|hardship|trouble)\b/i,
@@ -29,11 +30,13 @@ const HELP_PATTERNS = [
   /\b(drowning|buried|swamped|overwhelmed|sinking)\b.{0,20}\b(debts?|bills|money|finances)\b/i,
   /\bhelp( me)? with (my )?(money|debts?|bills|finances)\b/i,
   /\b(debts?|money|financial)\b.{0,15}\b(charity|charities|adviser|advisor|counsell?ing|counsell?or)\b/i,
-  /\b(can'?t|cannot|won'?t be able to|not able to)\b.{0,15}\b(make|pay|afford|cover|manage|cope with)\b.{0,25}\b(payments?|bills?|card|repayments?|this|debts?)\b/i,
+  // "Why can't I make a payment?" is about the app, not money worries: an inverted "can't I / can't you" doesn't count.
+  /\b(can'?t|cannot|won'?t be able to|not able to)\b(?!\s+(i|you|we|it)\b).{0,15}\b(make|pay(?!\s+(with|by|using|online|in|on)\b)|afford|cover|manage|cope with)\b.{0,25}\b(payments?|bills?|card|repayments?|this|debts?)\b/i,
   /\b(money|cash|things|finances) (is|are|'s|'re) (really |very |so |a bit )?tight\b/i,
   /\bmissed (a |my |the )?(payment|repayment|bill)\b/i,
   /\b(don'?t|do not) know how (i'?ll|i will|to) (pay|afford|manage|cope)\b/i,
-  /\b(i'?m|i am) (skint|broke|struggling)\b/i,
+  /\b(i'?m|i am) (skint|broke)\b/i,
+  /\b(i'?m|i am) (really |so )?struggling\s*[.!]*$/i,
   /\b(struggling|struggle)\b.{0,15}\b(financially|money|debts?|bills|payments?)\b/i,
   /\b(too much|so much|a lot of) debt\b/i,
   /\b(talk|speak) to (someone|somebody|a person)\b.{0,20}\b(debts?|money|finances|bills)\b/i,

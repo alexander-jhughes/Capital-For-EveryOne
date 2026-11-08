@@ -8,7 +8,7 @@
 // - Health needs are kept only with a second, explicit consent. Withdrawing it deletes them.
 // - The profile only changes how things are shown and worded. It never reaches payments, balances, Spend Pause or
 //   any decision about credit. Dial still checks every figure against the account.
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { MODE_KEY } from "../demo-config";
 import { isNeedId, isPersonType, isSensitive, NEED_IDS, PERSON_TYPES, type NeedId, type PersonType } from "../profile/catalog";
 import { emptyUsage, USAGE_CAP, USAGE_KINDS, type ProfileInputs, type Usage, type UsageKind } from "../profile/features";
@@ -127,9 +127,9 @@ export function createProfileCookieStore({ secret, now = Date.now }: { secret?: 
   };
 }
 
-export function createProfileMemoryStore(): ProfileStore & { records: Map<string, ProfileRecord> } {
+/** Profiles in memory behind a random id cookie: the shape a database store takes. Tests only. Ids must be unguessable. */
+export function createProfileMemoryStore(ids: () => string = randomUUID): ProfileStore & { records: Map<string, ProfileRecord> } {
   const records = new Map<string, ProfileRecord>();
-  let next = 0;
   return {
     records,
     async load(request) {
@@ -137,7 +137,7 @@ export function createProfileMemoryStore(): ProfileStore & { records: Map<string
       return (id && records.get(id)) || null;
     },
     async save(record, request) {
-      const id = readCookie(request, PROFILE_COOKIE) ?? `p${++next}`;
+      const id = readCookie(request, PROFILE_COOKIE) ?? ids();
       if (!record.consent) {
         records.delete(id);
         return { "Set-Cookie": cookieHeader(PROFILE_COOKIE, "", request, 0) };

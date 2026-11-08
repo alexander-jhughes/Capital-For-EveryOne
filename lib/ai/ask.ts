@@ -255,9 +255,11 @@ export async function handleAsk(request: Request, createModel: () => AskModel | 
     const profile = await profileContext(request, { profiles, sessions: store });
     const adapt = profile?.result?.adaptations;
     const style = combineStyle(parsed.bodyStyle, adapt?.style);
-    const answer = withSignpost(await answerQuestion(parsed.question, { model, ctx, previousQuestion: parsed.previousQuestion, style }), adapt?.signpost ?? false);
-    // `tailored` only when the profile really changed something: the model's wording, or the signpost.
-    const tailored = adapt && (answer.signposted || (answer.source === "model" && hasStyle(adapt.style)));
+    const plain = await answerQuestion(parsed.question, { model, ctx, previousQuestion: parsed.previousQuestion, style });
+    const answer = withSignpost(plain, adapt?.signpost ?? false);
+    // `tailored` only when the profile really changed something: the model's wording, or the signpost it added. The
+    // fixed help answer is the same for everyone, so it never counts.
+    const tailored = adapt && (answer !== plain || (answer.source === "model" && hasStyle(adapt.style)));
     return Response.json(tailored ? { ...answer, tailored: true } : answer, { headers });
   } catch (error) {
     log("request failed", error);

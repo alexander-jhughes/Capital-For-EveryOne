@@ -150,6 +150,37 @@ try {
   await fresh.waitForTimeout(1500);
   check("low confidence shows no tailored card", (await fresh.locator("[data-person-type]").count()) === 0);
 
+  // ---- About you: health consent, and unsaved ticks surviving a background refresh ----
+  await fresh.goto(`${BASE}/account/about-you`);
+  const anxious = fresh.getByLabel("Thinking about money makes me anxious");
+  await anxious.waitFor();
+  check("a health need is locked before the extra consent", await anxious.isDisabled());
+  const consentBox = fresh.getByLabel(/I agree to you keeping health information/);
+  check("the extra consent box itself can be ticked", await consentBox.isEnabled());
+  await consentBox.check();
+  await anxious.check();
+  await fresh.getByRole("button", { name: "Save", exact: true }).click();
+  await fresh.getByText("Saved. The app has been tailored").waitFor();
+  const saved = await api(fresh, "/api/profile");
+  check("the health need is saved with its consent", saved.sensitiveConsent === true && saved.needs.includes("money_anxiety"), JSON.stringify(saved.needs));
+  // Opening Dial counts a use, which refreshes the profile 3 seconds later. A tick not yet saved must survive that.
+  await fresh.getByLabel("Money is tight right now").check();
+  await fresh.getByRole("button", { name: /Dial/ }).first().click();
+  await fresh.keyboard.press("Escape");
+  await fresh.waitForTimeout(4500);
+  check("an unsaved tick survives the background refresh", await fresh.getByLabel("Money is tight right now").isChecked());
+  // Withdrawing the extra consent deletes the health need.
+  await consentBox.uncheck();
+  await fresh.getByRole("button", { name: "Save", exact: true }).click();
+  await fresh.waitForTimeout(1000);
+  const withdrawn = await api(fresh, "/api/profile");
+  check("withdrawing the extra consent deletes the health need", withdrawn.sensitiveConsent === false && !withdrawn.needs.includes("money_anxiety") && withdrawn.needs.includes("money_tight"), JSON.stringify(withdrawn.needs));
+  // Delete everything.
+  await fresh.getByRole("button", { name: "Delete everything about me" }).click();
+  await fresh.getByText("Deleted. Nothing about you is kept.").waitFor();
+  await fresh.waitForTimeout(1000);
+  check("delete everything leaves no profile", (await api(fresh, "/api/profile")).consent === false);
+
   // ---- A form on another site can't swap anyone's demo data ----
   // The refused post logs a 403 in this page's console, which is the point, so its console isn't watched.
   const attacker = await open({ watchErrors: false });

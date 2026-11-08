@@ -222,7 +222,9 @@ describe("/api/ask safety with or without a profile", () => {
   });
 
   it("an ordinary bill question is not mistaken for a request for help", async () => {
-    for (const q of ["What is my minimum payment?", "When is my bill due?", "How much do I owe?", "Can I pay less than the minimum?", "How do I pay my bill?", "Help me find my spending on eating out", "Can you help me understand my statement?"]) {
+    for (const q of ["What is my minimum payment?", "When is my bill due?", "How much do I owe?", "Can I pay less than the minimum?", "How do I pay my bill?", "Help me find my spending on eating out", "Can you help me understand my statement?",
+      // From the independent review: app questions the first patterns wrongly treated as money worries.
+      "I'm struggling to find my statement", "Why can't I make a payment?", "Why can't I pay with Apple Pay?", "Can't you show my bill?", "I can't pay by card on this page"]) {
       expect((await ask(q, null)).body.answer).not.toBe(HELP_ANSWER);
     }
   });
@@ -277,6 +279,13 @@ describe("/api/ask safety with or without a profile", () => {
 });
 
 describe("the tailored flag is honest", () => {
+  it("isn't set on the fixed help answer, which everyone gets", async () => {
+    const cookie = await profileCookie(record({ needs: ["money_tight"] }));
+    const r = await ask("I'm drowning in debt", null, cookie);
+    expect(r.body).toMatchObject({ answer: HELP_ANSWER, signposted: true });
+    expect(r.body.tailored).toBeUndefined();
+  });
+
   it("isn't set when the profile changed nothing in a template answer", async () => {
     const cookie = await profileCookie(record({ needs: ["plain_words"] }));
     const r = await ask("What is my credit score?", null, cookie);

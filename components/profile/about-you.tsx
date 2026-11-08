@@ -2,8 +2,9 @@
 
 // "About you": the person tells us what would help, if they want to. Follows the Money Advice Trust's TEXAS approach:
 // Thank them, Explain why we ask and how it's used, get eXplicit consent (a second one for health), Ask only about
-// what would help, and Signpost free help. Nothing is guessed about the person; the model only picks which of six
-// ways of tailoring the app fits, and the person can see why and choose a different one.
+// what would help, and Signpost free help. No health condition or circumstance is ever inferred: needs are only what
+// the person ticks. The model picks which of six ways of tailoring fits, from those ticks and how the account is used,
+// and the person sees why and can choose a different one.
 import { Check, HeartHandshake, Info, Trash2 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { useAnnounce } from "@/components/live-region";
@@ -38,11 +39,15 @@ export function AboutYou() {
   const [busy, setBusy] = useState(false);
   const typeLegend = useId();
 
+  // Re-seeded only when the SAVED values change: a background refresh (after a usage count) must not wipe ticks the
+  // person hasn't saved yet.
+  const savedKey = profile ? JSON.stringify([profile.needs, profile.sensitiveConsent]) : "";
   useEffect(() => {
-    if (!profile) return;
-    setNeeds(profile.needs);
-    setSensitive(profile.sensitiveConsent);
-  }, [profile]);
+    if (!savedKey) return;
+    const [savedNeeds, savedSensitive] = JSON.parse(savedKey) as [NeedId[], boolean];
+    setNeeds(savedNeeds);
+    setSensitive(savedSensitive);
+  }, [savedKey]);
 
   const run = async (work: () => Promise<string | null>, done: string) => {
     setBusy(true);
@@ -96,10 +101,12 @@ export function AboutYou() {
             }}
           >
             {DRIVERS.map((driver) => (
-              <fieldset key={driver} className="elevated flex min-w-0 flex-col gap-1 rounded-xl bg-card p-(--space)" disabled={driver === "health" && !sensitive}>
+              <fieldset key={driver} className="elevated flex min-w-0 flex-col gap-1 rounded-xl bg-card p-(--space)">
                 <legend className="sr-only">{DRIVER_HEADINGS[driver].title}</legend>
                 <p className="text-lg font-bold">{DRIVER_HEADINGS[driver].title}</p>
                 <p className="pb-1 text-sm text-muted-foreground">{DRIVER_HEADINGS[driver].hint}</p>
+                {/* The consent box must stay usable, so only the need boxes below are disabled until it's ticked
+                    (disabling the whole fieldset would disable the consent box too). */}
                 {driver === "health" && (
                   <label className="mb-2 flex min-h-(--target-min) cursor-pointer items-start gap-3 rounded-lg bg-accent p-3 text-accent-foreground">
                     <input
@@ -111,12 +118,17 @@ export function AboutYou() {
                       }}
                       className={`${box} mt-0.5`}
                     />
-                    <span className="font-semibold">I agree to you keeping health information I choose to share, only to adjust how the app works for me. I can withdraw this at any time.</span>
+                    <span className="font-semibold">
+                      I agree to you keeping health information I choose to share, only to adjust how the app works for me. I can withdraw this at any time.
+                      <span className="mt-1 block text-sm font-normal">
+                        It can change how Dial words its answers. To do that, Dial sends our AI provider wording rules such as &quot;use short sentences&quot;, never what you told us.
+                      </span>
+                    </span>
                   </label>
                 )}
                 {NEEDS.filter((n) => n.driver === driver).map((n) => (
                   <label key={n.id} className="flex min-h-(--target-min) cursor-pointer items-center gap-3 border-b py-1 last:border-0">
-                    <input type="checkbox" checked={needs.includes(n.id)} onChange={() => toggle(n.id)} className={box} />
+                    <input type="checkbox" checked={needs.includes(n.id)} disabled={driver === "health" && !sensitive} onChange={() => toggle(n.id)} className={box} />
                     <span className="font-semibold">{n.label}</span>
                   </label>
                 ))}
