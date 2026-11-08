@@ -33,7 +33,7 @@ export function SimilarUsersBanner() {
   };
 
   return (
-    <section aria-labelledby="similar-h" className="hairline flex flex-col gap-3 rounded-xl border-l-4 border-l-primary bg-card p-(--space)">
+    <section aria-labelledby="similar-h" className="hairline flex flex-col gap-3 rounded-xl bg-card p-(--space)">
       <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-accent-foreground">
         <Sparkles aria-hidden className="size-[1em]" />
         Similar user insights
