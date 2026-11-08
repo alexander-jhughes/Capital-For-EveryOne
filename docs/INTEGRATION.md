@@ -176,3 +176,16 @@ Asked for by the project lead on 8 Nov 2026. This touches Alex's `lib/ai` area, 
   now reports `{ ai: "groq", groq, model, backups }` instead of `{ gemini, model, backups }`.
 - Added tests: a rate-limited main model falls back to the backup over real requests, and a bad key (Groq's 401) is
   not retried. The fake server's "invalid key" is now 401, as Groq sends, and the old 400 case is kept as "bad-request".
+
+### 6. Needed from Alex before the demo (found driving Dial with live Groq, 8 Nov 2026)
+
+1. **Dial can't open the Learning Lab or More.** "take me to the learning lab" gets "I can't open that", and Groq
+   returns no steps because the page isn't in its list. Needed: add `/account/learn`, `/account/learn/<topic>`
+   (`utilisation`, `minimum-payments`, `interest`, `statement`, `quiz`; the list is `TOPICS` in `lib/learn/topics.ts`)
+   and `/account/more` to the page registry in `lib/dial/registry.ts`, and to the page line of the prompt in
+   `lib/ai/command-model.ts` (line 54).
+2. **"How much did I spend on groceries compared to last month?" compares October with September.** Groq returned no
+   steps for this, so it came from the on-device planner (`lib/dial`). Expected: November so far against the same
+   days of October, as Home's categories card shows.
+3. **`HOME_SECTIONS` doesn't know `categories`, `upcoming`, `payments` or `progress`** (see section 2). "show me my
+   progress" shows the budget card instead.
