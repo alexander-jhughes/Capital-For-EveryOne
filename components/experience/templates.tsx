@@ -201,7 +201,7 @@ export function SpendingTemplate({ onNavigate }: TemplateProps) {
         />
       )}
       {!simple && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(16rem,100%),1fr))] gap-4">
           <table className="w-full table-fixed [overflow-wrap:anywhere]">
             <caption className="pb-1 text-left text-sm font-bold text-muted-foreground">By category</caption>
             <thead className="sr-only">
@@ -370,7 +370,7 @@ export function TransactionTemplate({ evidenceIds, onNavigate }: TemplateProps) 
             const f = flags.get(t.id)!;
             return (
               <li key={t.id} className="rounded-lg bg-muted p-3">
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+                <dl className="grid grid-cols-[repeat(auto-fit,minmax(min(8rem,100%),1fr))] gap-x-4 gap-y-1">
                   <Stat label="Shop">{t.merchant}</Stat>
                   <Stat label="Amount">{signed(t)}</Stat>
                   <Stat label="Date">{formatDate(t.date)}</Stat>

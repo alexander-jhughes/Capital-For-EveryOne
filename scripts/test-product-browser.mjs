@@ -62,6 +62,25 @@ async function go(page, path) {
 }
 const main = (page) => page.locator("main").innerText();
 const fits = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+/** Words and figures split across two lines ("£38.6" / "2"), the sign of a column too narrow for its content. */
+const brokenWords = (page, selector) =>
+  page.evaluate((sel) => {
+    const broken = new Set();
+    const range = document.createRange();
+    for (const root of document.querySelectorAll(sel)) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.parentElement.closest(".sr-only")) continue;
+        for (const match of node.textContent.matchAll(/\S+/g)) {
+          range.setStart(node, match.index);
+          range.setEnd(node, match.index + match[0].length);
+          const tops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+          if (tops.size > 1) broken.add(match[0]);
+        }
+      }
+    }
+    return [...broken];
+  }, selector);
 async function axe(page, label) {
   if (!axeSource) return console.log(`SKIP  axe: ${label} (axe-core not found)`);
   await page.waitForTimeout(400);
@@ -292,6 +311,28 @@ for (const [label, opts] of [
     await go(page, "/account");
     await page.screenshot({ path: `${SHOTS}/06-home-${label.includes("high") ? "simple-dark-high-contrast" : "detailed-dark"}.png`, fullPage: true });
   }
+  await page.context().close();
+}
+
+console.log("\nDial open on a desktop: figures and words stay whole");
+{
+  const page = await open({ mode: "complex", viewport: { width: 1280, height: 900 }, prefs: { onboarding: "done" } });
+  for (const path of ["/account", "/account/spending", "/account/learn/minimum-payments", "/account/goals", "/account/pay"]) {
+    await go(page, path);
+    await page.getByRole("button", { name: /Dial/ }).first().click();
+    await page.getByRole("dialog").waitFor();
+    const broken = await brokenWords(page, "main");
+    check(`no word or figure is split with Dial open: ${path}`, broken.length === 0, broken.slice(0, 6).join(" | "));
+    await page.getByRole("dialog").getByRole("button", { name: "Close Dial" }).click();
+  }
+  await go(page, "/account");
+  await page.getByRole("button", { name: /Dial/ }).first().click();
+  const dial = page.getByRole("dialog");
+  await dial.getByRole("textbox").fill("Did I pay Tesco twice this month?");
+  await dial.getByRole("textbox").press("Enter");
+  await dial.getByText("Possible duplicate").first().waitFor();
+  const broken = await brokenWords(page, "dialog");
+  check("Dial's Tesco answer keeps £38.62 and its dates whole", broken.length === 0, broken.slice(0, 6).join(" | "));
   await page.context().close();
 }
 

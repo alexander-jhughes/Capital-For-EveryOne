@@ -566,7 +566,7 @@ export function HomeScreen({ focus }: { focus?: HomeSection }) {
   };
 
   return (
-    <div className="@container flex flex-col gap-(--space)">
+    <div className="flex flex-col gap-(--space)">
       <h1 className="sr-only">{simple ? "Your bill" : "Account overview"}</h1>
       {simple && <p className="text-sm text-muted-foreground lg:hidden">Credit card ending {d.account.cardLast4}</p>}
       {prefs.voiceFirst && (
