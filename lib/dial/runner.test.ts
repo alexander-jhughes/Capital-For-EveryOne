@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AskOutcome } from "../assistant/client";
 import { runSteps, spokenText, type PendingOffer, type RunnerDeps } from "./runner";
-import type { DialStep, Visual } from "./types";
+import type { DialStep, Visual, WhatIfResult } from "./types";
 
 const visual: Visual = { kind: "category_breakdown", title: "Where it went", chart: "bars", series: [], textAlternative: "Groceries £10.00", summary: "Most went on Groceries, £10.00.", limitations: [], evidenceIds: [] };
 
@@ -15,7 +15,7 @@ function deps(over: Partial<RunnerDeps> = {}): RunnerDeps {
     settle: vi.fn((_o: PendingOffer, yes: boolean) => (yes ? "Done." : "Okay, I've left it as it was.")),
     control: vi.fn(() => "Undone."),
     visual: vi.fn(() => visual),
-    whatIf: vi.fn(() => ({ scenario: { kind: "spend_less", amount: 100 }, hypothetical: true, title: "t", statement: "If you spend £1.00 less...", figures: [], assumptions: ["a"], outcome: "fits" })),
+    whatIf: vi.fn((): WhatIfResult => ({ scenario: { kind: "spend_less", amount: 100 }, hypothetical: true, title: "t", statement: "If you spend £1.00 less...", figures: [], assumptions: ["a"], outcome: "fits" })),
     goals: vi.fn(() => []),
     describeGoal: vi.fn(() => "Spend under £80 on eating out each month"),
     ask: vi.fn(async (): Promise<AskOutcome> => ({ kind: "answer", response: { answer: "You spent £10.", evidenceIds: ["t001"], source: "model" }, experience: { template: "general", intent: null }, followUps: [], resolvedQuestion: "What did I spend?" })),
