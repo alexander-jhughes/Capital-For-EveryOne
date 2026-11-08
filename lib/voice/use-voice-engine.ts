@@ -26,7 +26,8 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   state: VoiceState;
   snapshot: TranscriptSnapshot | null;
   error: VoiceError | null;
-  start(): void;
+  /** Starts listening. `allowCloud` overrides the option for this start (a choice the person just made in the same click). */
+  start(override?: { allowCloud?: boolean }): void;
   stop(): void;
   cancel(): void;
   setSpeaking(text: string | null): void;
@@ -43,6 +44,8 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
     latest.current = opts;
   });
   const engine = useRef<VoiceEngine | null>(null);
+  /** The allowCloud the current engine was made with. */
+  const engineCloud = useRef<boolean | null>(null);
   // What the caller last told us, replayed onto an engine created later (or recreated after allowCloud changes).
   const speaking = useRef<string | null>(null);
   const processing = useRef(false);
@@ -50,6 +53,7 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   const disposeEngine = useCallback(() => {
     engine.current?.dispose();
     engine.current = null;
+    engineCloud.current = null;
   }, []);
 
   // Before the first start() there is no engine, but the state still follows what Dial is doing.
@@ -66,6 +70,8 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
   // (it did in headless Chromium), and it would run on every page load just to fill in a label.
   const { allowCloud } = opts;
   useEffect(() => {
+    // An engine already made with this setting (started in the same click as the choice) keeps listening.
+    if (engineCloud.current === allowCloud) return;
     disposeEngine();
     settle();
     setSnapshot(null);
@@ -74,12 +80,14 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
 
   useEffect(() => disposeEngine, [disposeEngine]);
 
-  const start = useCallback(() => {
+  const start = useCallback((override?: { allowCloud?: boolean }) => {
+    const cloud = override?.allowCloud ?? latest.current.allowCloud;
+    if (engine.current && engineCloud.current !== cloud) disposeEngine();
     if (!engine.current) {
       const e = createVoiceEngine({
         win: window,
         lang: LANG,
-        allowCloud: latest.current.allowCloud,
+        allowCloud: cloud,
         events: {
           onState: (s) => {
             setState(s);
@@ -94,10 +102,11 @@ export function useVoiceEngine(opts: UseVoiceEngineOptions): {
       e.setSpeaking(speaking.current);
       e.setProcessing(processing.current);
       engine.current = e;
+      engineCloud.current = cloud;
     }
     setError(null);
     engine.current.start(latest.current.listenMode);
-  }, []);
+  }, [disposeEngine]);
 
   const stop = useCallback(() => engine.current?.stop(), []);
   const cancel = useCallback(() => engine.current?.cancel(), []);

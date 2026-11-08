@@ -69,16 +69,20 @@ const realClock = {
  */
 export async function detectBackend(win: unknown, lang: string, allowCloud: boolean): Promise<RecognitionBackend> {
   if (!getLiveRecognition(win)) return "none";
-  if ((await onDeviceAvailability(win, lang)) === "available") return "on-device";
-  return allowCloud ? "cloud" : "none";
+  if (allowCloud) return "cloud";
+  return (await onDeviceAvailability(win, lang)) === "available" ? "on-device" : "none";
 }
 
 /** The backend when it can be known without waiting (no on-device API to ask), else null. */
 function knownBackend(win: unknown, allowCloud: boolean): RecognitionBackend | null {
   const Rec = getLiveRecognition(win);
   if (!Rec) return "none";
+  // With the online service allowed, start straight away without asking about on-device support. The recogniser then
+  // starts inside the person's click (so the browser's permission prompt appears at once), and nothing can hang or
+  // crash before the microphone opens: SpeechRecognition.available() crashed headless Chromium in testing.
+  if (allowCloud) return "cloud";
   if (typeof Rec.available === "function") return null;
-  return allowCloud ? "cloud" : "none";
+  return "none";
 }
 
 export function createVoiceEngine(opts: VoiceEngineOptions): VoiceEngine {

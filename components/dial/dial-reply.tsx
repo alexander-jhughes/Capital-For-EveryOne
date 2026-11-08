@@ -152,7 +152,9 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
               </ul>
             </div>
           )}
-          {process.env.NODE_ENV === "development" && <p className="self-start rounded border border-input px-2 text-sm">dev: source {item.source}</p>}
+          <p className={`text-xs ${voice ? "text-[#aab4c8]" : "text-muted-foreground"}`}>
+            {item.source === "model" ? "Worded by Gemini. Every figure was checked against your account." : "From your account checks."}
+          </p>
         </div>
       );
   }

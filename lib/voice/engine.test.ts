@@ -528,8 +528,8 @@ describe("errors", () => {
 });
 
 describe("privacy: where speech is recognised", () => {
-  it("prefers on-device recognition, even when cloud is allowed", async () => {
-    const { engine, rec, available } = setup({ available: "available", allowCloud: true });
+  it("uses on-device recognition when the person chose it and the language is installed", async () => {
+    const { engine, rec, available } = setup({ available: "available", allowCloud: false });
     engine.start("tap");
     await flush();
     expect(available).toHaveBeenCalledWith({ langs: ["en-GB"], processLocally: true });
@@ -582,8 +582,17 @@ describe("privacy: where speech is recognised", () => {
     expect(log.errors).toEqual([expect.objectContaining({ code: "unsupported", recoverable: false })]);
   });
 
+  it("with the online service allowed, starts at once inside the click, without asking about on-device support", () => {
+    const { engine, world, available } = setup({ available: "available", allowCloud: true });
+    engine.start("tap");
+    // No await: the recogniser is created synchronously, so the browser's permission prompt belongs to the click.
+    expect(world.recs).toHaveLength(1);
+    expect(available).not.toHaveBeenCalled();
+    expect(engine.backend).toBe("cloud");
+  });
+
   it("stop() while the on-device check is running never opens the microphone", async () => {
-    const { engine, world } = setup({ available: "available" });
+    const { engine, world } = setup({ available: "available", allowCloud: false });
     engine.start("tap");
     engine.stop();
     await flush();

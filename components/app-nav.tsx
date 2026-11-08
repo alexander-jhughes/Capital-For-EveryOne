@@ -24,7 +24,7 @@ const tab =
  */
 export function AppNav() {
   const path = usePathname();
-  const { openAsk, openVoice } = useAskDial();
+  const { openVoice } = useAskDial();
   const { prefs } = usePreferences();
   if (!path.startsWith("/account")) return null;
 
@@ -53,7 +53,7 @@ export function AppNav() {
         <li className="lg:order-last lg:mt-5">
           <button
             type="button"
-            onClick={() => (prefs.voiceFirst ? openVoice() : openAsk())}
+            onClick={openVoice}
             aria-label={prefs.voiceFirst ? "Talk to Dial" : undefined}
             aria-haspopup="dialog"
             className="flex min-h-(--target-min) w-full flex-col items-center justify-end gap-1 text-sm font-bold lg:flex-row lg:justify-center lg:gap-2 lg:rounded-xl lg:bg-[#a8231c] lg:text-base lg:text-white lg:hover:bg-[#8a1f18]"

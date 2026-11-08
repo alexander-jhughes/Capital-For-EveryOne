@@ -394,6 +394,16 @@ html[data-voice-open="true"] body {
     padding-bottom: 0;
   }
 }
+/* The Capital One red line across the top of the app. On body so it spans the full width, panel space included. */
+body:has(> * nav[aria-label="Main"]) {
+  border-top: 4px solid #d03027;
+}
+/* Wide screens: the page makes room for the panel, so it sits beside the content instead of over it. */
+@media (min-width: 1200px) {
+  html[data-voice-open="true"] body {
+    padding-right: calc(26rem + 2.5rem);
+  }
+}
 .voice-mode[open] {
   animation: sheet-in 240ms ease-out;
 }

@@ -85,7 +85,11 @@ export async function onDeviceAvailability(win: unknown, lang: string): Promise<
   const Rec = getLiveRecognition(win);
   if (typeof Rec?.available !== "function") return null;
   try {
-    return await Rec.available({ langs: [lang], processLocally: true });
+    // A browser that never answers counts as "can't say", so the microphone button can't hang waiting for it.
+    return await Promise.race([
+      Rec.available({ langs: [lang], processLocally: true }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+    ]);
   } catch {
     return null;
   }
