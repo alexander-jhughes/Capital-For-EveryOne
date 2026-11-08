@@ -1,10 +1,11 @@
 "use client";
 
-import { ChartColumn, CreditCard, Goal, House, PauseCircle, SlidersHorizontal } from "lucide-react";
+import { ChartColumn, CreditCard, House, PauseCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePreferences } from "@/lib/preferences/provider";
 import { useAskDial } from "./assistant/ask-dial";
+import { useMoreLinks } from "./more-menu";
 import { DialMark, Wordmark } from "./wordmark";
 
 const LINKS = [
@@ -26,6 +27,7 @@ export function AppNav() {
   const path = usePathname();
   const { openVoice } = useAskDial();
   const { prefs } = usePreferences();
+  const more = useMoreLinks();
   if (!path.startsWith("/account")) return null;
 
   const link = ({ href, label, long, Icon }: (typeof LINKS)[number] & { long?: string }) => (
@@ -67,18 +69,14 @@ export function AppNav() {
           </button>
         </li>
         {LINKS.slice(2).map(link)}
-        <li className="hidden lg:block">
-          <Link href="/account/goals" aria-current={path === "/account/goals" ? "page" : undefined} className={tab}>
-            <Goal aria-hidden className="size-[1.35em] shrink-0" />
-            Goals
-          </Link>
-        </li>
-        <li className="hidden lg:block">
-          <Link href="/account/settings" aria-current={path === "/account/settings" ? "page" : undefined} className={tab}>
-            <SlidersHorizontal aria-hidden className="size-[1.35em] shrink-0" />
-            Display and voice
-          </Link>
-        </li>
+        {more.map(({ href, label, Icon }) => (
+          <li key={href} className="hidden lg:block">
+            <Link href={href} aria-current={path === href ? "page" : undefined} className={tab}>
+              <Icon aria-hidden className="size-[1.35em] shrink-0" />
+              {label}
+            </Link>
+          </li>
+        ))}
       </ul>
       <p className="mt-auto hidden shrink-0 pt-6 text-sm text-[#cfe0f0] lg:block">
         Independent hackathon concept. Not an official Capital One product.

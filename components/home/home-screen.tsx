@@ -27,12 +27,14 @@ import { useMode } from "@/lib/state/mode-context";
 import { FlagBadges } from "../account/flag-badges";
 import { useAskDial } from "../assistant/ask-dial";
 import { Money } from "../ui/money";
+import { Categories, Payments, Progress, Upcoming } from "./command-centre";
+import { utilisationPercent } from "@/lib/learn/credit";
 
 const card = "elevated rounded-xl bg-card p-(--space)";
 const linkBtn = "inline-flex min-h-(--target-min) items-center gap-1.5 font-bold text-primary underline-offset-4 hover:underline";
 
 function useHomeData() {
-  const { account, transactions, settings, spendPauseActivity, ready } = useAccount();
+  const { account, transactions, settings, spendPauseActivity, ready, paymentsSaved } = useAccount();
   const days = daysUntilDue(account, DEMO_TODAY);
   const mom = monthOverMonth(transactions, DEMO_TODAY);
   return {
@@ -41,6 +43,7 @@ function useHomeData() {
     settings,
     pauseSince: activeSince(settings, spendPauseActivity),
     ready,
+    saved: paymentsSaved,
     days,
     when: days === 0 ? "today" : days === 1 ? "tomorrow" : days > 0 ? `in ${days} days` : `${-days} days ago`,
     mom,
@@ -165,10 +168,10 @@ function Bill({ d, simple }: { d: HomeData; simple: boolean }) {
 
 function Balance({ d, simple }: { d: HomeData; simple: boolean }) {
   const { account } = d;
-  const used = Math.round((account.currentBalance * 100) / account.creditLimit);
+  const used = utilisationPercent(account.currentBalance, account.creditLimit) ?? 0;
   if (simple)
     return (
-      <section aria-labelledby="w-balance" className={card}>
+      <section aria-labelledby="w-balance" className={`${card} flex flex-col gap-1`}>
         <h2 id="w-balance" className="font-bold">
           Total balance
         </h2>
@@ -176,6 +179,10 @@ function Balance({ d, simple }: { d: HomeData; simple: boolean }) {
           <Money pence={account.currentBalance} />
         </p>
         <p className="text-muted-foreground">{formatPence(availableCredit(account))} left to spend</p>
+        <p className="text-muted-foreground">
+          You&apos;ve used {used}% of your {formatPence(account.creditLimit)} limit.
+        </p>
+        <FigureGuide account={account} used={used} />
       </section>
     );
   return (
@@ -201,11 +208,49 @@ function Balance({ d, simple }: { d: HomeData; simple: boolean }) {
         >
           <div className="h-full rounded-full bg-[#6cc4e8]" style={{ width: `${used}%` }} />
         </div>
-        <p className="mt-2 text-sm text-hero-muted">
-          {formatPence(availableCredit(account))} available of {formatPence(account.creditLimit)}
+        <p className="mt-2 flex flex-wrap justify-between gap-x-3 text-sm text-hero-muted">
+          <span>
+            {formatPence(availableCredit(account))} available of {formatPence(account.creditLimit)}
+          </span>
+          <span className="font-bold text-hero-foreground">{used}% of your limit used</span>
         </p>
       </div>
+      <FigureGuide account={account} used={used} hero />
     </section>
+  );
+}
+
+/** "What do these figures mean?": each figure on this card in one plain sentence, with this account's own numbers. */
+function FigureGuide({ account, used, hero = false }: { account: HomeData["account"]; used: number; hero?: boolean }) {
+  const { prefs } = usePreferences();
+  const link = hero ? "text-hero-foreground" : "text-primary";
+  const rows: [string, string][] = [
+    [`Current balance, ${formatPence(account.currentBalance)}`, "Everything you owe on the card today, including spending since your last statement."],
+    [`Statement balance, ${formatPence(account.statementBalance)}`, "What you owed when your last statement was made. Your bill asks you to pay this by the due date."],
+    [`Credit limit, ${formatPence(account.creditLimit)}`, "The most the card lets you owe."],
+    [`Available credit, ${formatPence(availableCredit(account))}`, "Your limit minus your current balance: what you could still spend."],
+    [`Credit used, ${used}%`, "Your balance as a share of your limit, also called credit utilisation. Lenders may look at it. This app doesn't give you a credit score."],
+    [`APR, ${account.apr}%`, "The yearly interest rate on balances you don't pay off. Interest each month is roughly a twelfth of it."],
+  ];
+  return (
+    <details>
+      <summary className={`inline-flex min-h-(--target-min) cursor-pointer items-center font-bold underline-offset-4 hover:underline ${link}`}>
+        What do these figures mean?
+      </summary>
+      <dl className="mt-1 flex flex-col gap-2">
+        {rows.map(([t, d]) => (
+          <div key={t}>
+            <dt className="font-bold">{t}</dt>
+            <dd>{d}</dd>
+          </div>
+        ))}
+      </dl>
+      {prefs.learning === "on" && (
+        <Link href="/account/learn" className={`mt-2 inline-flex min-h-(--target-min) items-center font-bold underline underline-offset-4 ${link}`}>
+          Try these in the Learning Lab
+        </Link>
+      )}
+    </details>
   );
 }
 
@@ -290,6 +335,7 @@ function Budget({ d }: { d: HomeData }) {
 }
 
 function Chart({ d }: { d: HomeData }) {
+  const { prefs } = usePreferences();
   const max = Math.max(...d.daily.map((x) => x.total), 1);
   const top = d.daily.reduce((a, x) => (x.total > a.total ? x : a), d.daily[0]);
   return (
@@ -302,9 +348,9 @@ function Chart({ d }: { d: HomeData }) {
           Highest {formatDate(top.date)}, {formatPence(top.total)}
         </p>
       </div>
-      {/* sr-only can't shrink a <table>, so the wrapper is the hidden box. */}
-      <div className="sr-only">
-        <table>
+      {/* sr-only can't shrink a <table>, so the wrapper is the hidden box. With charts off, the table is the chart. */}
+      <div className={prefs.charts === "show" ? "sr-only" : "max-h-72 overflow-y-auto"}>
+        <table className="w-full text-left [&_td]:py-1 [&_td]:text-right [&_td]:font-bold [&_th]:py-1 [&_th]:font-normal">
           <caption>Spending each day this month</caption>
           <thead>
             <tr>
@@ -322,6 +368,8 @@ function Chart({ d }: { d: HomeData }) {
           </tbody>
         </table>
       </div>
+      {prefs.charts === "show" && (
+      <>
       <div aria-hidden className="flex h-32 items-end gap-[6%] shadow-[inset_0_-1px_0_var(--border)]">
         {d.daily.map((x) => (
           <span
@@ -338,6 +386,8 @@ function Chart({ d }: { d: HomeData }) {
           </span>
         ))}
       </div>
+      </>
+      )}
     </section>
   );
 }
@@ -408,14 +458,18 @@ function Pause({ d }: { d: HomeData }) {
   );
 }
 
-// Desktop pairs: balance+bill, insights+budget, chart+recent (7+5, 7+5, 5+7). Dense flow fills gaps after a reorder.
+// Desktop pairs (12 columns): balance+bill, insights+budget, categories+upcoming, chart+payments, recent+progress. Dense flow fills gaps after a reorder.
 const SPAN: Partial<Record<WidgetId, string>> = {
   balance: "lg:col-span-7",
   bill: "lg:col-span-5",
   insights: "lg:col-span-7",
   budget: "lg:col-span-5",
+  categories: "lg:col-span-7",
+  upcoming: "lg:col-span-5",
   chart: "lg:col-span-5",
+  payments: "lg:col-span-7",
   recent: "lg:col-span-7",
+  progress: "lg:col-span-5",
   pause: "lg:col-span-12",
 };
 
@@ -498,6 +552,14 @@ export function HomeScreen({ focus }: { focus?: HomeSection }) {
         return <Recent d={d} />;
       case "pause":
         return <Pause d={d} />;
+      case "categories":
+        return <Categories simple={simple} />;
+      case "upcoming":
+        return <Upcoming simple={simple} />;
+      case "payments":
+        return <Payments simple={simple} />;
+      case "progress":
+        return <Progress simple={simple} />;
     }
   };
 
@@ -536,6 +598,11 @@ export function HomeScreen({ focus }: { focus?: HomeSection }) {
             Show it<span className="sr-only"> in Settings</span>
           </Link>
         </div>
+      )}
+      {d.ready && !d.saved && (
+        <p role="status" className="rounded-xl bg-warning-surface px-(--space) py-3 text-warning">
+          <strong>We couldn&apos;t reach the account server.</strong> You&apos;re seeing the demo&apos;s starting figures, and changes won&apos;t be kept.
+        </p>
       )}
       <MlSuggestion />
       {personalised && (

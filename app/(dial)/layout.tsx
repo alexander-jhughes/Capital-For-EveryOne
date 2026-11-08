@@ -3,6 +3,7 @@ import { AskDialProvider } from "@/components/assistant/ask-dial";
 import { DialSessionProvider } from "@/components/dial/session";
 import { GoalsProvider } from "@/lib/goals/provider";
 import { ModeSwitch } from "@/components/mode-switch";
+import { MoreButton } from "@/components/more-menu";
 import { StylePreviewProvider } from "@/components/personalise/style-preview";
 import { PersonalisationProvider } from "@/lib/personalisation/provider";
 import { Wordmark } from "@/components/wordmark";
@@ -27,13 +28,19 @@ export default function DialLayout({ children }: { children: React.ReactNode }) 
                 <span className="lg:hidden">
                   <Wordmark stacked />
                 </span>
-                <p className="hidden text-sm text-muted-foreground lg:block">Credit card ending 4417</p>
-                <ModeSwitch />
+                <p className="hidden text-sm text-muted-foreground lg:block">
+                  Credit card ending 4417{" "}
+                  <span className="ml-1 rounded-full bg-warning-surface px-2 py-0.5 font-bold text-warning">Demo data</span>
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <MoreButton />
+                  <ModeSwitch />
+                </div>
               </header>
               <main id="main" tabIndex={-1} className="gutter page-width flex-1 pb-8 pt-(--space) focus:outline-none lg:px-10">
                 {children}
                 <p className="mt-10 text-sm text-muted-foreground lg:hidden">
-                  Capital for Everyone is an independent hackathon concept, not an official Capital One product.
+                  Demo data only: a fictional card, not a real account. Capital for Everyone is an independent hackathon concept, not an official Capital One product.
                 </p>
               </main>
             </div>

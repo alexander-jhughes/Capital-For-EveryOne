@@ -149,7 +149,8 @@ try {
     check("the plain reason is visible without opening anything", text.includes("You hid a section on your home screen, so Dial suggests a calmer home screen that shows only the first three sections."));
     check("the detailed reasons are behind Why am I seeing this?", (await card(page).locator("details[open]").count()) === 0 && text.includes("Why am I seeing this?"));
     check("the card says it is on this device and changes nothing by itself", text.includes("on this device") && text.includes("Nothing changes unless you preview it"));
-    check("Detailed Home shows 6 sections before the preview", (await widgets(page)) === 6, String(await widgets(page)));
+    // 11 Detailed sections by default since the product workstream's command centre (lib/preferences/schema.ts), minus the one hidden above.
+    check("Detailed Home shows 10 sections before the preview", (await widgets(page)) === 10, String(await widgets(page)));
     check("no sideways scroll", await fits(page));
     await shot(page, "detailed-100");
     await card(page).getByRole("button", { name: "Preview it" }).click();
