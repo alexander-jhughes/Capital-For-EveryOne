@@ -25,20 +25,38 @@ from honestly).
 ```bash
 npm ci
 npm run build
-SESSION_SECRET=$(openssl rand -base64 32) npx next start -p 3100   # without it, changes aren't kept in production
+# .env.local: GROQ_API_KEY=... (optional; without it Dial answers from the account checks and on-device rules)
+SESSION_SECRET=$(openssl rand -base64 32) npx next start -p 3100   # without it, payments, goals and Spend Pause aren't kept
 npm test && npm run typecheck && npm run lint
 BASE_URL=http://localhost:3100 npm run test:product                # 72 browser checks, screenshots in docs/screenshots/product
 ```
 
-## Demo script for judges (about 2 minutes, works with no Groq key)
+Before a demo: open `/api/ask` in the browser. It should say `"groq":"configured"`. Use Chrome for voice.
+
+## Demo script for judges (about 3 minutes)
+
+Steps 7 to 9 and 11 were checked in the running app with live Groq on 8 Nov 2026 (automated browser runs). Step 10
+has not been tried with a real microphone yet: rehearse it once on the demo laptop. With no key, steps 7 and 8 still
+work, but the wording comes from on-device rules and templates.
 
 1. Open `/?demo=reset`. The welcome screen says it's demo data. Choose **Set up my view**.
 2. Pick **Simple**: the page changes as you choose. Continue, choose **150%** text, continue, tick **Your progress**,
    continue, **Sign in to the demo**.
-3. Home: "Your bill is £486.20, due Friday 13 November". Open **Total balance → What do these figures mean?**.
-4. Switch to **Detailed** at the top: categories, coming up, payments, progress, with 71% of the limit used.
+3. Home: "Your bill is £486.20, due Friday 13 November", and the least you can pay.
+4. Switch to **Detailed** at the top: categories, coming up, payments, progress, with 71% of the limit used. Open
+   **Current balance → What do these figures mean?**: each figure explained with this account's own numbers.
 5. **More → Learning Lab → Credit utilisation**: tap **£250** and utilisation drops to 55%. Then **Minimum payments**:
    £25 more a month clears the bill sooner for less interest.
 6. **More → Goals → Add a goal → Build an emergency fund**, £1,000. Update what you've saved to £500: "Milestone
    reached: 50%".
-7. Ask Dial "Did I pay Tesco twice this month?" (Alex's flow): the answer and evidence work alongside everything above.
+7. Open **Dial** and type "everything is too small and hard to read". Groq turns it into a preview of bigger text;
+   choose **Keep it** and the whole app changes. Home stays one column while Dial is open, so nothing is squeezed.
+8. Ask Dial "Did anything I pay for every month get more expensive?". Groq words the answer ("Netflix went up from
+   £10.99 to £12.99"), with the subscriptions card and "Every figure was checked against your account".
+9. Ask "Did I pay Tesco twice this month?": the same answer every time, with the two transactions as evidence.
+10. Voice (Chrome, allow the microphone): tap the microphone and say "when is my bill due". Say "stop" while Dial is
+    speaking to interrupt it.
+11. **Pay → Pay statement balance → Review → Confirm**: Home's balance and the payment history update.
+
+Avoid these until Alex's fixes land (see docs/INTEGRATION.md section 6): "take me to the Learning Lab" (Dial can't
+open it yet) and "groceries compared to last month" (compares October with September).

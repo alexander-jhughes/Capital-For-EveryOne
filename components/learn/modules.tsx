@@ -60,7 +60,7 @@ export function UtilisationSimulator() {
           ["Why it matters", "Lenders may look at it when you apply for credit. Using less of your limit is often seen more favourably. A common rule of thumb is to stay under 30%, but it's a guide, not a rule."],
         ]}
       />
-      <div className="grid grid-cols-1 gap-(--space) sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-(--space) @xl:grid-cols-2">
         <NumberField label="Balance" value={balance} onChange={setBalance} error={b.error} hint="Starts at your current balance." />
         <NumberField
           label="Credit limit"
@@ -184,7 +184,7 @@ export function MinimumPaymentExplainer() {
           ["The catch", "Paying only the minimum keeps the account in order, but the rest carries over and interest is usually charged on it, so the balance can take a long time to clear."],
         ]}
       />
-      <div className="grid grid-cols-1 gap-(--space) sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-(--space) @xl:grid-cols-2">
         <NumberField label="Balance to pay off" value={balance} onChange={setBalance} error={b.error} hint="Starts at your statement balance." />
         <NumberField
           label="Extra each month"
@@ -204,7 +204,7 @@ export function MinimumPaymentExplainer() {
               ? `Paying ${formatPence(e.value!)} more each month clears it ${durationText(sooner)} sooner and costs ${formatPence(saved)} less in interest.`
               : `Paying only the minimum would take ${durationText(min.months)}.`}
           </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 @xl:grid-cols-2">
             <PlanSummary title="Minimum only" r={min} />
             <PlanSummary title={`Minimum + ${formatPence(e.value ?? 0)}`} r={more} />
           </div>
@@ -245,7 +245,7 @@ export function InterestCalculator() {
           ["How to use this", "Change the balance, the rate and what you'd pay each month, and see how long it takes and what it costs."],
         ]}
       />
-      <div className="grid grid-cols-1 gap-(--space) sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-(--space) @2xl:grid-cols-3">
         <NumberField label="Balance" value={balance} onChange={setBalance} error={b.error} />
         <NumberField label="APR" value={apr} onChange={setApr} error={r.error} suffix="%" presets={[{ label: `Yours, ${account.apr}%`, value: String(account.apr) }]} />
         <NumberField label="Paid each month" value={payment} onChange={setPayment} error={p.error} presets={["50", "100", "200"].map((x) => ({ label: `£${x}`, value: x }))} />

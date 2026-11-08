@@ -12,6 +12,8 @@ import type { AskOutcome } from "../assistant/client";
 import type { ExperienceTemplate } from "../assistant/experience";
 import { isCantTell } from "../ai/guard";
 import { describeActions } from "../preferences/schema";
+import { situationById, type Scope } from "../access/catalogue";
+import { changesFor } from "../access/understand";
 import type { AskResponse, Fact, Mode } from "../types";
 import { ROUTE_INFO, stepHref, validateStep } from "./registry";
 import type { DialStep, Goal, GoalSpec, Visual, VisualRequest, WhatIfResult, WhatIfScenario } from "./types";
@@ -24,6 +26,8 @@ export type ReplyItem =
   | { kind: "offline"; facts: Fact[]; evidenceIds: string[] }
   /** A change waiting for "Keep it" or "No". */
   | { kind: "offer"; text: string }
+  /** What Dial heard about the person's situation, and each change it is previewing with the reason for it. */
+  | { kind: "adapt"; heard: string[]; changes: { text: string; why: string }[]; scope: Scope; tentative: boolean; cloud: boolean }
   | { kind: "link"; label: string; href: string }
   /** Something Dial tried and could not do. Shown as a failure, never as success. */
   | { kind: "failed"; text: string };
@@ -40,6 +44,8 @@ export interface RunnerDeps {
   navigate(href: string): Promise<boolean>;
   back(): boolean;
   previewPreferences(step: Extract<DialStep, { type: "preferences" }>): void;
+  /** Shows every change for these situations now (whatever the scope), so the person sees what they'd keep. */
+  previewAdapt(step: Extract<DialStep, { type: "adapt" }>): void;
   previewMode(mode: Mode): void;
   /** Keeps (yes) or reverts (no) whatever `offer` previewed. */
   settle(offer: PendingOffer, yes: boolean): string;
@@ -67,8 +73,20 @@ export interface RunOutput {
 
 const CONFIRM_LATER = "I can only make one change at a time. Ask me again for the next one once you've decided on this.";
 
+/** How long the changes last, in plain words. */
+export const SCOPE_TEXT: Record<Scope, string> = {
+  night: "The night look switches on by itself every evening from 7pm to 7am.",
+  now: "Just for now: it goes back to normal next time you open the app.",
+  always: "I'll keep this for next time too.",
+};
+
 export function describeOffer(step: DialStep, deps: Pick<RunnerDeps, "describeGoal" | "goals">): string {
   switch (step.type) {
+    case "adapt": {
+      const heard = step.situations.map((id) => situationById(id).heard.toLowerCase());
+      const lead = step.tentative ? `Did you mean that ${heard.join(", and ")}?` : `It sounds like ${heard.join(", and ")}.`;
+      return `${lead} I can ${describeActions(changesFor(step.situations).map((c) => c.action))}. ${SCOPE_TEXT[step.scope]}`;
+    }
     case "preferences":
       return `I can ${describeActions(step.actions)}.`;
     case "setMode":
@@ -100,7 +118,8 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
     else out.items.push({ kind: "failed", text: "I couldn't do part of that." });
   }
 
-  const answersPending = steps.length === 1 && steps[0].type === "control" && (steps[0].command === "yes" || steps[0].command === "no");
+  // "Undo" (or "I've changed my mind") with a preview showing means "no": only the preview goes, not the change before it.
+  const answersPending = steps.length === 1 && steps[0].type === "control" && (steps[0].command === "yes" || steps[0].command === "no" || (steps[0].command === "undo" && !!pending));
   if (pending && !answersPending) deps.settle(pending, false);
 
   for (const step of steps) {
@@ -122,6 +141,7 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
         break;
       case "setMode":
       case "preferences":
+      case "adapt":
       case "goal": {
         if (step.type === "goal" && step.op === "list") {
           const goals = deps.goals();
@@ -145,11 +165,24 @@ export async function runSteps(rawSteps: unknown[], deps: RunnerDeps, pending: P
         if (step.type === "setMode") deps.previewMode(step.mode);
         const description = describeOffer(step, deps);
         out.offer = { step, description };
+        if (step.type === "adapt") {
+          out.items.push({
+            kind: "adapt",
+            heard: step.situations.map((id) => situationById(id).heard),
+            changes: changesFor(step.situations).map((c) => ({ text: describeActions([c.action]), why: c.why })),
+            scope: step.scope,
+            tentative: !!step.tentative,
+            cloud: !!step.cloud,
+          });
+          deps.previewAdapt(step);
+          out.items.push({ kind: "offer", text: `${step.tentative ? "Here's a preview, in case it helps." : "Here's a preview."} Do you want to keep it?` });
+          break;
+        }
         out.items.push({ kind: "offer", text: `${step.type === "goal" ? description : `Here's a preview. ${description}`} Do you want to keep it?` });
         break;
       }
       case "control": {
-        if (step.command === "yes" || step.command === "no") {
+        if (step.command === "yes" || step.command === "no" || (step.command === "undo" && answersPending)) {
           if (!pending) {
             out.items.push({ kind: "say", text: "There's nothing waiting for an answer. What would you like to do?" });
             break;
@@ -222,6 +255,8 @@ export function spokenText(items: ReplyItem[]): string {
         case "answer":
         case "offer":
           return i.text;
+        case "adapt":
+          return `${i.tentative ? "Did you mean that" : "It sounds like"} ${i.heard.map((h) => h.toLowerCase()).join(", and ")}${i.tentative ? "?" : "."} ${i.changes.map((c) => `I can ${c.text}. ${c.why}`).join(" ")} ${SCOPE_TEXT[i.scope]}`;
         case "visual":
           return i.visual.summary;
         case "whatIf":

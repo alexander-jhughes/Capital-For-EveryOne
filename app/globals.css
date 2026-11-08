@@ -3,6 +3,12 @@
 @import "shadcn/tailwind.css";
 
 /*
+  Tailwind scans every file in the project for class names. The on-device model (23 MB of binary weights) and its
+  index are not source: scanning them made every first page compile take about four minutes.
+*/
+@source not "../public/models";
+
+/*
   Capital for Everyone: one component tree, three independent layers on <html>.
   1. View (data-mode): base sizes for Simple or Detailed.
   2. Preferences (data-text, data-spacing, data-targets, data-contrast, data-theme, data-motion): multiply or override.
@@ -291,6 +297,12 @@ html { font-size: calc(16px * var(--ui-scale)); }
     outline: 3px solid var(--ring);
     outline-offset: 2px;
   }
+  /* Strong focus ring (keyboard and switch users): a thick ring plus a halo in the page colour, visible on any surface. */
+  :root[data-focus-ring="strong"] :focus-visible {
+    outline: 5px solid var(--foreground);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 9px var(--background);
+  }
 }
 
 /* Side gutter that also clears notches in landscape. */
@@ -400,6 +412,18 @@ html { font-size: calc(16px * var(--ui-scale)); }
 .voice-mode[data-docked="true"] {
   max-height: min(34dvh, 22rem);
 }
+/* At 150% and 200% text the header and composer fill most of a 60% sheet and the conversation gets a sliver, so on
+   phones the panel takes most of the screen. "Make the panel smaller" still docks it. */
+@media (max-width: 1023.98px) {
+  :root[data-text="150"] .voice-mode,
+  :root[data-text="200"] .voice-mode {
+    max-height: min(88dvh, 52rem);
+  }
+  :root[data-text="150"] .voice-mode[data-docked="true"],
+  :root[data-text="200"] .voice-mode[data-docked="true"] {
+    max-height: min(56dvh, 32rem);
+  }
+}
 @media (min-width: 1024px) {
   .voice-mode {
     inset: auto 1.5rem 1.5rem auto;
@@ -469,4 +493,103 @@ body:has(> * nav[aria-label="Main"]) {
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
+}
+
+/* ── Adaptive settings (lib/access, lib/preferences) ───────────────────────────────────────────────────────────── */
+
+/* Easier reading: wider letter, word and line spacing, left-aligned, no italics. Big figures keep their own tracking. */
+:root[data-reading="easy"] body {
+  letter-spacing: 0.035em;
+  word-spacing: 0.16em;
+  line-height: 1.7;
+}
+:root[data-reading="easy"] :is(p, li, dd, dt, label, td, th, blockquote) {
+  line-height: 1.75;
+  text-align: left;
+  hyphens: none;
+}
+:root[data-reading="easy"] :is(em, i, cite) { font-style: normal; font-weight: 700; }
+:root[data-reading="easy"] :is(p, li) { max-width: 60ch; }
+
+/*
+  Colour-safe: nothing depends on telling red from green. Warnings become dark orange, good news becomes blue
+  (a pair that stays distinct for the common colour vision differences); every status already carries words and an icon.
+  Each pair keeps 7:1 against its background.
+*/
+:root[data-colours="safe"] {
+  --signal: #b34d00;
+  --live: #b34d00;
+  --attention: #8a3a00;
+  --attention-strong: #702f00;
+  --attention-surface: #fdf0e6;
+  --destructive: #8a3a00;
+  --success: #00467f;
+}
+:root[data-colours="safe"][data-theme="dark"],
+:root[data-colours="safe"][data-contrast="high"][data-theme="dark"] {
+  --signal: #ffa25c;
+  --live: #ffa25c;
+  --attention: #ffb784;
+  --attention-strong: #ffc79e;
+  --attention-surface: #2e1c0e;
+  --destructive: #ffb784;
+  --success: #9cccff;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-colours="safe"]:not([data-theme="light"]) {
+    --signal: #ffa25c;
+    --live: #ffa25c;
+    --attention: #ffb784;
+    --attention-strong: #ffc79e;
+    --attention-surface: #2e1c0e;
+    --destructive: #ffb784;
+    --success: #9cccff;
+  }
+}
+
+/*
+  Adapting, one change at a time (lib/access/reveal.ts). Each change cross-fades the whole screen (View Transitions);
+  browsers without them still ease colours and sizes. The card's lines appear in step with the screen.
+  Reduced motion turns all of it off (the rule at the end of the file, and the device setting below).
+*/
+:root { --reveal-gap: 750ms; }
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 520ms;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+:root[data-revealing="true"] body,
+:root[data-revealing="true"] body * {
+  transition-property: background-color, color, border-color, box-shadow, font-size, letter-spacing, padding, gap;
+  transition-duration: 480ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.reveal-item {
+  animation: reveal-in 480ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc(var(--reveal-index, 0) * var(--reveal-gap));
+}
+@keyframes reveal-in {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none; }
+  .reveal-item { animation: none; }
+}
+:root[data-motion="reduced"]::view-transition-old(root),
+:root[data-motion="reduced"]::view-transition-new(root) { animation: none; }
+
+/* Thumb reach (one-handed): on phones the header with the view switch moves down, just above the tab bar. */
+@media (max-width: 1023px) {
+  :root[data-reach="thumb"] .app-header {
+    order: 2;
+    position: sticky;
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    z-index: 30;
+    background: var(--background);
+    padding-block: 0.5rem;
+    box-shadow: 0 -1px 0 var(--border);
+  }
+  :root[data-reach="thumb"] #main { order: 1; }
 }
