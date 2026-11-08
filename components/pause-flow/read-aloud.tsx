@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { actionClass } from "@/components/spend-pause/styles";
-import { canSpeak, pickVoice } from "@/lib/assistant/speech";
+import { canSpeak, pickVoice, SPEECH_RATE } from "@/lib/assistant/speech";
+import { usePreferences } from "@/lib/preferences/provider";
 
 /** Reads a sentence on request, in a British voice where there is one. Never plays by itself, and hides if unsupported. */
 export function ReadAloud({ text }: { text: string }) {
   const [supported, setSupported] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const { prefs } = usePreferences();
 
   useEffect(() => {
     setSupported(canSpeak(window));
@@ -26,6 +28,7 @@ export function ReadAloud({ text }: { text: string }) {
     const voice = pickVoice(window.speechSynthesis.getVoices());
     if (voice) utterance.voice = voice;
     utterance.lang = "en-GB";
+    utterance.rate = SPEECH_RATE[prefs.voiceRate];
     utterance.onend = () => setSpeaking(false);
     utterance.onerror = () => setSpeaking(false);
     setSpeaking(true);

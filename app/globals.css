@@ -470,3 +470,69 @@ body:has(> * nav[aria-label="Main"]) {
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ── Adaptive settings (lib/access, lib/preferences) ───────────────────────────────────────────────────────────── */
+
+/* Easier reading: wider letter, word and line spacing, left-aligned, no italics. Big figures keep their own tracking. */
+:root[data-reading="easy"] body {
+  letter-spacing: 0.035em;
+  word-spacing: 0.16em;
+  line-height: 1.7;
+}
+:root[data-reading="easy"] :is(p, li, dd, dt, label, td, th, blockquote) {
+  line-height: 1.75;
+  text-align: left;
+  hyphens: none;
+}
+:root[data-reading="easy"] :is(em, i, cite) { font-style: normal; font-weight: 700; }
+:root[data-reading="easy"] :is(p, li) { max-width: 60ch; }
+
+/*
+  Colour-safe: nothing depends on telling red from green. Warnings become dark orange, good news becomes blue
+  (a pair that stays distinct for the common colour vision differences); every status already carries words and an icon.
+  Each pair keeps 7:1 against its background.
+*/
+:root[data-colours="safe"] {
+  --signal: #b34d00;
+  --live: #b34d00;
+  --attention: #8a3a00;
+  --attention-strong: #702f00;
+  --attention-surface: #fdf0e6;
+  --destructive: #8a3a00;
+  --success: #00467f;
+}
+:root[data-colours="safe"][data-theme="dark"],
+:root[data-colours="safe"][data-contrast="high"][data-theme="dark"] {
+  --signal: #ffa25c;
+  --live: #ffa25c;
+  --attention: #ffb784;
+  --attention-strong: #ffc79e;
+  --attention-surface: #2e1c0e;
+  --destructive: #ffb784;
+  --success: #9cccff;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-colours="safe"]:not([data-theme="light"]) {
+    --signal: #ffa25c;
+    --live: #ffa25c;
+    --attention: #ffb784;
+    --attention-strong: #ffc79e;
+    --attention-surface: #2e1c0e;
+    --destructive: #ffb784;
+    --success: #9cccff;
+  }
+}
+
+/* Thumb reach (one-handed): on phones the header with the view switch moves down, just above the tab bar. */
+@media (max-width: 1023px) {
+  :root[data-reach="thumb"] .app-header {
+    order: 2;
+    position: sticky;
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+    z-index: 30;
+    background: var(--background);
+    padding-block: 0.5rem;
+    box-shadow: 0 -1px 0 var(--border);
+  }
+  :root[data-reach="thumb"] #main { order: 1; }
+}

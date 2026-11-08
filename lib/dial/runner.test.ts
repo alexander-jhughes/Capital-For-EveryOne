@@ -11,6 +11,7 @@ function deps(over: Partial<RunnerDeps> = {}): RunnerDeps {
     navigate: vi.fn(async () => true),
     back: vi.fn(() => true),
     previewPreferences: vi.fn(),
+    previewAdapt: vi.fn(),
     previewMode: vi.fn(),
     settle: vi.fn((_o: PendingOffer, yes: boolean) => (yes ? "Done." : "Okay, I've left it as it was.")),
     control: vi.fn(() => "Undone."),

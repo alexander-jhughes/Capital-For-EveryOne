@@ -1,5 +1,7 @@
 "use client";
 
+import { buzz } from "@/lib/assistant/speech";
+
 import { ChevronDown, ChevronUp, Mic, Pencil, Send, Square, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { spokenText } from "@/lib/dial/runner";
@@ -82,10 +84,12 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
       mic.setProcessing(true);
       const done = await session.submit(t, { replaces });
       mic.setProcessing(false);
-      // A spoken question gets a spoken answer; a typed one is only shown.
-      if (done && spoken) reply(spokenText(done.items));
+      // A spoken question gets a spoken answer; a typed one is only shown, unless the person asked for every reply
+      // to be read aloud. A short vibration says a reply has arrived, for people who can't rely on sound.
+      if (done && prefs.vibrate) buzz();
+      if (done && (spoken || prefs.autoRead)) reply(spokenText(done.items));
     },
-    [session, speaker, mic, reply],
+    [session, speaker, mic, reply, prefs.autoRead, prefs.vibrate],
   );
   handleRef.current = handle;
 

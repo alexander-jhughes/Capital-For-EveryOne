@@ -84,6 +84,10 @@ describe("describeActions and attributes", () => {
       "data-motion": "system",
       "data-theme": "system",
       "data-targets": "standard",
+      "data-reading": "standard",
+      "data-colours": "standard",
+      "data-reach": "standard",
+      "data-tap-guard": "false",
     });
   });
 });

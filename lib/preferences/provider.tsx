@@ -2,9 +2,29 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { type ChangeSource, emit, type PrefsListener } from "./events";
-import { applyActions, DEFAULT_PREFS, encodePrefs, prefAttributes, PREFS_COOKIE, sanitize, type Preferences, type UiAction } from "./schema";
+import { applyActions, DEFAULT_PREFS, effectivePrefs, encodePrefs, inNightWindow, prefAttributes, PREFS_COOKIE, sanitize, type Preferences, type UiAction } from "./schema";
 
 const SESSION_KEY = "cfe-prefs-session";
+/** A demo-only clock override ("?hour=21" in the address, or "See it now" in Settings), kept for this tab only. */
+const HOUR_KEY = "cfe-demo-hour";
+/** Two taps on the same control closer together than this count as one when the tap guard is on. */
+export const TAP_GUARD_MS = 700;
+
+function readHourOverride(): number | null {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("hour");
+    if (fromUrl !== null) {
+      const h = Number(fromUrl);
+      if (Number.isInteger(h) && h >= 0 && h <= 23) sessionStorage.setItem(HOUR_KEY, String(h));
+      else sessionStorage.removeItem(HOUR_KEY);
+    }
+    const saved = sessionStorage.getItem(HOUR_KEY);
+    const h = saved === null ? NaN : Number(saved);
+    return Number.isInteger(h) && h >= 0 && h <= 23 ? h : null;
+  } catch {
+    return null;
+  }
+}
 
 interface PrefsApi {
   /** What the screen shows now: a pending preview if there is one, else the kept preferences. */
@@ -26,6 +46,12 @@ interface PrefsApi {
   resetToDefault: () => void;
   /** Notified after a change is kept, undone or reset (never for previews). Returns an unsubscribe function. */
   subscribe: (listener: PrefsListener) => () => void;
+  /** The kept preferences before the night look is applied: what Settings edits. */
+  kept: Preferences;
+  /** True while the night look is on screen (it exists and it is night, or the demo clock says so). */
+  nightActive: boolean;
+  /** Demo: show the app as it looks at night (true), or follow the real clock again (false). This tab only. */
+  showNightNow: (on: boolean) => void;
 }
 
 const PrefsContext = createContext<PrefsApi | null>(null);
@@ -70,12 +96,46 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
     } catch {}
   }, []);
 
-  const prefs = preview?.result ?? kept;
+  // The hour decides whether the night look applies. Checked every minute, so it switches on at 7pm by itself.
+  const [hour, setHour] = useState(12);
+  const [forcedHour, setForcedHour] = useState<number | null>(null);
+  useEffect(() => {
+    setForcedHour(readHourOverride());
+    const tick = () => setHour(new Date().getHours());
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const effectiveHour = forcedHour ?? hour;
+  const nightActive = kept.night.length > 0 && inNightWindow(effectiveHour);
+
+  // A preview shows exactly what is being offered; otherwise the kept look, with the night look on top at night.
+  const prefs = preview?.result ?? effectivePrefs(kept, effectiveHour);
 
   useEffect(() => {
     const el = document.documentElement;
     for (const [k, v] of Object.entries(prefAttributes(prefs))) el.setAttribute(k, v);
   }, [prefs]);
+
+  // Tap guard: a second press on the same control straight after the first is ignored, so a tremor can't press twice
+  // (for example "Pay" then "Confirm"). One listener in the capture phase covers every button and link in the app.
+  useEffect(() => {
+    if (!prefs.tapGuard) return;
+    let last: { el: Element; at: number } | null = null;
+    const onClick = (e: MouseEvent) => {
+      const el = (e.target as Element | null)?.closest("button, a, [role=button], input[type=checkbox], input[type=radio]");
+      if (!el) return;
+      const now = performance.now();
+      if (last && now - last.at < TAP_GUARD_MS && (last.el === el || last.el.isConnected === false)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      last = { el, at: now };
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [prefs.tapGuard]);
 
   const api = useMemo<PrefsApi>(
     () => ({
@@ -129,8 +189,17 @@ export function PreferencesProvider({ initial, children }: { initial: Preference
         emit(listeners.current, { kind: "reset", before: kept });
       },
       subscribe,
+      kept,
+      nightActive,
+      showNightNow: (on) => {
+        try {
+          if (on) sessionStorage.setItem(HOUR_KEY, "21");
+          else sessionStorage.removeItem(HOUR_KEY);
+        } catch {}
+        setForcedHour(on ? 21 : null);
+      },
     }),
-    [prefs, preview, historyLength, kept, saved, keep, subscribe],
+    [prefs, preview, historyLength, kept, saved, keep, subscribe, nightActive],
   );
 
   return <PrefsContext.Provider value={api}>{children}</PrefsContext.Provider>;
