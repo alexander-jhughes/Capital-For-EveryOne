@@ -261,7 +261,8 @@ const artifactFile = `${JSON.stringify(model)}\n`;
 if (CHECK) {
   const manifest = readManifest();
   if (!manifest) fail("No committed model (lib/recommender/models/manifest.json): nothing to check.");
-  const committed = existsSync(join(MODELS_DIR, manifest.file)) ? readFileSync(join(MODELS_DIR, manifest.file), "utf8") : "";
+  // Line endings are ignored: a Windows checkout (core.autocrlf) turns the trailing newline into CRLF.
+  const committed = existsSync(join(MODELS_DIR, manifest.file)) ? readFileSync(join(MODELS_DIR, manifest.file), "utf8").replace(/\r\n/g, "\n") : "";
   const same = manifest.version === version && committed === artifactFile;
   log(same ? `${manifest.file} matches a fresh training run byte for byte.` : `${manifest.file} differs from a fresh training run (fresh version ${version}).`);
   process.exit(same ? 0 : 1);
@@ -273,6 +274,8 @@ if (CHECK) {
 
 let active: Contender | null = null;
 let noActiveNote: string | undefined;
+// An active model that exists but can't be loaded or validated fails the gate (closed), never passes it unchecked.
+let activeUnverifiable = false;
 try {
   if (store && db) {
     const rec = store.getActiveModelRecord(db);
@@ -281,7 +284,10 @@ try {
     else {
       const m = readArtifact(rec);
       if (isValidRecommenderModel(m)) active = hybrid(`active (${rec.version})`, m);
-      else noActiveNote = `active model ${rec.version} no longer validates with this engine: not compared`;
+      else {
+        activeUnverifiable = true;
+        noActiveNote = `active model ${rec.version} no longer validates with this engine: can't check for a regression (roll back or reject it first)`;
+      }
     }
   } else {
     const manifest = readManifest();
@@ -290,11 +296,15 @@ try {
     else {
       const m = JSON.parse(readFileSync(join(MODELS_DIR, manifest.file), "utf8"));
       if (isValidRecommenderModel(m)) active = hybrid(`active (${manifest.version})`, m);
-      else noActiveNote = `bundled model ${manifest.version} no longer validates with this engine: not compared`;
+      else {
+        activeUnverifiable = true;
+        noActiveNote = `bundled model ${manifest.version} no longer validates with this engine: can't check for a regression`;
+      }
     }
   }
 } catch (err) {
-  noActiveNote = `active model could not be loaded (${(err as Error).message}): not compared`;
+  activeUnverifiable = true;
+  noActiveNote = `active model could not be loaded (${(err as Error).message}): can't check for a regression`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -355,6 +365,7 @@ const gates = evaluateGates({
   v1: testResult("v1 forest"),
   active: active ? testResult(active.name) : null,
   noActiveNote,
+  activeUnverifiable,
   artifactBytes: Buffer.byteLength(artifactJson),
 });
 
