@@ -39,15 +39,16 @@ export function DialReply({
 
   return (
     <div className="flex flex-col gap-3">
-      {turn.understood && turn.understood.toLowerCase() !== turn.input.toLowerCase() && (
+      {/* Only worth showing when Dial changed what was asked: a spoken correction, or an action it inferred. */}
+      {turn.understood && turn.understood.toLowerCase() !== turn.input.toLowerCase() && (turn.corrected || turn.items.some((i) => i.kind === "offer" || i.kind === "visual")) && (
         <p className={`text-sm ${voice ? "text-[#aab4c8]" : "text-muted-foreground"}`}>
-          {turn.corrected ? "Corrected to: " : "Understood: "}
-          <span className="font-bold">{turn.understood}</span>
+          {turn.corrected ? "Corrected to: " : "Understood as: "}
+          <span className="font-semibold">{turn.understood}</span>
         </p>
       )}
       {turn.status === "working" && (
-        <div>
-          <p>{turn.local ? "Working on it..." : "Checking your account..."}</p>
+        <div role="status">
+          <p className={voice ? "text-[#cfe0f0]" : "text-muted-foreground"}>{turn.local ? "Working on it..." : "Checking your account..."}</p>
           <div aria-hidden className="mt-2 flex flex-col gap-2">
             <span className={`h-4 w-11/12 animate-pulse rounded ${voice ? "bg-[#27314a]" : "bg-muted"}`} />
             <span className={`h-4 w-2/3 animate-pulse rounded ${voice ? "bg-[#27314a]" : "bg-muted"}`} />
@@ -85,7 +86,7 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
   switch (item.kind) {
     case "say":
     case "offer":
-      return <p className="text-lg leading-snug">{item.text}</p>;
+      return <p className="text-base leading-relaxed">{item.text}</p>;
     case "failed":
       return (
         <p className={`flex items-start gap-2 rounded-xl p-3 font-bold ${voice ? "bg-[#3a1f2a] text-[#ffb4ad]" : "bg-accent text-attention"}`}>
@@ -130,7 +131,7 @@ function Item({ item, voice, outline, onFollowUp, onNavigate }: { item: ReplyIte
     case "answer":
       return (
         <div className="flex flex-col gap-3">
-          <p className="text-lg font-bold leading-snug">{item.text}</p>
+          <p className="text-lg font-semibold leading-snug">{item.text}</p>
           {item.template !== "general" ? (
             <div className="text-base text-foreground">
               <ExperienceCard template={item.template} evidenceIds={item.evidenceIds} onNavigate={onNavigate} />

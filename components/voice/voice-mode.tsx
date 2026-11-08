@@ -16,7 +16,13 @@ import { DialMark } from "../wordmark";
 const btn = "inline-flex min-h-(--target-min) items-center justify-center gap-2 rounded-full px-4 font-bold";
 const outline = `${btn} border border-[#5a6782] hover:bg-white/5`;
 
-const SUGGESTIONS = ["Take me to my spending", "Where does most of my money go?", "Make everything bigger", "When is my bill due?", "What if I spend £100 less next month?"];
+/** What Dial can do, grouped so the first screen teaches it in one glance. Every one works without Gemini. */
+const SUGGESTION_GROUPS: { label: string; items: string[] }[] = [
+  { label: "Ask about your money", items: ["Tell me about my accounts", "Where does most of my money go?", "When is my bill due?"] },
+  { label: "Go somewhere", items: ["Show my groceries spending for October", "Take me to Pay"] },
+  { label: "Change how it looks", items: ["Make everything bigger", "Use dark mode"] },
+  { label: "Plan ahead", items: ["What if I spend £100 less next month?"] },
+];
 
 const STATUS: Record<string, string> = {
   "requesting-permission": "Allow the microphone in your browser",
@@ -256,27 +262,37 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
 
           {mic.consent && <VoiceConsent tone="voice" notice={mic.consent.notice} onChoose={mic.consent.choose} onDismiss={mic.consent.dismiss} />}
 
-          <section aria-live="polite" aria-busy={turn?.status === "working"} className="flex flex-col gap-3 rounded-2xl rounded-bl-md bg-[#1c2640] p-4">
-            <h3 className="text-sm font-bold text-[#9dd8f0]">{session.offer ? "Dial suggests" : "Dial"}</h3>
+          <section aria-live="polite" aria-busy={turn?.status === "working"} className="flex flex-col gap-3 rounded-2xl rounded-bl-md border border-white/5 bg-[#16203a] p-4">
+            <h3 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-[#9dd8f0]">
+              <DialMark tone="onDark" className="size-[1.4em]" />
+              {session.offer ? "Dial suggests" : "Dial"}
+            </h3>
             {turn ? (
               <DialReply turn={turn} tone="voice" offer={session.offer} onDecide={(yes, o) => { const said = session.decide(yes, o); if (heard?.spoken) reply(said); }} onFollowUp={(q) => void handle(q)} onNavigate={() => window.innerWidth < 1024 && setDocked(true)} />
             ) : (
-              <p className="text-lg leading-snug">Hi. Type or tap the microphone. You can ask about your money, go anywhere in the app, or change how it looks.</p>
+              <div className="flex flex-col gap-1">
+                <p className="text-lg font-semibold leading-snug">Hi, I&apos;m Dial.</p>
+                <p className="leading-relaxed text-[#cfe0f0]">Type or tap the microphone. I can explain your account, take you anywhere in the app, and change how it looks. Every figure I give comes from your account, not from guesswork.</p>
+              </div>
             )}
           </section>
 
           {!turn && !docked && (
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-bold text-[#aab4c8]">Try</p>
-              <ul className="flex flex-wrap gap-2">
-                {SUGGESTIONS.map((s) => (
-                  <li key={s}>
-                    <button type="button" onClick={() => void handle(s)} className={`${btn} min-h-10 border border-[#3a4766] bg-[#1c2640] text-sm font-semibold hover:bg-[#27314a]`}>
-                      {s}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            <div className="flex flex-col gap-3">
+              {SUGGESTION_GROUPS.map((g) => (
+                <div key={g.label} className="flex flex-col gap-1.5">
+                  <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#aab4c8]">{g.label}</p>
+                  <ul className="flex flex-wrap gap-2">
+                    {g.items.map((s) => (
+                      <li key={s}>
+                        <button type="button" onClick={() => void handle(s)} className={`${btn} min-h-10 border border-[#3a4766] bg-[#16203a] text-sm font-semibold hover:border-[#6cc4e8] hover:bg-[#1c2a48]`}>
+                          {s}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           )}
 
