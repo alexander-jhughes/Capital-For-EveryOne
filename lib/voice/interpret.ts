@@ -21,16 +21,20 @@ export const normaliseUtterance = (s: string) =>
     .toLowerCase()
     .replace(/[’‘]/g, "'")
     .replace(/[^a-z0-9' ]+/g, " ")
+    .replace(/\bactually\b/g, " ") // "what did I actually spend" asks the same thing as "what did I spend"
     .replace(/\s+/g, " ")
     .trim()} `;
 
 /** Words that make "reset" or "help" about money or a goal, not about the app. */
 const ABOUT_MONEY = / (budget|goal|goals|spend pause|payment|payments|bill|card|spending|save|saving) /;
 
+/** "Stop reading long explanations" is about how Dial answers: a setting, not a stop. */
+const NO_LONG_ANSWERS = / (stop|no more|skip|without) ([a-z]+ ){0,3}long (answers?|explanations?|replies|responses) /;
+
 /** Short replies only: "no" inside a longer sentence is not a "no". */
 function control(s: string, words: number): Interpretation | null {
   const short = words <= 5;
-  if (has(s, / (stop (talking|speaking|reading)|be quiet|quiet please|shush|stop it) /) || (words <= 2 && has(s, / stop /))) return { kind: "control", command: "stop" };
+  if ((has(s, / (stop (talking|speaking|reading)|be quiet|quiet please|shush|stop it) /) && !has(s, NO_LONG_ANSWERS)) || (words <= 2 && has(s, / stop /))) return { kind: "control", command: "stop" };
   if (short && has(s, / (undo|undo that|put it back|change it back|go back to how it was|revert) /)) return { kind: "control", command: "undo" };
   // "Reset my budget" is about Spend Pause, not the look of the app.
   if ((has(s, / (reset|start again|default (look|settings)|original look) /) && !has(s, ABOUT_MONEY)) || has(s, / (everything|it all|all of it|it) back to (normal|default|the default|how it was) /) || has(s, /^ (go )?back to normal $/))
@@ -125,7 +129,7 @@ function ui(s: string, textSize: TextSize): UiAction[] {
   if (easier && !actions.some((a) => a.type === "explanations")) actions.push({ type: "explanations", value: "stepByStep" });
   // Fewer numbers means shorter answers (the key figure first) and a calmer home screen.
   const fewerNumbers = has(s, / (fewer|less|not so many|not as many|too many) (numbers|figures|digits) /);
-  if (fewerNumbers || has(s, / (shorter|brief|briefer|short|quicker|concise) (answers?|explanations?|replies|responses)|keep (it|things|them|answers|your answers|my answers|explanations|your explanations) (short|shorter|brief)|be (brief|briefer|concise|quicker)|fewer words|less detail in (your |the |my )?(answers|replies|explanations)|less wordy|too wordy|too long winded|get to the point /))
+  if (fewerNumbers || has(s, NO_LONG_ANSWERS) || has(s, / (shorter|brief|briefer|short|quicker|concise) (answers?|explanations?|replies|responses)|keep (it|things|them|answers|your answers|my answers|explanations|your explanations) (short|shorter|brief)|be (brief|briefer|concise|quicker)|fewer words|less detail in (your |the |my )?(answers|replies|explanations)|less wordy|too wordy|too long winded|get to the point /))
     actions.push({ type: "answerStyle", value: "brief" });
   else if (has(s, / ((longer|fuller|full|more detailed|normal|standard) (answers|explanations|replies)|more detail in (your |the |my )?(answers|explanations|replies)) /))
     actions.push({ type: "answerStyle", value: "standard" });

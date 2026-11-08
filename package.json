@@ -13,6 +13,7 @@
     "test:pay": "npm exec --yes --package=playwright-core@1 --package=axe-core@4 -- node scripts/test-pay-browser.mjs",
     "test:backend": "npm exec --yes --package=playwright@1 -- node scripts/test-backend-browser.mjs",
     "test:product": "npm exec --yes --package=playwright@1 --package=axe-core@4 -- node scripts/test-product-browser.mjs",
+    "test:voice": "npm exec --yes --package=playwright@1 --package=axe-core@4 -- node scripts/test-voice-browser.mjs",
     "test:ask": "node --no-warnings scripts/test-ask.ts",
     "test:http": "node --no-warnings scripts/test-ask-http.ts",
     "typecheck": "tsc --noEmit"

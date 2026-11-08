@@ -5,9 +5,9 @@
 
 /** Strong joins: "and then", "then", ", and", "and also", "also", and sentence ends. */
 const STRONG = /(\s*,?\s+and then\s+|\s*,?\s+then\s+|\s*,\s*and also\s+|\s+and also\s+|\s*,\s*and\s+|\s*,?\s+also\s+|(?<=[.?!;])\s+)/i;
-/** A plain "and" only joins two instructions when what follows starts like one ("... and take me to settings"). */
+/** A plain "and" or a comma only joins two instructions when what follows starts like one ("..., take me to settings"). */
 const AND_VERB =
-  /(\s+and\s+(?=(?:please\s+)?(?:take|go|open|show|switch|turn|make|use|set|put|hide|read|compare|navigate|bring|give|tell|move)\b))/i;
+  /((?:\s+and\s+|\s*,\s+)(?=(?:please\s+)?(?:take|go|open|show|switch|turn|make|use|set|put|hide|read|compare|navigate|bring|give|tell|move)\b))/i;
 
 const clean = (s: string) => s.replace(/^[\s,;:-]+|[\s,;:-]+$/g, "").replace(/^(?:and|then|also)\s+/i, "").trim();
 

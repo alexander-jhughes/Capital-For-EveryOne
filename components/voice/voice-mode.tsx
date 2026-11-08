@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Mic, Pencil, Send, Square, Volume2, VolumeX, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Mic, Pause, Pencil, Send, Square, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { spokenText } from "@/lib/dial/runner";
 import { usePreferences } from "@/lib/preferences/provider";
@@ -23,6 +23,7 @@ const STATUS: Record<string, string> = {
   "requesting-permission": "Allow the microphone in your browser",
   listening: "Listening",
   transcribing: "Listening",
+  paused: "Paused. The microphone is off.",
   interrupted: "Stopped",
 };
 
@@ -37,6 +38,8 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
   const ref = useRef<HTMLDialogElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const micButton = useRef<HTMLButtonElement>(null);
+  const lastFocus = useRef<Element | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const inputId = useId();
   const session = useDialSession();
@@ -51,11 +54,16 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
   const [typed, setTyped] = useState("");
   const [heard, setHeard] = useState<{ text: string; spoken: boolean } | null>(null);
   const [ai, setAi] = useState<AiStatus>("checking");
+  // The engine leaves its last snapshot in place after delivering it. Words already sent must not come back as live or kept words.
+  const [sent, setSent] = useState<Utterance | null>(null);
 
   // Engine callbacks run outside React's render; refs keep them pointing at the latest functions.
   const handleRef = useRef<(text: string, replaces?: string, spoken?: boolean) => void>(() => {});
   const mic = useDialVoice({
-    onUtterance: (u: Utterance) => handleRef.current(u.text, u.replaces, true),
+    onUtterance: (u: Utterance) => {
+      setSent(u);
+      handleRef.current(u.text, u.replaces, true);
+    },
     onInterrupt: (reason) => {
       speaker.cancel();
       mic.setSpeaking(null);
@@ -171,17 +179,27 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
     mic.start();
   };
   const listening = mic.state === "listening" || mic.state === "transcribing" || mic.state === "requesting-permission";
-  const live = mic.snapshot && listening ? mic.snapshot : null;
+  const paused = mic.state === "paused";
+  const live = mic.snapshot && (listening || paused) && !(mic.snapshot.utteranceId === sent?.utteranceId && mic.snapshot.text === sent.text) ? mic.snapshot : null;
+  // mic.listening also covers the browser's permission prompt, when the microphone isn't on yet and pause() does nothing.
+  const micOn = mic.listening && mic.state !== "requesting-permission";
+  const showPauseControls = paused || (micOn && !hold);
   const turn = session.turn;
-  const status = listening
-    ? session.offer
-      ? "Listening for your answer"
-      : STATUS[mic.state]
-    : speaker.speaking
-      ? "Speaking"
-      : turn?.status === "working"
-        ? "Thinking"
-        : null;
+  const dialStatus = speaker.speaking ? "Speaking" : turn?.status === "working" ? "Thinking" : null;
+  const status = paused
+    ? STATUS.paused
+    : listening
+      ? session.offer
+        ? "Listening for your answer"
+        : STATUS[mic.state]
+      : mic.listening
+        ? `${dialStatus ? `${dialStatus}. ` : ""}Microphone on` // continuous mode: Dial is busy and can still hear
+        : dialStatus;
+
+  // Pause and the paused controls come and go with the microphone. If the focused one went, don't lose focus to the page.
+  useEffect(() => {
+    if (lastFocus.current && !lastFocus.current.isConnected && document.activeElement === document.body) micButton.current?.focus();
+  }, [showPauseControls, paused]);
 
   return (
     <dialog
@@ -190,6 +208,9 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
       data-docked={docked}
       aria-labelledby={`${inputId}-t`}
       onClose={handleClosed}
+      onFocus={(e) => {
+        lastFocus.current = e.target;
+      }}
       onKeyDown={(e) => {
         // Non-modal dialogs don't close on Escape by themselves.
         if (e.key === "Escape") {
@@ -225,11 +246,48 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
         {/* Conversation */}
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-3">
           {status && (
-            <p role="status" className="flex items-center gap-2 text-sm font-bold text-[#9dd8f0]">
-              {listening && <span aria-hidden className="size-2.5 animate-pulse rounded-full bg-[#ff6b5e]" />}
+            <p role="status" className="text-sm font-bold text-[#9dd8f0]">
+              {micOn && <span aria-hidden className="mr-2 inline-block size-2.5 animate-pulse rounded-full bg-[#ff6b5e]" />}
               {status}
-              {listening && mic.backend !== "none" && <span className="font-normal text-[#aab4c8]">({mic.backend === "on-device" ? "on this device" : "browser speech service"})</span>}
+              {mic.listening && mic.backend !== "none" && <span className="font-normal text-[#aab4c8]"> ({mic.backend === "on-device" ? "on this device" : "browser speech service"})</span>}
             </p>
+          )}
+
+          {/* Above the words, so the controls stay in the same place while words arrive. */}
+          {showPauseControls && (
+            <div className="flex flex-wrap gap-2">
+              {/* One button for Pause and Resume, so keyboard focus stays on it when it changes. */}
+              <button type="button" onClick={paused ? mic.resume : mic.pause} className={outline}>
+                {paused ? <Mic aria-hidden className="size-[1.1em]" /> : <Pause aria-hidden className="size-[1.1em]" />}
+                {paused ? "Resume" : "Pause"}
+              </button>
+              {paused && live && (
+                <button type="button" onClick={mic.stop} className={outline} aria-label="Send what you said">
+                  <Send aria-hidden className="size-[1.1em]" />
+                  Send
+                </button>
+              )}
+              {paused && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (live) setTyped(live.text);
+                      mic.cancel();
+                      inputRef.current?.focus();
+                    }}
+                    className={outline}
+                  >
+                    <Pencil aria-hidden className="size-[1.1em]" />
+                    Edit
+                  </button>
+                  <button type="button" onClick={mic.cancel} className={outline}>
+                    <X aria-hidden className="size-[1.1em]" />
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
           {/* Live transcript: interim words are shown lighter and never sent on their own. */}
@@ -245,6 +303,7 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
                 <button
                   type="button"
                   onClick={() => {
+                    if (paused) mic.cancel(); // the text box only opens for typing once the paused session is over
                     setTyped(heard.text);
                     inputRef.current?.focus();
                   }}
@@ -309,18 +368,19 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
             <input
               id={inputId}
               ref={inputRef}
-              value={listening && live ? live.text : typed}
+              value={live ? live.text : typed}
               onChange={(e) => setTyped(e.target.value)}
-              readOnly={listening}
+              readOnly={listening || paused}
               maxLength={300}
               autoComplete="off"
-              placeholder={listening ? "Listening..." : "Ask or tell Dial anything"}
+              placeholder={paused ? "Paused" : listening ? "Listening..." : "Ask or tell Dial anything"}
               className="min-h-(--target-min) min-w-0 flex-1 rounded-full border border-[#5a6782] bg-[#1c2640] px-4 text-[#f5f5f2] placeholder:text-[#aab4c8] focus:border-[#6cc4e8] focus:outline-none"
             />
             {mic.supported && (
               <button
+                ref={micButton}
                 type="button"
-                {...(hold
+                {...(hold && !paused
                   ? {
                       // Push to talk: listen while pressed (pointer or Space/Enter held), send on release.
                       onPointerDown: begin,
@@ -329,15 +389,15 @@ export function VoiceMode({ open, onClose, request }: { open: boolean; onClose: 
                       onKeyDown: (e: React.KeyboardEvent) => (e.key === " " || e.key === "Enter") && !e.repeat && (e.preventDefault(), begin()),
                       onKeyUp: (e: React.KeyboardEvent) => (e.key === " " || e.key === "Enter") && mic.stop(),
                     }
-                  : { onClick: listening ? mic.stop : begin })}
-                aria-label={hold ? "Hold to talk" : listening ? "Stop listening" : "Start listening"}
-                aria-pressed={listening}
-                className={`flex size-(--target-min) shrink-0 items-center justify-center rounded-full ${listening ? "bg-[#d03027] text-white" : "bg-[#f5f5f2] text-[#004977]"}`}
+                  : { onClick: paused ? mic.resume : mic.listening ? mic.stop : begin })}
+                aria-label={paused ? "Resume listening" : hold ? "Hold to talk" : mic.listening ? "Stop listening" : "Start listening"}
+                aria-pressed={mic.listening}
+                className={`flex size-(--target-min) shrink-0 items-center justify-center rounded-full ${mic.listening ? "bg-[#d03027] text-white" : "bg-[#f5f5f2] text-[#004977]"}`}
               >
-                {listening ? <Square aria-hidden className="size-[1.1em] fill-current" /> : <Mic aria-hidden className="size-[1.25em]" />}
+                {mic.listening ? <Square aria-hidden className="size-[1.1em] fill-current" /> : <Mic aria-hidden className="size-[1.25em]" />}
               </button>
             )}
-            <button type="submit" aria-label="Send" disabled={!typed.trim() || listening} className="flex size-(--target-min) shrink-0 items-center justify-center rounded-full bg-[#6cc4e8] text-[#0e1626] disabled:opacity-40">
+            <button type="submit" aria-label="Send" disabled={!typed.trim() || listening || paused} className="flex size-(--target-min) shrink-0 items-center justify-center rounded-full bg-[#6cc4e8] text-[#0e1626] disabled:opacity-40">
               <Send aria-hidden className="size-[1.1em]" />
             </button>
           </form>
